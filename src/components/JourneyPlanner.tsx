@@ -1,7 +1,8 @@
 import { useReducer, useState } from 'react';
 import { Keyboard, Pressable, Text, TextInput, View } from 'react-native';
-import type { RouteLeg, RoutePlan, RouteStop, TransitTime } from '../domain/types';
+import type { RouteLeg, RoutePlan, RouteStop, Stop, TransitTime } from '../domain/types';
 import { Button, Icon, Notice } from './Controls';
+import { matchJourneyStop } from '../services/transit-stop-matching';
 import {
   createTransitTimeDraft, draftTransitTime, italianDate, journeyDate, journeyDistance, journeyDuration,
   journeyTime, journeyTimingLabel, nextRomeDate, savedJourneyTimeLabel, transitTimeDraftReducer, transitTimeLabel, waitBefore,
@@ -114,9 +115,9 @@ function timeRange(plan: RoutePlan) {
   return `${journeyTime(plan.departureAt)} – ${journeyTime(plan.arrivalAt)}${overnight ? ` del ${journeyDate(plan.arrivalAt!)}` : ''}`;
 }
 
-export function JourneyResults({ plans, selected, onSelect, onRefresh, loading, error, now, query, saved = false, retained = false }: {
+export function JourneyResults({ plans, selected, onSelect, onRefresh, loading, error, now, query, saved = false, retained = false, onOpenStop }: {
   plans: RoutePlan[]; selected: RoutePlan; onSelect: (id: string) => void; onRefresh: () => void;
-  loading: boolean; error: string; now: number; query: TransitTime; saved?: boolean; retained?: boolean;
+  loading: boolean; error: string; now: number; query: TransitTime; saved?: boolean; retained?: boolean; onOpenStop?: (stop: Stop) => void;
 }) {
   const age = Math.max(0, Math.floor((now - selected.fetchedAt) / 60_000));
   const stale = saved || retained || now - selected.fetchedAt > 120_000;
@@ -167,6 +168,8 @@ export function JourneyResults({ plans, selected, onSelect, onRefresh, loading, 
         const previous = selected.legs[index - 1];
         const next = selected.legs[index + 1];
         const wait = waitBefore(leg, previous);
+        const boardingStop = leg.transitLeg ? matchJourneyStop(leg.fromStop) : null;
+        const alightingStop = leg.transitLeg ? matchJourneyStop(leg.toStop) : null;
         const overnight = leg.departureAt != null && leg.arrivalAt != null && journeyDate(leg.departureAt) !== journeyDate(leg.arrivalAt);
         return (
           <View key={leg.id} className="gap-3">
@@ -179,10 +182,12 @@ export function JourneyResults({ plans, selected, onSelect, onRefresh, loading, 
               <View className="gap-1">
                 <Text className="text-sm font-semibold text-[#2359D7]">{journeyTime(leg.departureAt)} · {leg.transitLeg ? leg.timingStatus === 'cancelled' ? 'Partenza cancellata da' : leg.interlineWithPreviousLeg ? 'Rimani a bordo' : 'Sali a' : 'Parti da'}</Text>
                 <Text className="text-base leading-6 text-[#17243C]">{stopLabel(leg.fromStop, leg.from)}</Text>
+                {boardingStop && onOpenStop ? <StopArrivalButton stop={boardingStop} onOpen={onOpenStop} /> : null}
               </View>
               <View className="gap-1">
                 <Text className="text-sm font-semibold text-[#2359D7]">{journeyTime(leg.arrivalAt)}{overnight ? ` del ${journeyDate(leg.arrivalAt!)}` : ''} · {leg.transitLeg ? leg.timingStatus === 'cancelled' ? 'Arrivo programmato a' : next?.interlineWithPreviousLeg ? 'Prosegui a bordo da' : 'Scendi a' : 'Arrivi a'}</Text>
                 <Text className="text-base leading-6 text-[#17243C]">{stopLabel(leg.toStop, leg.to)}</Text>
+                {alightingStop && onOpenStop ? <StopArrivalButton stop={alightingStop} onOpen={onOpenStop} /> : null}
               </View>
               {leg.transitLeg ? <Text className={`text-sm leading-5 ${leg.timingStatus === 'cancelled' ? 'font-semibold text-[#9B391B]' : 'text-[#59667A]'}`}>{journeyTimingLabel(leg, selected.fetchedAt, now, saved || retained)} · {journeyDuration(leg.durationSeconds)}</Text> : null}
             </View>
@@ -194,4 +199,12 @@ export function JourneyResults({ plans, selected, onSelect, onRefresh, loading, 
       <Text className="text-xs leading-5 text-[#59667A]">Pianificazione del viaggio, senza guida vocale né monitoraggio dei cambi. Percorso: {selected.source}. Dati © OpenStreetMap contributors.</Text>
     </View>
   );
+}
+
+function StopArrivalButton({ stop, onOpen }: { stop: Stop; onOpen: (stop: Stop) => void }) {
+  return <Pressable accessibilityRole="button" accessibilityLabel={`Arrivi alla fermata ${stop.code}, ${stop.name}`}
+    onPress={() => onOpen(stop)} className="min-h-12 flex-row items-center gap-2 self-start rounded-xl bg-[#ECF2FF] px-3 py-2">
+    <Icon name="bus-outline" size={18} color="#2359D7" />
+    <Text className="shrink font-semibold text-[#2359D7]">Arrivi alla fermata {stop.code}</Text>
+  </Pressable>;
 }
