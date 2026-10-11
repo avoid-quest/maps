@@ -4,6 +4,8 @@ import type { Coordinate } from '../domain/types';
 import { parseRoadRoute, parseTransitRoute, parseTransitRoutes, planRoute, planRoutes, type MatoItinerary, type MatoLeg, type MatoResponse } from './routing';
 import { ServiceError } from './network';
 import { emptyRouteState, routeReducer } from '../components/route-state';
+import { matchJourneyStop } from './transit-stop-matching';
+import { createSavedTravel } from './saved-travel';
 
 const start = Date.parse('2026-10-12T07:00:00Z');
 const fetchedAt = Date.parse('2026-10-11T12:00:00Z');
@@ -37,6 +39,79 @@ function shiftTimes(value: MatoItinerary, seconds: number) {
   for (const item of value.legs) { item.startTime += seconds * 1000; item.endTime += seconds * 1000; }
   return value;
 }
+function gttStopLinkLeg(): MatoLeg {
+  // Public endpoint fields captured from a MATO line 14 response; times are synthetic.
+  const value = leg('BUS', 0, 10, 'stop-link-fixture');
+  value.from = { name: 'STAZIONE LINGOTTO', lat: 45.02624, lon: 7.65653,
+    stop: { gtfsId: 'gtt:2603', code: '2603', name: 'STAZIONE LINGOTTO', platformCode: null } };
+  value.to = { name: 'GARRONE', lat: 45.0121, lon: 7.64917,
+    stop: { gtfsId: 'gtt:488', code: '488', name: 'GARRONE', platformCode: null } };
+  return value;
+}
+
+test('captured MATO endpoint identities resolve through the parser to installed GTT stops', () => {
+  const value = gttStopLinkLeg();
+  value.from.stop!.name = ' STAZIONE LINGOTTO '; value.from.stop!.platformCode = ' 2 ';
+  const parsed = parseTransitRoute(response({ duration: 600, legs: [value] }), fetchedAt).legs[0]!;
+  assert.equal(matchJourneyStop(parsed.fromStop)?.id, '1765');
+  assert.equal(matchJourneyStop(parsed.toStop)?.id, '3035');
+  assert.equal(parsed.fromStop?.name, 'STAZIONE LINGOTTO');
+  assert.equal(parsed.fromStop?.platformCode, '2');
+});
+
+test('provider stop identity whitespace survives parsing and cannot acquire an arrivals link', () => {
+  const original = gttStopLinkLeg();
+  const baseline = parseTransitRoute(response({ duration: 600, legs: [original] }), fetchedAt);
+  for (const endpoint of ['from', 'to'] as const) {
+    const source = original[endpoint].stop!;
+    for (const whitespace of [' ', '\n', '\r\n', '\t']) {
+      for (const patch of [
+        { gtfsId: `${source.gtfsId}${whitespace}` }, { gtfsId: `${whitespace}${source.gtfsId}` },
+        { code: `${source.code}${whitespace}` }, { code: `${whitespace}${source.code}` },
+      ]) {
+        const value = structuredClone(original); Object.assign(value[endpoint].stop!, patch);
+        const plan = parseTransitRoute(response({ duration: 600, legs: [value] }), fetchedAt);
+        const parsed = endpoint === 'from' ? plan.legs[0]!.fromStop : plan.legs[0]!.toStop;
+        assert.equal(parsed?.id, `mato:${value[endpoint].stop!.gtfsId}`);
+        assert.equal(parsed?.code, value[endpoint].stop!.code);
+        assert.equal(matchJourneyStop(parsed), null, `${endpoint}: ${JSON.stringify(patch)}`);
+        assert.equal(plan.id, baseline.id, 'stop-link validation does not change existing route-plan identity');
+      }
+    }
+  }
+});
+
+test('blank optional stop codes remain saveable and never acquire links after reload', async () => {
+  const original = gttStopLinkLeg();
+  const baseline = parseTransitRoute(response({ duration: 600, legs: [original] }), fetchedAt);
+  for (const endpoint of ['from', 'to'] as const) {
+    const paddedCode = `${original[endpoint].stop!.code} `;
+    for (const code of [undefined, null, '', ' ', '\n', '\r\n', '\t', ' \t\r\n ', paddedCode]) {
+      const value = structuredClone(original); value[endpoint].stop!.code = code;
+      const plan = parseTransitRoute(response({ duration: 600, legs: [value] }), fetchedAt);
+      const values = new Map<string, string>();
+      const storage = {
+        getItem: async (key: string) => values.get(key) ?? null,
+        setItem: async (key: string, item: string) => { values.set(key, item); },
+        removeItem: async (key: string) => { values.delete(key); },
+      };
+      const store = createSavedTravel({ now: () => fetchedAt + 1000 });
+      await store.initialize(storage);
+      assert.equal(await store.saveJourney({
+        query: { from, to, mode: 'transit', transitTime: { kind: 'now' } },
+        originLabel: 'Partenza', destinationLabel: 'Destinazione', plan,
+      }), true, `${endpoint}: ${JSON.stringify(code)}`);
+      const reloaded = createSavedTravel(); await reloaded.initialize(storage);
+      const restored = reloaded.getSnapshot().journey!.plan;
+      for (const current of [plan, restored]) {
+        const stop = endpoint === 'from' ? current.legs[0]!.fromStop : current.legs[0]!.toStop;
+        assert.equal(stop?.code, code === paddedCode ? paddedCode : undefined);
+        assert.equal(matchJourneyStop(stop), null);
+        assert.equal(current.id, baseline.id);
+      }
+    }
+  }
+});
 
 test('transit alternatives expose boarding, direction, arrival, source identity and transfer totals', () => {
   const first = itinerary(); const second = itinerary();

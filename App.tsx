@@ -133,29 +133,41 @@ function MapsApp() {
   const [originLabel, setOriginLabel] = useState("Centro della mappa");
   const [pickingOrigin, setPickingOrigin] = useState(false);
   const [stop, setStop] = useState<Stop | null>(null);
+  const [journeyStop, setJourneyStop] = useState<Stop | null>(null);
+  const boardStop = journeyStop ?? stop;
   const suspendActiveWork = useRef(() => {});
   const appActive = useAppActive(active => { if (!active) suspendActiveWork.current(); });
-  const { route, plans: routePlans, error: routeError, loading: routing, refresh: refreshRoutes, select: selectRoute, reset: resetRoutes, restore: restoreRoute, saved: restoredRoute, restoredViewId, retainedSelection, suspend: suspendRoutes } = useRoutePlans({
+  const { route, plans: routePlans, error: routeError, loading: routing, refresh: refreshRoutes, select: selectRoute, reset: resetRoutePlans, restore: restoreRoute, saved: restoredRoute, restoredViewId, retainedSelection, suspend: suspendRoutes } = useRoutePlans({
     from: origin,
     to: selected?.coordinate,
     mode: routeMode,
     transitTime,
     enabled: routeView,
-    active: routeView && appActive && !privacy && !pickingOrigin && !originPending && !locating,
+    active: routeView && !journeyStop && appActive && !privacy && !pickingOrigin && !originPending && !locating,
   });
-  const stopBoard = useStopBoard({ stopId: stop?.id, active: !!stop && appActive && !privacy && !routeView && !selected });
+  const stopBoard = useStopBoard({ stopId: boardStop?.id, active: !!boardStop && appActive && !privacy && (!!journeyStop || (!routeView && !selected)) });
   const suspendStopBoard = stopBoard.suspend;
   const suspendTransitWork = useCallback(() => {
     suspendRoutes();
     suspendStopBoard();
   }, [suspendRoutes, suspendStopBoard]);
   suspendActiveWork.current = suspendTransitWork;
+  const closeJourneyStop = useCallback(() => {
+    if (!journeyStop) return;
+    suspendStopBoard();
+    setJourneyStop(null);
+  }, [journeyStop, suspendStopBoard]);
+  const resetRoutes = useCallback(() => {
+    closeJourneyStop();
+    resetRoutePlans();
+  }, [closeJourneyStop, resetRoutePlans]);
   const changeStop = useCallback((next: Stop | null) => {
-    if (next?.id !== stop?.id) suspendStopBoard();
+    if (journeyStop || next?.id !== stop?.id) suspendStopBoard();
+    setJourneyStop(null);
     setStop(next);
-  }, [stop?.id, suspendStopBoard]);
+  }, [journeyStop, stop?.id, suspendStopBoard]);
   const [now, setNow] = useState(Date.now());
-  const detailKey = privacy ? "privacy" : routeView ? `route:${selected?.id}`
+  const detailKey = privacy ? "privacy" : journeyStop ? `journey-stop:${journeyStop.id}` : routeView ? `route:${selected?.id}`
     : stop ? `stop:${stop.id}` : selected ? `place:${selected.id}` : `list:${tab}`;
   useEffect(() => {
     detailScroll.current?.scrollTo({ y: 0, animated: false });
@@ -183,6 +195,10 @@ function MapsApp() {
           setPrivacy(false);
           return true;
         }
+        if (journeyStop) {
+          closeJourneyStop();
+          return true;
+        }
         if (routeView) {
           cancelLocationRequest();
           setRouteView(false);
@@ -207,7 +223,7 @@ function MapsApp() {
       },
     );
     return () => subscription.remove();
-  }, [pickingOrigin, privacy, routeView, selected, stop, listOnly, tab, cancelLocationRequest, resetRoutes, changeStop]);
+  }, [pickingOrigin, privacy, routeView, selected, stop, listOnly, tab, cancelLocationRequest, resetRoutes, changeStop, journeyStop, closeJourneyStop]);
   useEffect(() => {
     void searchPreferences.initialize(AsyncStorage);
     void savedTravel.initialize(AsyncStorage);
@@ -284,6 +300,7 @@ function MapsApp() {
 
 
   async function locate() {
+    if (journeyStop) closeJourneyStop();
     if (routeView) { suspendRoutes(); setOriginPending(true); }
     const request = ++locationRequest.current;
     setLocating(true);
@@ -344,6 +361,13 @@ function MapsApp() {
     } catch {
       setLocationMessage("Salvataggio non riuscito. Riprova.");
     }
+  }
+  function openJourneyStop(current: Stop) {
+    cancelLocationRequest();
+    suspendTransitWork();
+    setJourneyStop(current);
+    setCenter(current.coordinate);
+    setListOnly(false);
   }
   function openSavedJourney(journey: SavedJourney) {
     cancelLocationRequest();
@@ -454,25 +478,27 @@ function MapsApp() {
   };
   const title = privacy
     ? "Privacy e fonti"
-    : routeView
-      ? "Il tuo percorso"
-      : selected
-        ? selected.name
-        : stop
-          ? stop.name
-          : tab === "transit"
-            ? "Muoviti a Torino"
-            : tab === "saved"
-              ? "I tuoi salvati"
-              : query.trim()
-                ? `Risultati per “${query.trim()}”`
-                : category === "ristoranti"
-                  ? "Dove mangiare"
-                  : category === "bar"
-                    ? "Una pausa in zona"
-                    : category === "supermercato"
-                      ? "La spesa, qui vicino"
-                      : "Negozi da scoprire";
+    : journeyStop
+      ? journeyStop.name
+      : routeView
+        ? "Il tuo percorso"
+        : selected
+          ? selected.name
+          : stop
+            ? stop.name
+            : tab === "transit"
+              ? "Muoviti a Torino"
+              : tab === "saved"
+                ? "I tuoi salvati"
+                : query.trim()
+                  ? `Risultati per “${query.trim()}”`
+                  : category === "ristoranti"
+                    ? "Dove mangiare"
+                    : category === "bar"
+                      ? "Una pausa in zona"
+                      : category === "supermercato"
+                        ? "La spesa, qui vicino"
+                        : "Negozi da scoprire";
   const isSaved = selected
     ? saved.some((item) => item.id === selected.id)
     : false;
@@ -481,7 +507,7 @@ function MapsApp() {
     && routeQueryKey(travel.journey.query) === routeQueryKey({ from: origin, to: selected.coordinate, mode: routeMode, transitTime })));
   const journeySaveError = savedTravelFailureMessage(travel.journeyFailure);
   const stopSaveError = savedTravelFailureMessage(travel.stopsFailure);
-  const stopSaved = !!stop && travel.stops.some(entry => entry.current?.id === stop.id);
+  const stopSaved = !!boardStop && travel.stops.some(entry => entry.current?.id === boardStop.id);
   const routeGeometry = useMemo<LineString | null>(
     () =>
       route && route.geometry.length > 1
@@ -511,12 +537,12 @@ function MapsApp() {
         kind: "place",
         label: selected.name,
       });
-    if (stop && !markers.some(item => item.id === stop.id)) markers.push({
-      id: stop.id, coordinate: tuple(stop.coordinate), kind: "stop", label: stop.name,
+    if (boardStop && !markers.some(item => item.id === boardStop.id)) markers.push({
+      id: boardStop.id, coordinate: tuple(boardStop.coordinate), kind: "stop", label: boardStop.name,
     });
 
     return markers;
-  }, [tab, stops, shownPlaces, selected, stop]);
+  }, [tab, stops, shownPlaces, selected, boardStop]);
 
   return (
     <SafeAreaView className="flex-1 bg-white" edges={["top", "bottom"]}>
@@ -552,6 +578,7 @@ function MapsApp() {
                 setPrivacy(false);
               }}
               onSubmitEditing={() => {
+                if (journeyStop) closeJourneyStop();
                 Keyboard.dismiss();
                 setRetrySearch((value) => value + 1);
               }}
@@ -560,7 +587,7 @@ function MapsApp() {
               <IconButton
                 icon="close"
                 label="Cancella ricerca"
-                onPress={() => setQuery("")}
+                onPress={() => { if (journeyStop) closeJourneyStop(); setQuery(""); }}
               />
             ) : null}
           </View>
@@ -639,7 +666,7 @@ function MapsApp() {
             <MapCanvas
               center={tuple(center)}
               markers={mapMarkers}
-              selectedMarkerId={selected?.id ?? stop?.id}
+              selectedMarkerId={journeyStop?.id ?? selected?.id ?? stop?.id}
               userLocation={location ? tuple(location) : null}
               route={routeGeometry}
               coverageBounds={tab === "explore" && !routeView && !selected ? searchResult.coverage.bounds : undefined}
@@ -662,10 +689,7 @@ function MapsApp() {
                 }
                 if (tab === "transit") {
                   const next = stops.find((item) => item.id === id);
-                  if (next) {
-                    changeStop(next);
-                    setCenter(next.coordinate);
-                  }
+                  if (next) openSavedStop(next);
                 } else {
                   const next = shownPlaces.find((item) => item.id === id);
                   if (next) openPlace(next);
@@ -755,6 +779,8 @@ function MapsApp() {
                     onPress={() => {
                       if (privacy) {
                         setPrivacy(false);
+                      } else if (journeyStop) {
+                        closeJourneyStop();
                       } else if (routeView) {
                         cancelLocationRequest();
                         setRouteView(false);
@@ -771,7 +797,7 @@ function MapsApp() {
                   >
                     <Icon name="arrow-back" size={17} color={colors.blue} />
                     <Text className="text-sm font-semibold text-[#2359D7]">
-                      {privacy && routeView ? "Percorso" : routeView && selected?.id === "saved-journey-destination" ? "Salvati" : routeView || (privacy && selected) ? "Luogo" : privacy && stop ? "Fermata" : tab === "saved" ? "Salvati" : tab === "transit" ? "Trasporti" : "Esplora"}
+                      {journeyStop ? privacy ? "Fermata" : "Percorso" : privacy && routeView ? "Percorso" : routeView && selected?.id === "saved-journey-destination" ? "Salvati" : routeView || (privacy && selected) ? "Luogo" : privacy && stop ? "Fermata" : tab === "saved" ? "Salvati" : tab === "transit" ? "Trasporti" : "Esplora"}
                     </Text>
                   </Pressable>
                 ) : null}
@@ -823,7 +849,7 @@ function MapsApp() {
             ) : null}
             {privacy ? (
               <PrivacyContent onLink={openLink} />
-            ) : routeView && selected ? (
+            ) : routeView && selected && !journeyStop ? (
               <View className="gap-4 p-5">
                 {savedJourneyVisible ? <Notice text="Viaggio salvato · da aggiornare" /> : null}
                 <View className="rounded-2xl bg-[#F3F6FA] p-4">
@@ -910,6 +936,7 @@ function MapsApp() {
                     query={transitTime}
                     saved={savedJourneyVisible}
                     retained={retainedSelection}
+                    onOpenStop={openJourneyStop}
                   />
                 ) : (routing && !route) || originPending ? (
                   <Loading label="Calcolo del percorso…" />
@@ -987,7 +1014,7 @@ function MapsApp() {
                   </View>
                 ) : null}
               </View>
-            ) : selected ? (
+            ) : selected && !journeyStop ? (
               <View className="gap-4 p-5">
                 <View>
                   <Text className="text-base text-[#59667A]">
@@ -1059,18 +1086,18 @@ function MapsApp() {
                   </Text>
                 </Pressable>
               </View>
-            ) : stop ? (
+            ) : boardStop ? (
               <View className="gap-4 p-5">
                 {stopSaveError ? <Notice danger text={stopSaveError} /> : null}
                 <Button
                   secondary icon={stopSaved ? "bookmark" : "bookmark-outline"}
                   loading={stopsBusy} disabled={travel.stopsStatus === "loading"}
-                  onPress={() => mutateSavedStops(() => stopSaved ? savedTravel.removeStop(stop.id) : savedTravel.saveStop(stop.id))}
+                  onPress={() => mutateSavedStops(() => stopSaved ? savedTravel.removeStop(boardStop.id) : savedTravel.saveStop(boardStop.id))}
                 >{stopSaved ? "Rimuovi fermata salvata" : "Salva fermata"}</Button>
-                <StopBoardPanel stop={stop} state={stopBoard} now={now} onLink={openLink}
+                <StopBoardPanel stop={boardStop} state={stopBoard} now={now} onLink={openLink}
                   onDirections={() => {
                     const next: Place = {
-                      id: `stop:${stop.id}`, name: `Fermata ${stop.name}`, coordinate: stop.coordinate,
+                      id: `stop:${boardStop.id}`, name: `Fermata ${boardStop.name}`, coordinate: boardStop.coordinate,
                       category: "Fermata GTT", source: "GTT", attributions: ["Dati GTT"],
                     };
                     setRouteMode("walk");

@@ -1,6 +1,6 @@
 # Android build verification
 
-Application id: `quest.avoid.maps`. Released [version 0.1.6](https://github.com/avoid-quest/maps/releases/tag/v0.1.6) / Android code `7`, built from `5ce9bb387a6b33bbe4b16db80a9ad46dbbba1868`. Signed arm64 APK: 47,991,500 bytes; SHA-256 `5b1f31ad133335a36d2ce009a4dbbcd2a649658bc0a6e557c78d7f8279cc284e`. Packaging evidence below describes 0.1.6; the separate emulator runtime evidence belongs to 0.1.2. Active-view transit refresh is in development and has no inspected release APK yet.
+Application id: `quest.avoid.maps`. Released [version 0.1.6](https://github.com/avoid-quest/maps/releases/tag/v0.1.6) / Android code `7`, built from `5ce9bb387a6b33bbe4b16db80a9ad46dbbba1868`. Signed arm64 APK: 47,991,500 bytes; SHA-256 `5b1f31ad133335a36d2ce009a4dbbcd2a649658bc0a6e557c78d7f8279cc284e`. Packaging evidence below describes 0.1.6; the separate emulator runtime evidence belongs to 0.1.2. Version 0.1.7 / Android code `8` is in preparation; active-view transit refresh is merged, strict journey-stop links passed simulated browser acceptance and await independent review, and no new release APK has been inspected.
 
 ## Verified implementation and packaging
 
@@ -14,7 +14,7 @@ Application id: `quest.avoid.maps`. Released [version 0.1.6](https://github.com/
 
 All 698 APK ZIP entries passed CRC and signing-material/private-metadata/local-path scans with zero hits. Version 0.1.6 makes compiler path mapping part of the normal build, quoting complete arguments for the pinned CMake/Ninja/shell path and rejecting unsupported delimiters or controls with a fixed error. This replaces 0.1.5's generated-only build override. The [delivery evidence](https://github.com/avoid-quest/maps/pull/6#issuecomment-6112862714) records the audit and anonymous verification. Keep release credentials outside Git and preserve the signing key across upgrades.
 
-Active-view refresh has completed source/fixture and simulated browser checks, including both review fixes; [the roadmap](roadmap.md#active-view-transit-refresh-in-development) records that development evidence. Final independent rechecks and a new inspected release APK remain pending; the 0.1.6 artifact above does not contain this scope.
+Active-view refresh merged in [PR8](https://github.com/avoid-quest/maps/pull/8) after both independent Standards and Spec production reviews, the final one-line test-delta review and exact-head `verify` CI passed. The final reviewed head was `c8b22300898c067e78494caec8071a118d86a4d1`; merged main `d7f863fcb4d080053657c6f05453d96c35216c65` has the same tree. Full verification passed typecheck, zero-warning lint and 161 tests. Source/fixture and simulated browser checks include both review fixes: retaining the original deadline on a young manual cache hit and reevaluating alert source age without renewing retrieval age. [The roadmap](roadmap.md#active-view-transit-refresh-implemented-at-sourcebrowser-level) records the contract and acceptance limits. A new inspected release APK remains pending; the 0.1.6 artifact above does not contain this scope.
 
 ## Native evidence and checks outstanding
 
