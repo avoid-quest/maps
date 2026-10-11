@@ -23,7 +23,16 @@ gradle.beforeProject { project ->
             def prefixes = [project.rootDir.parentFile.canonicalPath,
                             gradle.gradleUserHomeDir.canonicalPath,
                             System.getProperty('user.home')].unique()
-            def mappings = prefixes.collect { "-ffile-prefix-map=${it}=." }
+            if (prefixes.any { it == null || it.isEmpty() || (it =~ /[\x00-\x1f\x7f;=]/).find() }) {
+                throw new GradleException('Native path mapping requires build paths without control characters, semicolons or equals signs.')
+            }
+            def mappings = prefixes.collect { prefix ->
+                // CMake passes these flags through Ninja and then a POSIX shell.
+                // Quote the whole argument, escape shell metacharacters and double Ninja dollars.
+                def escaped = prefix.replace('\\', '\\\\').replace('"', '\\"')
+                                    .replace('$', '\\$$').replace('`', '\\`')
+                '"-ffile-prefix-map=' + escaped + '=."'
+            }
             android.defaultConfig.externalNativeBuild.cmake.cFlags(*mappings)
             android.defaultConfig.externalNativeBuild.cmake.cppFlags(*mappings)
         }
