@@ -5,6 +5,7 @@ import { parseRoadRoute, parseTransitRoute, parseTransitRoutes, planRoute, planR
 import { ServiceError } from './network';
 import { emptyRouteState, routeReducer } from '../components/route-state';
 import { matchJourneyStop } from './transit-stop-matching';
+import { createSavedTravel } from './saved-travel';
 
 const start = Date.parse('2026-10-12T07:00:00Z');
 const fetchedAt = Date.parse('2026-10-11T12:00:00Z');
@@ -75,6 +76,38 @@ test('provider stop identity whitespace survives parsing and cannot acquire an a
         assert.equal(parsed?.code, value[endpoint].stop!.code);
         assert.equal(matchJourneyStop(parsed), null, `${endpoint}: ${JSON.stringify(patch)}`);
         assert.equal(plan.id, baseline.id, 'stop-link validation does not change existing route-plan identity');
+      }
+    }
+  }
+});
+
+test('blank optional stop codes remain saveable and never acquire links after reload', async () => {
+  const original = gttStopLinkLeg();
+  const baseline = parseTransitRoute(response({ duration: 600, legs: [original] }), fetchedAt);
+  for (const endpoint of ['from', 'to'] as const) {
+    const paddedCode = `${original[endpoint].stop!.code} `;
+    for (const code of [undefined, null, '', ' ', '\n', '\r\n', '\t', ' \t\r\n ', paddedCode]) {
+      const value = structuredClone(original); value[endpoint].stop!.code = code;
+      const plan = parseTransitRoute(response({ duration: 600, legs: [value] }), fetchedAt);
+      const values = new Map<string, string>();
+      const storage = {
+        getItem: async (key: string) => values.get(key) ?? null,
+        setItem: async (key: string, item: string) => { values.set(key, item); },
+        removeItem: async (key: string) => { values.delete(key); },
+      };
+      const store = createSavedTravel({ now: () => fetchedAt + 1000 });
+      await store.initialize(storage);
+      assert.equal(await store.saveJourney({
+        query: { from, to, mode: 'transit', transitTime: { kind: 'now' } },
+        originLabel: 'Partenza', destinationLabel: 'Destinazione', plan,
+      }), true, `${endpoint}: ${JSON.stringify(code)}`);
+      const reloaded = createSavedTravel(); await reloaded.initialize(storage);
+      const restored = reloaded.getSnapshot().journey!.plan;
+      for (const current of [plan, restored]) {
+        const stop = endpoint === 'from' ? current.legs[0]!.fromStop : current.legs[0]!.toStop;
+        assert.equal(stop?.code, code === paddedCode ? paddedCode : undefined);
+        assert.equal(matchJourneyStop(stop), null);
+        assert.equal(current.id, baseline.id);
       }
     }
   }

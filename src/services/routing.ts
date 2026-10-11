@@ -66,10 +66,11 @@ function routeStop(point: MatoPoint): RouteStop | undefined {
   if (!name) return undefined;
   // Stop-link matching must see the provider's exact identity, including malformed whitespace.
   const sourceId = typeof point.stop.gtfsId === 'string' ? point.stop.gtfsId : undefined;
+  const code = typeof point.stop.code === 'string' && point.stop.code.trim() ? point.stop.code : undefined;
   // The unmatched namespace preserves supplied stop details without inventing a GTFS join.
   return {
     id: sourceId ? `mato:${sourceId}` : `mato:unmatched:${pointIdentity(point)}`,
-    name, code: typeof point.stop.code === 'string' ? point.stop.code : undefined, platformCode: text(point.stop.platformCode),
+    name, code, platformCode: text(point.stop.platformCode),
     coordinate: pointCoordinate(point.stop) ?? pointCoordinate(point),
   };
 }

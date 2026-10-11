@@ -55,7 +55,7 @@ Fix-specific browser checks confirm that a still-young manual cache hit preserve
 
 ## Strict journey-stop links: in preparation
 
-Version 0.1.7 / Android code 8 is being prepared to connect validated MATO transit-leg endpoints to the installed GTT stop board. Source integration and simulated browser acceptance are complete; `bun run verify` passed typecheck, zero-warning lint and 168 tests. Independent review and an inspected release remain pending.
+Version 0.1.7 / Android code 8 is being prepared to connect validated MATO transit-leg endpoints to the installed GTT stop board. Source integration and simulated browser acceptance are complete; `bun run verify` passed typecheck, zero-warning lint and 169 tests. Independent review and an inspected release remain pending.
 
 - **Match public codes strictly.** Require the exact `mato:gtt:<digits>` identifier, an exactly matching supplied public stop code, one installed stop with that code and valid coordinates within 10 metres. Duplicate codes, missing/invalid coordinates or disagreement produce readable endpoints without arrivals links. Names, nearby stops and internal IDs never substitute for a failed match.
 - **Open the installed stop deliberately.** Only a validated endpoint exposes an arrivals action. Opening it uses the installed stop's internal ID for the GTT board; rendering a link makes no provider or location request.
