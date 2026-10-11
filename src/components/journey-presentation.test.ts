@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { RouteLeg } from '../domain/types';
-import { createTransitTimeDraft, draftTransitTime, journeyDuration, journeyTime, journeyTimingLabel, nextRomeDate, transitTimeDraftReducer, waitBefore } from './journey-presentation';
+import { createTransitTimeDraft, draftTransitTime, journeyDuration, journeyTime, journeyTimingLabel, nextRomeDate, savedJourneyTimeLabel, transitTimeDraftReducer, waitBefore } from './journey-presentation';
 
 const leg: RouteLeg = {
   id: 'test', mode: 'bus', from: 'A', to: 'B', durationSeconds: 600, distanceMeters: 1000,
@@ -90,4 +90,20 @@ test('wait intervals include transfers after walking but never fabricate a wait 
   assert.equal(waitBefore(leg), 0);
   assert.equal(waitBefore(leg, { ...leg, arrivalAt: undefined }), 0);
   assert.equal(waitBefore(leg, leg), 0);
+});
+
+test('even a just-saved prediction is stale while scheduled, cancelled and unknown remain distinct', () => {
+  const fetchedAt = 1_000_000;
+  assert.equal(journeyTimingLabel(leg, fetchedAt, fetchedAt, true), 'Previsione MATO da aggiornare');
+  for (const [timingStatus, expected] of [
+    ['scheduled', 'Orario programmato'], ['cancelled', 'Corsa cancellata'], ['unknown', 'Stato dell’orario non disponibile'],
+  ] as const) assert.equal(journeyTimingLabel({ ...leg, timingStatus }, fetchedAt, fetchedAt, true), expected);
+  assert.equal(leg.timingStatus, 'prediction');
+});
+
+test('saved now describes historical consultation while fixed departure and arrival retain exact civil times', () => {
+  const fetchedAt = new Date('2026-10-11T21:15:00Z').getTime();
+  assert.equal(savedJourneyTimeLabel({ kind: 'now' }, fetchedAt), 'Partenza richiesta il 11 ott 2026 alle 23:15 (ora della consultazione)');
+  assert.equal(savedJourneyTimeLabel({ kind: 'depart-at', date: '2026-10-12', time: '08:30' }, fetchedAt), 'Partenza alle 08:30 del 12/10/2026');
+  assert.equal(savedJourneyTimeLabel({ kind: 'arrive-by', date: '2026-10-12', time: '19:45' }, fetchedAt), 'Arrivo entro 19:45 del 12/10/2026');
 });

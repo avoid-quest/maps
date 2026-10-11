@@ -4,7 +4,7 @@ import type { RouteLeg, RoutePlan, RouteStop, TransitTime } from '../domain/type
 import { Button, Icon, Notice } from './Controls';
 import {
   createTransitTimeDraft, draftTransitTime, italianDate, journeyDate, journeyDistance, journeyDuration,
-  journeyTime, journeyTimingLabel, nextRomeDate, transitTimeDraftReducer, transitTimeLabel, waitBefore,
+  journeyTime, journeyTimingLabel, nextRomeDate, savedJourneyTimeLabel, transitTimeDraftReducer, transitTimeLabel, waitBefore,
 } from './journey-presentation';
 
 const timeModes: { kind: TransitTime['kind']; label: string }[] = [
@@ -114,23 +114,23 @@ function timeRange(plan: RoutePlan) {
   return `${journeyTime(plan.departureAt)} – ${journeyTime(plan.arrivalAt)}${overnight ? ` del ${journeyDate(plan.arrivalAt!)}` : ''}`;
 }
 
-export function JourneyResults({ plans, selected, onSelect, onRefresh, loading, error, now, query }: {
+export function JourneyResults({ plans, selected, onSelect, onRefresh, loading, error, now, query, saved = false }: {
   plans: RoutePlan[]; selected: RoutePlan; onSelect: (id: string) => void; onRefresh: () => void;
-  loading: boolean; error: string; now: number; query: TransitTime;
+  loading: boolean; error: string; now: number; query: TransitTime; saved?: boolean;
 }) {
   const age = Math.max(0, Math.floor((now - selected.fetchedAt) / 60_000));
-  const stale = now - selected.fetchedAt > 120_000;
+  const stale = saved || now - selected.fetchedAt > 120_000;
   return (
     <View className="gap-4">
-      <Text className="text-sm font-semibold leading-5 text-[#17243C]">{transitTimeLabel(query)}</Text>
+      <Text className="text-sm font-semibold leading-5 text-[#17243C]">{saved ? savedJourneyTimeLabel(query, selected.fetchedAt) : transitTimeLabel(query)}</Text>
       {error ? <Notice danger text={`Aggiornamento non riuscito. ${error} Il percorso precedente resta visibile.`} /> : null}
       <View className="gap-2">
         <Text className="text-xs leading-5 text-[#59667A]">
           Consultato il {journeyDate(selected.fetchedAt)} alle {journeyTime(selected.fetchedAt)}
           {age === 0 ? ' (meno di 1 min fa).' : ` (${age} min fa).`}{stale ? ' Da aggiornare.' : ''}
         </Text>
-        <Button secondary icon="refresh-outline" loading={loading} onPress={onRefresh}>
-          {loading ? 'Aggiornamento…' : 'Aggiorna percorsi'}
+        <Button secondary icon={saved && query.kind === 'now' ? undefined : 'refresh-outline'} loading={loading} onPress={onRefresh}>
+          {loading ? 'Aggiornamento…' : saved && query.kind === 'now' ? 'Ricalcola con partenza adesso' : 'Aggiorna percorsi'}
         </Button>
       </View>
       <Text className="text-lg font-bold text-[#17243C]">{plans.length === 1 ? 'Percorso proposto' : `${plans.length} percorsi proposti`}</Text>
@@ -183,7 +183,7 @@ export function JourneyResults({ plans, selected, onSelect, onRefresh, loading, 
                 <Text className="text-sm font-semibold text-[#2359D7]">{journeyTime(leg.arrivalAt)}{overnight ? ` del ${journeyDate(leg.arrivalAt!)}` : ''} · {leg.transitLeg ? leg.timingStatus === 'cancelled' ? 'Arrivo programmato a' : next?.interlineWithPreviousLeg ? 'Prosegui a bordo da' : 'Scendi a' : 'Arrivi a'}</Text>
                 <Text className="text-base leading-6 text-[#17243C]">{stopLabel(leg.toStop, leg.to)}</Text>
               </View>
-              {leg.transitLeg ? <Text className={`text-sm leading-5 ${leg.timingStatus === 'cancelled' ? 'font-semibold text-[#9B391B]' : 'text-[#59667A]'}`}>{journeyTimingLabel(leg, selected.fetchedAt, now)} · {journeyDuration(leg.durationSeconds)}</Text> : null}
+              {leg.transitLeg ? <Text className={`text-sm leading-5 ${leg.timingStatus === 'cancelled' ? 'font-semibold text-[#9B391B]' : 'text-[#59667A]'}`}>{journeyTimingLabel(leg, selected.fetchedAt, now, saved)} · {journeyDuration(leg.durationSeconds)}</Text> : null}
             </View>
           </View>
         );

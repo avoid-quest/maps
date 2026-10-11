@@ -8,15 +8,17 @@ export interface RouteState {
   selectedId: string | null;
   loading: boolean;
   error: string;
+  saved: boolean;
 }
 export const emptyRouteState: RouteState = {
-  queryKey: '', request: 0, plans: [], selectedId: null, loading: false, error: '',
+  queryKey: '', request: 0, plans: [], selectedId: null, loading: false, error: '', saved: false,
 };
 type RouteAction =
   | { type: 'start'; queryKey: string; request: number }
   | { type: 'success'; queryKey: string; request: number; plans: RoutePlan[] }
   | { type: 'failure'; queryKey: string; request: number; error: string }
   | { type: 'select'; id: string }
+  | { type: 'restore'; queryKey: string; request: number; plan: RoutePlan }
   | { type: 'reset' };
 
 export function routeQueryKey({ from, to, mode, transitTime }: PlanRouteOptions): string {
@@ -27,6 +29,10 @@ export function routeQueryKey({ from, to, mode, transitTime }: PlanRouteOptions)
 
 export function routeReducer(state: RouteState, action: RouteAction): RouteState {
   if (action.type === 'reset') return emptyRouteState;
+  if (action.type === 'restore') return {
+    queryKey: action.queryKey, request: action.request, plans: [action.plan],
+    selectedId: action.plan.id, loading: false, error: '', saved: true,
+  };
   if (action.type === 'select') return state.plans.some(plan => plan.id === action.id)
     ? { ...state, selectedId: action.id } : state;
   if (action.type === 'start') return {
@@ -36,7 +42,7 @@ export function routeReducer(state: RouteState, action: RouteAction): RouteState
   if (action.queryKey !== state.queryKey || action.request !== state.request) return state;
   if (action.type === 'failure') return { ...state, loading: false, error: action.error };
   return {
-    ...state, plans: action.plans, loading: false, error: '',
+    ...state, plans: action.plans, loading: false, error: '', saved: false,
     selectedId: action.plans.some(plan => plan.id === state.selectedId)
       ? state.selectedId : action.plans[0]?.id ?? null,
   };

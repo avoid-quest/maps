@@ -67,3 +67,38 @@ test('request identity includes endpoints, mode and submitted civil time, while 
   assert.notEqual(routeQueryKey({ ...base, transitTime: depart }), routeQueryKey({ ...base, transitTime: { ...depart, time: '09:00' } }));
   assert.equal(routeQueryKey({ ...base, mode: 'walk' }), routeQueryKey({ ...base, mode: 'walk', transitTime: depart }));
 });
+
+test('restore exposes only the exact saved alternative without loading and invalidates older responses', () => {
+  const saved = plan('chosen-alternative', 500);
+  const pending = routeReducer(loaded(), { type: 'start', queryKey: 'A', request: 3 });
+  const restored = routeReducer(pending, { type: 'restore', queryKey: 'A', request: 4, plan: saved });
+  assert.deepEqual(restored.plans, [saved]);
+  assert.equal(restored.plans[0], saved);
+  assert.equal(restored.selectedId, saved.id);
+  assert.equal(restored.loading, false);
+  assert.equal(restored.saved, true);
+  assert.equal(routeReducer(restored, { type: 'success', queryKey: 'A', request: 3, plans: [plan('obsolete')] }), restored);
+  assert.equal(routeReducer(restored, { type: 'failure', queryKey: 'A', request: 3, error: 'Old error' }), restored);
+  assert.equal(visibleRouteState(restored, 'B').saved, false);
+  assert.deepEqual(visibleRouteState(restored, 'B').plans, []);
+});
+
+test('failed explicit refresh keeps a restored copy; successful refresh changes only the displayed state', () => {
+  const saved = plan('saved', 500);
+  let state = routeReducer(emptyRouteState, { type: 'restore', queryKey: 'A', request: 1, plan: saved });
+  state = routeReducer(state, { type: 'start', queryKey: 'A', request: 2 });
+  state = routeReducer(state, { type: 'failure', queryKey: 'A', request: 2, error: 'Offline' });
+  assert.equal(state.saved, true);
+  assert.equal(state.plans[0], saved);
+  assert.equal(state.plans[0]!.fetchedAt, 500);
+  state = routeReducer(state, { type: 'start', queryKey: 'A', request: 3 });
+  state = routeReducer(state, { type: 'success', queryKey: 'A', request: 3, plans: [plan('fresh', 900)] });
+  assert.equal(state.saved, false);
+  assert.equal(state.selectedId, 'fresh');
+  assert.equal(saved.fetchedAt, 500);
+  state = routeReducer(state, { type: 'restore', queryKey: 'A', request: 4, plan: saved });
+  state = routeReducer(state, { type: 'reset' });
+  assert.equal(state.saved, false);
+  assert.deepEqual(state.plans, []);
+  assert.equal(routeReducer(state, { type: 'success', queryKey: 'A', request: 3, plans: [plan('late')] }), state);
+});
