@@ -1,11 +1,10 @@
-import { useState } from 'react';
+import { useReducer, useState } from 'react';
 import { Keyboard, Pressable, Text, TextInput, View } from 'react-native';
 import type { RouteLeg, RoutePlan, RouteStop, TransitTime } from '../domain/types';
-import { romeDateTime } from '../services/transit-time';
 import { Button, Icon, Notice } from './Controls';
 import {
-  draftTransitTime, italianDate, journeyDate, journeyDistance, journeyDuration,
-  journeyTime, journeyTimingLabel, nextRomeDate, transitTimeLabel, waitBefore,
+  createTransitTimeDraft, draftTransitTime, italianDate, journeyDate, journeyDistance, journeyDuration,
+  journeyTime, journeyTimingLabel, nextRomeDate, transitTimeDraftReducer, transitTimeLabel, waitBefore,
 } from './journey-presentation';
 
 const timeModes: { kind: TransitTime['kind']; label: string }[] = [
@@ -15,15 +14,14 @@ const timeModes: { kind: TransitTime['kind']; label: string }[] = [
 export function TransitTimeForm({ value, onSubmit, disabled }: {
   value: TransitTime; onSubmit: (value: TransitTime) => void; disabled: boolean;
 }) {
-  const [kind, setKind] = useState(value.kind);
-  const [date, setDate] = useState(italianDate(value.kind === 'now' ? romeDateTime().date : value.date));
-  const [time, setTime] = useState((value.kind === 'now' ? romeDateTime().time : value.time).slice(0, 5));
+  const [{ kind, date, time }, updateDraft] = useReducer(transitTimeDraftReducer, value, createTransitTimeDraft);
   const [error, setError] = useState('');
   const changed = kind !== value.kind || (kind !== 'now' && value.kind !== 'now'
     && (date !== italianDate(value.date) || time !== value.time.slice(0, 5)));
   function submit() {
     try {
       const next = draftTransitTime(kind, date.trim(), time.trim());
+      updateDraft({ type: 'submitted', value: next, now: new Date() });
       setError('');
       Keyboard.dismiss();
       onSubmit(next);
@@ -39,7 +37,7 @@ export function TransitTimeForm({ value, onSubmit, disabled }: {
             key={item.kind}
             accessibilityRole="button"
             accessibilityState={{ selected: item.kind === kind }}
-            onPress={() => { setKind(item.kind); setError(''); }}
+            onPress={() => { updateDraft({ type: 'kind', kind: item.kind, now: new Date() }); setError(''); }}
             className={`min-h-12 grow items-center justify-center rounded-xl border px-3 py-2 ${item.kind === kind ? 'border-[#2359D7] bg-[#ECF2FF]' : 'border-[#E2E8F0] bg-white'}`}
           >
             <Text className={`text-sm font-semibold ${item.kind === kind ? 'text-[#2359D7]' : 'text-[#59667A]'}`}>{item.label}</Text>
@@ -54,7 +52,7 @@ export function TransitTimeForm({ value, onSubmit, disabled }: {
                 key={item.label}
                 accessibilityRole="button"
                 accessibilityState={{ selected: date === italianDate(nextRomeDate(item.days)) }}
-                onPress={() => { setDate(italianDate(nextRomeDate(item.days))); setError(''); }}
+                onPress={() => { updateDraft({ type: 'date', value: italianDate(nextRomeDate(item.days)) }); setError(''); }}
                 className="min-h-11 justify-center px-3"
               >
                 <Text className="font-semibold text-[#2359D7]">{item.label}</Text>
@@ -67,7 +65,7 @@ export function TransitTimeForm({ value, onSubmit, disabled }: {
               <TextInput
                 accessibilityLabel="Data del viaggio, giorno mese anno"
                 value={date}
-                onChangeText={text => { setDate(text); setError(''); }}
+                onChangeText={text => { updateDraft({ type: 'date', value: text }); setError(''); }}
                 placeholder="gg/mm/aaaa"
                 autoCorrect={false}
                 inputMode="text"
@@ -80,7 +78,7 @@ export function TransitTimeForm({ value, onSubmit, disabled }: {
               <TextInput
                 accessibilityLabel="Ora del viaggio, ore e minuti"
                 value={time}
-                onChangeText={text => { setTime(text); setError(''); }}
+                onChangeText={text => { updateDraft({ type: 'time', value: text }); setError(''); }}
                 placeholder="HH:mm"
                 autoCorrect={false}
                 inputMode="text"
