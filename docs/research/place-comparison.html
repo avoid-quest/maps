@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Place-search validation</title>
+<style>
+body{margin:24px;color:#17202a;font-family:system-ui;font-size:14px;line-height:1.5}h1{font-size:22px}table{border-collapse:collapse;width:100%;text-align:left}th,td{padding:12px 8px;border-bottom:1px solid #dce1e5;vertical-align:top}a{color:#176ca5}
+</style></head><body>
+<h1>Place-search validation</h1>
+<p>Separate source-data coverage from retrieval and interface behavior.</p>
+<table aria-label="Place-search failure checks"><thead><tr><th>Layer</th><th>Check</th><th>Interpretation</th></tr></thead><tbody>
+<tr><td>Source data</td><td>Record present with usable name, category and address</td><td>Missing source records require independent data or a verified correction</td></tr>
+<tr><td>Package and index</td><td>Source record reaches the installed package</td><td>Old data or indexing can hide an existing place</td></tr>
+<tr><td>Query and ranking</td><td>Exact-name and category queries retrieve the correct branch</td><td>Aliases, categories, viewport and ranking affect discoverability</td></tr>
+<tr><td>Place details</td><td>Entrance, status and contact fields have supporting evidence</td><td>Unknown hours and stale fields must remain visible as uncertain</td></tr>
+</tbody></table>
+<p>Provider hit counts do not establish complete coverage. Operating status is not an opening-hours schedule.</p>
+<p>References: <a href="place-search-sample.md">Validation method</a> · <a href="place-discovery.md">Data sources and licences</a> · <a href="https://docs.overturemaps.org/guides/places/">Overture guide</a></p>
+</body></html>

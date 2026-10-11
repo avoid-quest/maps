@@ -1,0 +1,17 @@
+node_modules/
+.expo/
+dist/
+android/
+ios/
+artifacts/
+*.jks
+*.keystore
+.env*
+!.env.example
+local.properties
+*.log
+.DS_Store
+
+public/vendor/
+
+/.local/

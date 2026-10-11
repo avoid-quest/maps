@@ -1,0 +1,61 @@
+name: Device test or failure
+description: Report an observed behavior with public reproduction details.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This report is public. Reproduce with a public destination or stop. Keep private coordinates, searches, favourites, credentials and personal screenshots out of the report. If your build has local diagnostics, preview the report before sharing it.
+  - type: input
+    id: build
+    attributes:
+      label: App version and Android version
+      placeholder: App version / Android code; Android version
+    validations:
+      required: true
+  - type: dropdown
+    id: location
+    attributes:
+      label: Location permission
+      options:
+        - Denied
+        - Approximate
+        - Precise
+        - Not relevant
+    validations:
+      required: true
+  - type: dropdown
+    id: network
+    attributes:
+      label: Network state
+      options:
+        - Online
+        - Offline
+        - Changed during the test
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: Use public place names or stop codes; describe which screen and action failed.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Observed behavior
+      description: Include whether the app installed, launched and recovered after retrying.
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Optional local diagnostic report
+      description: Paste only the previewed report from Diagnostica locale. Full device logs and private reproduction details are unnecessary.
+      render: text
