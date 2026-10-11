@@ -163,6 +163,10 @@ function oneTypo(a: string, b: string): boolean {
     (a[i] === b[i + 1] && a[i + 1] === b[i] && a.slice(i + 2) === b.slice(i + 2));
 }
 
+function tokenMatches(token: string, word: string): boolean {
+  return /^\d+$/.test(token) ? word === token : word.startsWith(token);
+}
+
 function localMatches(query: string, center: Coordinate) {
   const q = normalize(query);
   const tokens = words(q);
@@ -176,9 +180,9 @@ function localMatches(query: string, center: Coordinate) {
       // A restaurant furniture supplier is not somewhere to eat, even if its name matches.
       if (categoryTerms.some((term) => entry.categoryTerms.has(term))) rank = 4;
     } else if (entry.name === q) rank = 5;
-    else if (tokens.every((token) => entry.nameWords.some((word) => word.startsWith(token)))) rank = 4;
-    else if (tokens.every((token) => entry.allWords.some((word) => word.startsWith(token)))) rank = 3;
-    else if (tokens.every((token) => entry.nameWords.some((word) => word.startsWith(token) || oneTypo(token, word)))) rank = 2;
+    else if (tokens.every((token) => entry.nameWords.some((word) => tokenMatches(token, word)))) rank = 4;
+    else if (tokens.every((token) => entry.allWords.some((word) => tokenMatches(token, word)))) rank = 3;
+    else if (tokens.every((token) => entry.nameWords.some((word) => tokenMatches(token, word) || oneTypo(token, word)))) rank = 2;
     if (!rank) continue;
     const distance = distanceMeters(center, entry.place.coordinate);
     if (categoryTerms.length && distance > LOCAL_SEARCH_RADIUS_METERS) continue;

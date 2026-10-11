@@ -54,9 +54,20 @@ test("local names tolerate one edit or adjacent transposition while exact and pr
   assert.equal(searchLocalPlaces("Amen Bar", docks)[0]?.name, "Amen Bar");
   assert.equal(searchLocalPlaces("AMÉN", docks)[0]?.name, "Amen Bar");
   assert.ok(searchLocalPlaces("Hangra 107", docks).some((place) => /Hangar 107/i.test(place.name)));
-  assert.ok(!searchLocalPlaces("Hangar 108", docks).some((place) => /Hangar 107/i.test(place.name)));
+  for (const query of ["Hangra 10", "Hangra 1", "Hangar 108", "Hangar 10", "Hangar 1"]) {
+    assert.ok(!searchLocalPlaces(query, docks).some((place) => /Hangar 107/i.test(place.name)), query);
+  }
   assert.ok(!searchLocalPlaces("Amn", docks).some((place) => place.name === "Amen Bar"));
   assert.ok(!searchLocalPlaces("Amxx", docks).some((place) => place.name === "Amen Bar"));
+});
+
+test("address numbers match exactly while textual prefixes still find a numbered address", () => {
+  const pharmacy = searchLocalPlaces("Farmacia Dora", docks)[0];
+  assert.equal(pharmacy?.address, "VIA FRANCESCO CIGNA 118, TORINO");
+  assert.ok(searchLocalPlaces("Cign 118", docks).some((place) => place.id === pharmacy.id));
+  for (const query of ["Cigna 11", "Cigna 1", "Cigna 119"]) {
+    assert.ok(!searchLocalPlaces(query, docks).some((place) => place.id === pharmacy.id), query);
+  }
 });
 
 test("nonempty category results still disclose partial package coverage and actual truncation", () => {
