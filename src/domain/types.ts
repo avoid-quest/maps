@@ -1,10 +1,14 @@
 export interface Coordinate { latitude: number; longitude: number }
 export type TravelMode = 'walk' | 'bicycle' | 'car' | 'transit';
 export type TransitTime = { kind: 'now' } | { kind: 'depart-at' | 'arrive-by'; date: string; time: string };
+export interface PlaceFieldCorrection {
+  field: 'phone'; originalValue: string; value: string; url: string; checkedAt: string; reason: string;
+}
 export interface Place {
-  id: string; name: string; coordinate: Coordinate; category?: string; address?: string;
-  website?: string; phone?: string; source: string; attributions: string[];
-  dataUpdatedAt?: string; confidence?: number; operatingStatus?: string; distanceMeters?: number;
+  id: string; name: string; coordinate: Coordinate; category?: string | null; address?: string | null;
+  website?: string | null; phone?: string | null; source: string; attributions: string[];
+  dataUpdatedAt?: string; confidence?: number | null; operatingStatus?: string | null; distanceMeters?: number;
+  fieldCorrections?: PlaceFieldCorrection[];
 }
 export type SavedPlace = Place;
 export interface RouteStep { instruction: string; distanceMeters: number; coordinate?: Coordinate }

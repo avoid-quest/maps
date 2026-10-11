@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "version": "2026-10-11.1",
+  "records": [
+    {
+      "id": "overture:6a3d87f2-cd27-40e8-891f-d6050da6f4b0",
+      "field": "phone",
+      "originalValue": "339 447 7306",
+      "value": "3939524597",
+      "url": "https://www.burgheria.it/",
+      "checkedAt": "2026-10-11T17:21:16.988772+00:00",
+      "reason": "The first-party website assigns the original phone to the Piazza Vittorio branch and publishes this number for Trattoria Americana at Docks Dora."
+    }
+  ]
+}

@@ -1,10 +1,9 @@
-import rawPlaces from "../data/places.json";
 import type { Coordinate, Place, SearchOptions, SearchResult } from "../domain/types";
 import { distanceMeters, normalize } from "./geo";
 import { checkAbort, fetchJSON, parseServiceData, requestQueue, ServiceError } from "./network";
 import { getPlaceCoverage, LOCAL_SEARCH_RADIUS_METERS } from "./place-coverage";
+import { placeCatalog, type PlaceCatalog, type PlaceSearchEntry } from "./place-catalog";
 const request = requestQueue(1000);
-const places = rawPlaces as (Place & { hierarchy: string[] })[];
 const LOCAL_RESULT_LIMIT = 60;
 const ONLINE_RESULT_LIMIT = 40;
 export const SEARCH_CATEGORIES = [
@@ -119,7 +118,7 @@ const displayCategories: Record<string, string> = {
   toy_store: "Giocattoli",
   sportswear_store: "Abbigliamento sportivo",
 };
-export function categoryLabel(category?: string): string {
+export function categoryLabel(category?: string | null): string {
   if (!category) return "Luogo";
   if (displayCategories[category]) return displayCategories[category]!;
   if (category.endsWith("_restaurant")) return "Ristorante";
@@ -131,24 +130,35 @@ export function categoryLabel(category?: string): string {
 }
 const words = (value: string) => normalize(value).split(" ").filter(Boolean);
 const taxonomyTerms = [...new Set(Object.values(aliases).flat())];
-// Normalize once, rather than rebuilding names, addresses and taxonomy regexes on every keystroke.
-const index = places.map((place) => {
-  const name = normalize(place.name);
-  const nameWords = words(name);
-  const categories = [place.category, ...place.hierarchy].filter(
-    (value): value is string => Boolean(value),
-  );
-  return {
-    place, name, nameWords,
-    allWords: [...nameWords, ...words(place.address ?? "")],
-    categoryTerms: new Set(taxonomyTerms.filter((term) =>
-      categories.some((category) =>
-        // The combined pharmacy_and_drug_store family also contains general personal-care retailers.
-        term === "pharmacy" ? category === term : `_${category}_`.includes(`_${term}_`),
-      ),
-    )),
-  };
-});
+// Hundreds of taxonomy definitions are shared by thousands of places.
+const categoryMemberships = new Map<string, Set<string>>();
+function categoryMembership(categories: string[]): Set<string> {
+  const key = JSON.stringify(categories);
+  const cached = categoryMemberships.get(key);
+  if (cached) return cached;
+  const terms = new Set(taxonomyTerms.filter((term) => categories.some((category) =>
+    // The combined pharmacy_and_drug_store family also contains general personal-care retailers.
+    term === "pharmacy" ? category === term : `_${category}_`.includes(`_${term}_`),
+  )));
+  categoryMemberships.set(key, terms);
+  return terms;
+}
+// Keep full provenance in the catalog; normalize lightweight search entries once.
+function createIndex(places: readonly PlaceSearchEntry[]) {
+  return places.map((place) => {
+    const name = normalize(place.name);
+    const nameWords = words(name);
+    const categories = [place.category, ...place.hierarchy].filter(
+      (value): value is string => Boolean(value),
+    );
+    return {
+      place, name, nameWords,
+      allWords: [...nameWords, ...words(place.address ?? "")],
+      categoryTerms: categoryMembership(categories),
+    };
+  });
+}
+const index = createIndex(placeCatalog.entries);
 
 /** One insertion/deletion/substitution or adjacent transposition, only for full alphabetic tokens. */
 function oneTypo(a: string, b: string): boolean {
@@ -167,14 +177,14 @@ function tokenMatches(token: string, word: string): boolean {
   return /^\d+$/.test(token) ? word === token : word.startsWith(token);
 }
 
-function localMatches(query: string, center: Coordinate) {
+function localMatches(query: string, center: Coordinate, searchIndex = index, catalog = placeCatalog) {
   const q = normalize(query);
   const tokens = words(q);
   const categoryTerms = aliases[q] ?? [];
-  const coverage = getPlaceCoverage(center, categoryTerms.length ? LOCAL_SEARCH_RADIUS_METERS : null);
+  const coverage = getPlaceCoverage(center, categoryTerms.length ? LOCAL_SEARCH_RADIUS_METERS : null, catalog.metadata.bounds);
   if (q.length < 2) return { places: [] as Place[], coverage };
   const matches: { place: Place; rank: number; exactTokens: number; distance: number }[] = [];
-  for (const entry of index) {
+  for (const entry of searchIndex) {
     let rank = 0;
     if (categoryTerms.length) {
       // A restaurant furniture supplier is not somewhere to eat, even if its name matches.
@@ -196,12 +206,28 @@ function localMatches(query: string, center: Coordinate) {
   return { places: deduplicatePlaces(matches.map((match) => match.place)), coverage };
 }
 
-function localResult(matches: ReturnType<typeof localMatches>): SearchResult {
+function limitedPlaces(places: Place[], limit: number, catalog: PlaceCatalog) {
   return {
-    places: matches.places.slice(0, LOCAL_RESULT_LIMIT),
-    warnings: [], source: "Overture Places locale", coverage: matches.coverage,
-    resultLimit: LOCAL_RESULT_LIMIT, truncated: matches.places.length > LOCAL_RESULT_LIMIT,
+    places: places.slice(0, limit).map((place) => {
+      const full = catalog.materialize(place.id);
+      return { ...full, ...place, coordinate: { ...place.coordinate }, attributions: [...place.attributions],
+        ...(full ? { hierarchy: full.hierarchy } : {}) };
+    }),
+    resultLimit: limit, truncated: places.length > limit,
   };
+}
+
+function localResult(matches: ReturnType<typeof localMatches>, catalog = placeCatalog): SearchResult {
+  return {
+    ...limitedPlaces(matches.places, LOCAL_RESULT_LIMIT, catalog),
+    warnings: [], source: "Overture Places locale", coverage: matches.coverage,
+  };
+}
+
+/** The same local search over an injected catalog, used to validate package boundaries and migrations. */
+export function createLocalPlaceSearch(catalog: PlaceCatalog) {
+  const searchIndex = createIndex(catalog.entries);
+  return (query: string, center: Coordinate): SearchResult => localResult(localMatches(query, center, searchIndex, catalog), catalog);
 }
 
 export function searchLocalResult(query: string, center: Coordinate): SearchResult {
@@ -326,10 +352,9 @@ export async function searchPlaces(
   checkAbort(options.signal);
   const merged = deduplicatePlaces([...matches.places, ...online]);
   return {
-    places: merged.slice(0, ONLINE_RESULT_LIMIT),
+    ...limitedPlaces(merged, ONLINE_RESULT_LIMIT, placeCatalog),
     warnings: [],
     source: "Overture Places locale · Photon / OpenStreetMap",
-    coverage: matches.coverage, resultLimit: ONLINE_RESULT_LIMIT,
-    truncated: merged.length > ONLINE_RESULT_LIMIT,
+    coverage: matches.coverage,
   };
 }

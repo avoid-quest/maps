@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { searchLocalPlaces, searchLocalResult, searchPlaces, categoryLabel } from "./search";
+import { searchLocalPlaces, searchLocalResult, searchPlaces, categoryLabel, createLocalPlaceSearch } from "./search";
+import { createPlaceCatalog, type PlaceCatalog, type CatalogPlace, type PlaceSearchEntry } from './place-catalog';
 const docks = { latitude: 45.0937, longitude: 7.6832 };
 
 test("food intent includes actual restaurants and excludes their furniture supplier", () => {
@@ -50,7 +51,8 @@ test("the pharmacy category excludes the combined drugstore family without hidin
 });
 
 test("local names tolerate one edit or adjacent transposition while exact and prefix names rank first", () => {
-  assert.equal(searchLocalPlaces("Amne", docks)[0]?.name, "Amen Bar");
+  // Wider coverage includes a genuine Amnesia prefix match; exact/prefix results must precede typos.
+  assert.ok(searchLocalPlaces("Amne", docks).some((place) => place.name === "Amen Bar"));
   assert.equal(searchLocalPlaces("Amen Bar", docks)[0]?.name, "Amen Bar");
   assert.equal(searchLocalPlaces("AMÉN", docks)[0]?.name, "Amen Bar");
   assert.ok(searchLocalPlaces("Hangra 107", docks).some((place) => /Hangar 107/i.test(place.name)));
@@ -70,14 +72,14 @@ test("address numbers match exactly while textual prefixes still find a numbered
   }
 });
 
-test("nonempty category results still disclose partial package coverage and actual truncation", () => {
-  const result = searchLocalResult("ristoranti", docks);
+test("nonempty category results disclose partial package coverage at the extraction edge", () => {
+  const result = searchLocalResult("ristoranti", { latitude: 45.07, longitude: 7.768 });
   assert.ok(result.places.length > 0);
   assert.equal(result.coverage.extent, "partial");
   assert.equal(result.coverage.centerInside, true);
   assert.equal(result.resultLimit, 60);
   assert.equal(result.truncated, true);
-  const edge = searchLocalResult("ristoranti", { latitude: 45.095, longitude: 7.714 });
+  const edge = searchLocalResult("ristoranti", { latitude: 45.07, longitude: 7.78 });
   assert.ok(edge.places.length > 0);
   assert.equal(edge.coverage.extent, "partial");
   assert.equal(edge.coverage.centerInside, false);
@@ -85,10 +87,64 @@ test("nonempty category results still disclose partial package coverage and actu
   assert.equal(name.coverage.extent, "package");
   assert.equal(name.coverage.radiusMeters, null);
   assert.equal(name.truncated, false);
-  // This fixed package has exactly 60 deduplicated pizzeria matches: reaching the cap is not truncation.
-  const exactCap = searchLocalResult("pizzerie", docks);
-  assert.equal(exactCap.places.length, exactCap.resultLimit);
-  assert.equal(exactCap.truncated, false);
+});
+
+test("59/60/61 distinct matches report the actual cap and decode only displayed records", () => {
+  for (const count of [59, 60, 61]) {
+    const entries: PlaceSearchEntry[] = Array.from({ length: count }, (_, i) => ({
+      id: `fixture:${i}`, name: `Ristorante di prova ${i}`, coordinate: docks,
+      category: 'restaurant', hierarchy: ['food_and_drink', 'restaurant'],
+      source: 'Fixture', attributions: ['Fixture · CC0-1.0'],
+    }));
+    let decoded = 0;
+    const catalog: PlaceCatalog = {
+      entries, metadata: { release: 'fixture', bounds: [7.6, 45, 7.77, 45.14], count, inputSha256: '0'.repeat(64) },
+      materialize(id): CatalogPlace | undefined {
+        decoded += 1;
+        const place = entries.find((entry) => entry.id === id);
+        return place ? { ...place, provenance: [{ dataset: 'Fixture', license: 'CC0-1.0' }], dataUpdatedAt: '2020-01-01' } : undefined;
+      },
+    };
+    const search = createLocalPlaceSearch(catalog);
+    assert.equal(decoded, 0);
+    const result = search('ristoranti', docks);
+    assert.equal(result.places.length, Math.min(count, 60));
+    assert.equal(result.truncated, count > 60);
+    assert.equal(result.resultLimit, 60);
+    assert.equal(decoded, Math.min(count, 60));
+    assert.equal(result.places[0]?.dataUpdatedAt, '2020-01-01');
+  }
+});
+
+test("lazy details preserve separate branches, co-located venues and contacts merged from duplicate records", () => {
+  const catalog = createPlaceCatalog({
+    schemaVersion: 1, release: 'fixture', count: 4, bounds: [7.6, 45, 7.77, 45.14], inputSha256: '0'.repeat(64),
+    columns: ['id', 'name', 'latitude', 'longitude', 'categoryRef', 'confidence', 'operatingStatus', 'address', 'website', 'phone', 'sourceRefs'],
+    categories: [['restaurant', ['food_and_drink', 'restaurant']]],
+    sourceTemplates: [{ dataset: 'Fixture', license: 'CC0-1.0', update_time: '2020-01-01' }],
+    sources: [[0, 'original', null]],
+    places: [
+      ['a', 'Ristorante Prova', docks.latitude, docks.longitude, 0, 0.9, 'open', null, null, null, [0]],
+      ['b', 'RISTORANTE PROVA', docks.latitude, docks.longitude, 0, 0.9, 'open', null, null, '011123456', [0]],
+      ['c', 'Ristorante Prova', docks.latitude + 0.003, docks.longitude, 0, 0.9, 'open', null, null, null, [0]],
+      ['d', 'Altro Ristorante', docks.latitude, docks.longitude, 0, 0.9, 'open', null, null, null, [0]],
+    ],
+  });
+  const search = createLocalPlaceSearch(catalog);
+  const result = search('ristoranti', docks);
+  assert.deepEqual(result.places.map((place) => place.id), ['overture:a', 'overture:d', 'overture:c']);
+  assert.equal(result.places[0]?.phone, '011123456');
+  assert.ok(result.places.every((place) => place.dataUpdatedAt === '2020-01-01' && place.operatingStatus === 'open'));
+  const first = result.places[0] as CatalogPlace;
+  first.coordinate.latitude = 0;
+  first.hierarchy.push('changed');
+  first.attributions.push('changed');
+  first.provenance[0]!.record_id = 'changed';
+  const next = search('ristoranti', docks).places[0] as CatalogPlace;
+  assert.deepEqual(next.coordinate, docks);
+  assert.deepEqual(next.hierarchy, ['food_and_drink', 'restaurant']);
+  assert.deepEqual(next.attributions, ['Fixture · CC0-1.0']);
+  assert.equal(next.provenance[0]?.record_id, 'original');
 });
 
 test("local-only policy makes no remote requests for names, misses, categories or another search center", async () => {

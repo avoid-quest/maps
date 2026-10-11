@@ -4,7 +4,7 @@ Updated 2026-10-11. **The selected architecture uses Expo, online services, loca
 
 ## Recommendation
 
-**Build a new Expo / React Native / TypeScript application using MapLibre React Native, with keyless public services where permitted and small local SQLite packages for place enrichment and transit lookups. No app fork and no mandatory backend.**
+**Build an Expo / React Native / TypeScript application using MapLibre React Native, with keyless public services where permitted and versioned local packages for place enrichment and transit lookups. The implemented path uses compact JSON and local AsyncStorage; SQLite remains a measured-scale or update requirement decision. No app fork and no mandatory backend.**
 
 Expo supports rapid development of the map and search interface. MapLibre supplies native map rendering; online services remove the need to build or embed complete road/transit routing engines for the first version. Local favourites, cached information and regional business data improve privacy, responsiveness and resilience without making full offline navigation a requirement.
 
@@ -21,11 +21,11 @@ Implementation requires prioritization: a strong map/search/transit experience i
 | Basemap | OpenFreeMap public vector tiles | No account/key, published free public instance, OSM attribution; no SLA |
 | Foreground position | MapLibre Android `default` location engine | Uses Android platform location rather than requiring Play services |
 | Address/name geocoding | Photon public service with bounded usage | Keyless, multilingual/typo-tolerant OSM search; best effort and throttling possible |
-| Food/shop discovery | Local OSM/Overture-derived POI index, queried through SQLite | Additional listings, category discovery and local query privacy; data quality and source licences still matter |
+| Food/shop discovery | Bundled compact Overture package with a local search catalog | Additional listings, category discovery and local query privacy; data quality and source licences still matter; native performance remains a gate |
 | Walking/cycling/driving route calculation | FOSSGIS public OSRM routes initially | Keyless profiles, documented usage policy; calculated routes, not live traffic or a navigation SDK |
 | Turin realtime | Direct GTT GTFS-RT + prepared static lookup data | Verified anonymous feeds; source/entity freshness and identity handling required |
 | Turin door-to-door transit planning | Evaluate direct MATO/5T GraphQL adapter | Actual itinerary response verified; reuse policy and reliable coverage remain a gate |
-| Favourites/history/cache | Local SQLite; optional local recents | No login/cloud account required |
+| Favourites/preferences/diagnostics | Local AsyncStorage | No login/cloud account required; saved favourites currently retain place snapshots |
 | Active navigation later | Native location service and navigation component via Expo module | Separate proof needed; route drawing does not establish safe reliable guidance |
 
 These are swappable provider choices, not a requirement to install an elaborate plugin framework. A small typed adapter for each API is sufficient. If a public service becomes unsuitable, replace the adapter rather than rebuild the UI.
@@ -93,7 +93,7 @@ Evaluate these optional services only when a benchmark establishes a concrete be
 - **Foursquare OS Places:** developer-time portal access could add independently sourced businesses beyond Overture if a local comparison demonstrates that benefit. No phone account or location SDK is inherently required to consume a downloaded dataset.
 - **Commercial place/traffic services:** only reconsider if measured coverage/traffic capability is valuable enough to justify proprietary-service privacy and quota terms. A free tier is not permission to clone the provider's data or a guarantee of indefinite free service.
 
-No accounts were created, keys obtained, paid services enabled or backend provisioned. The architecture is now implemented in a public Expo application with signed releases, map/search, bundled place data, local favourites, road/transit planning, GTT stop information and local diagnostics. Shipped lookups use bundled JSON and local preferences/favourites/diagnostics use AsyncStorage; adopt SQLite when measured dataset scale or update requirements justify migration. Search improvements reuse the current package rather than claiming broader coverage. The research probes above retain their original limits and do not establish device behaviour, provider reliability or permission to reuse MATO indefinitely. Current capability gaps and acceptance criteria live in [the roadmap](../development/roadmap.md); versioned APK and native evidence live in [delivery](../development/delivery.md).
+No accounts were created, keys obtained, paid services enabled or backend provisioned. The architecture is now implemented in a public Expo application with signed releases, map/search, bundled place data, local favourites, road/transit planning, GTT stop information and local diagnostics. Prepared 0.1.5 replaces the small discovery sample with a wider bounded food/shop extract, compatibility supplements and documented source corrections. Shared dictionaries and materializing details only for selected results reduce desktop package/index cost; that evidence does not establish native startup, typing latency or memory. Shipped lookups use bundled JSON and local preferences/favourites/diagnostics use AsyncStorage; adopt SQLite when measured dataset scale or update requirements justify migration. The [data workflow](../development/data.md) records provenance, reproduction and acceptance limits. The research probes above retain their original limits and do not establish complete business coverage, device behaviour, provider reliability or permission to reuse MATO indefinitely. Current capability gaps and acceptance criteria live in [the roadmap](../development/roadmap.md); versioned APK and native evidence live in [delivery](../development/delivery.md).
 
 ## Supporting evidence
 

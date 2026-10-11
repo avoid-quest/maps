@@ -12,11 +12,12 @@ export const PLACE_BOUNDS: PlaceCoverage['bounds'] = [
 export function getPlaceCoverage(
   center: Coordinate,
   radiusMeters: number | null = LOCAL_SEARCH_RADIUS_METERS,
+  bounds: PlaceCoverage['bounds'] = PLACE_BOUNDS,
 ): PlaceCoverage {
-  const [west, south, east, north] = PLACE_BOUNDS;
+  const [west, south, east, north] = bounds;
   const centerInside = center.longitude >= west && center.longitude <= east &&
     center.latitude >= south && center.latitude <= north;
-  const coverage: PlaceCoverage = { bounds: [...PLACE_BOUNDS], centerInside, radiusMeters, extent: 'package' };
+  const coverage: PlaceCoverage = { bounds: [...bounds], centerInside, radiusMeters, extent: 'package' };
   // Names and addresses retain package-wide matching, even when the search center is elsewhere.
   if (radiusMeters === null) return coverage;
   const nearest = {
