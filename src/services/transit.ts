@@ -3,7 +3,7 @@ import schema from '../data/gtfs-realtime-schema.json';
 import staticStops from '../data/gtt-stops.json';
 import staticLookup from '../data/gtt-trips.json';
 import manifest from '../data/manifest.json';
-import type { Coordinate, Departure, DepartureBoard, Stop, TransitAlert } from '../domain/types';
+import type { Coordinate, Departure, DepartureBoard, Stop, TransitAlertSnapshot } from '../domain/types';
 import { distanceMeters } from './geo';
 import { checkAbort, fetchResponse, parseServiceData, requestQueue, ServiceError } from './network';
 import { diagnostics } from './diagnostics';
@@ -65,21 +65,28 @@ export function departuresFromFeed(feed: RTFeed, stopId: string, now = Date.now(
   if (date > manifest.gtt.validTo) warnings.push('Il pacchetto statico GTT è scaduto. Aggiorna l’app prima di affidarti alle corrispondenze.');
   return { departures: departures.sort((a, b) => (a.expectedAt ?? Infinity) - (b.expectedAt ?? Infinity)).slice(0, 40), fetchedAt: now, sourceUpdatedAt, warnings, source: 'GTT S.p.A. – Gruppo Torinese Trasporti' };
 }
-const cache = new Map<string, { at: number; feed: RTFeed }>();
-async function fetchFeed(file: string, maxAge: number, signal?: AbortSignal): Promise<RTFeed> {
-  checkAbort(signal); const stored = cache.get(file); if (stored && Date.now() - stored.at < maxAge) return stored.feed;
+interface FeedSnapshot { readonly feed: RTFeed; readonly fetchedAt: number }
+const cache = new Map<string, FeedSnapshot>();
+async function fetchFeed(file: string, maxAge: number, signal?: AbortSignal): Promise<FeedSnapshot> {
+  checkAbort(signal); const stored = cache.get(file); const now = Date.now();
+  if (stored && now >= stored.fetchedAt && now - stored.fetchedAt < maxAge) return stored;
   return queue(async () => {
-    const current = cache.get(file); if (current && Date.now() - current.at < maxAge) return current.feed;
+    const current = cache.get(file); const now = Date.now();
+    if (current && now >= current.fetchedAt && now - current.fetchedAt < maxAge) return current;
     const provider = file === 'trip_update.aspx' ? 'gtt-arrivals' : file === 'alerts.aspx' ? 'gtt-alerts' : 'other';
     const response = await fetchResponse(`${GTT}${file}`, { signal }, provider);
     try {
       const decoded = Feed.decode(new Uint8Array(await response.arrayBuffer()));
+      checkAbort(signal);
       const feed = Feed.toObject(decoded, { longs: Number, enums: String }) as RTFeed;
       if (!feed.header?.gtfsRealtimeVersion) throw new Error('missing feed header');
+      if (feed.header.incrementality === 'DIFFERENTIAL') throw new Error('unsupported differential feed');
       // Protobuf omits an empty repeated field; an empty FULL_DATASET is a valid no-predictions snapshot.
       feed.entity ??= [];
-      cache.set(file, { at: Date.now(), feed }); return feed;
+      const snapshot = Object.freeze({ feed, fetchedAt: Date.now() });
+      cache.set(file, snapshot); return snapshot;
     } catch {
+      checkAbort(signal);
       diagnostics.record({ type: 'service', state: 'invalid', provider });
       throw new ServiceError('GTT ha restituito un feed non valido. Nessuna previsione inventata.', 'invalid');
     }
@@ -87,18 +94,25 @@ async function fetchFeed(file: string, maxAge: number, signal?: AbortSignal): Pr
 }
 export async function getDepartures(stopId: string, options: { signal?: AbortSignal } = {}): Promise<DepartureBoard> {
   if (!getStop(stopId)) throw new ServiceError('Fermata non presente nel pacchetto installato.', 'invalid');
-  const feed = await fetchFeed('trip_update.aspx', 30_000, options.signal);
-  return parseServiceData('gtt-arrivals', () => departuresFromFeed(feed, stopId));
+  const { feed, fetchedAt } = await fetchFeed('trip_update.aspx', 30_000, options.signal);
+  checkAbort(options.signal);
+  return parseServiceData('gtt-arrivals', () => ({ ...departuresFromFeed(feed, stopId), fetchedAt }));
 }
 function text(value?: Translation): string { return value?.translation?.find(t => t.language === 'it')?.text ?? value?.translation?.[0]?.text ?? ''; }
-export async function getTransitAlerts(stopId?: string, options: { signal?: AbortSignal } = {}): Promise<TransitAlert[]> {
-  const feed = await fetchFeed('alerts.aspx', 5 * 60_000, options.signal); const now = Date.now();
-  const stop = stopId ? getStop(stopId) : undefined;
+export async function getTransitAlerts(stopId?: string, options: { signal?: AbortSignal } = {}): Promise<TransitAlertSnapshot> {
+  const stop = stopId === undefined ? undefined : getStop(stopId);
+  if (stopId !== undefined && !stop) throw new ServiceError('Fermata non presente nel pacchetto installato.', 'invalid');
+  const { feed, fetchedAt } = await fetchFeed('alerts.aspx', 5 * 60_000, options.signal); const now = Date.now();
+  checkAbort(options.signal);
+  const sourceUpdatedAt = epoch(feed.header?.timestamp); const warnings: string[] = [];
+  if (!sourceUpdatedAt || sourceUpdatedAt > now + 60_000) warnings.push('La data di aggiornamento degli avvisi GTT non è verificabile.');
+  else if (now - sourceUpdatedAt > 5 * 60_000) warnings.push('Il feed degli avvisi GTT non è aggiornato: la loro applicabilità attuale non è confermata.');
   const routeIds = stop ? new Set(Object.values(lookup.trips).filter(t => stop.lines.includes(t[0])).map(t => t[2])) : undefined;
-  return (feed.entity ?? []).flatMap(entity => {
-    const alert = entity.alert; if (!alert) return [];
+  const alerts = (feed.entity ?? []).flatMap(entity => {
+    const alert = entity.alert; if (!alert || entity.isDeleted) return [];
     if (alert.activePeriod?.length && !alert.activePeriod.some(p => (!epoch(p.start) || epoch(p.start)! <= now) && (!epoch(p.end) || epoch(p.end)! >= now))) return [];
     if (stopId && alert.informedEntity?.length && !alert.informedEntity.some(e => e.stopId === stopId || (!e.stopId && (!e.routeId || routeIds?.has(e.routeId))))) return [];
     return [{ id: entity.id ?? text(alert.headerText), title: text(alert.headerText), description: text(alert.descriptionText), url: text(alert.url) || undefined, source: 'GTT S.p.A. – Gruppo Torinese Trasporti' }];
   }).slice(0, 30);
+  return { alerts, fetchedAt, sourceUpdatedAt, source: 'GTT S.p.A. – Gruppo Torinese Trasporti', warnings };
 }

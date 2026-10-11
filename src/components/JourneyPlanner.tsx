@@ -114,16 +114,17 @@ function timeRange(plan: RoutePlan) {
   return `${journeyTime(plan.departureAt)} – ${journeyTime(plan.arrivalAt)}${overnight ? ` del ${journeyDate(plan.arrivalAt!)}` : ''}`;
 }
 
-export function JourneyResults({ plans, selected, onSelect, onRefresh, loading, error, now, query, saved = false }: {
+export function JourneyResults({ plans, selected, onSelect, onRefresh, loading, error, now, query, saved = false, retained = false }: {
   plans: RoutePlan[]; selected: RoutePlan; onSelect: (id: string) => void; onRefresh: () => void;
-  loading: boolean; error: string; now: number; query: TransitTime; saved?: boolean;
+  loading: boolean; error: string; now: number; query: TransitTime; saved?: boolean; retained?: boolean;
 }) {
   const age = Math.max(0, Math.floor((now - selected.fetchedAt) / 60_000));
-  const stale = saved || now - selected.fetchedAt > 120_000;
+  const stale = saved || retained || now - selected.fetchedAt > 120_000;
   return (
     <View className="gap-4">
       <Text className="text-sm font-semibold leading-5 text-[#17243C]">{saved ? savedJourneyTimeLabel(query, selected.fetchedAt) : transitTimeLabel(query)}</Text>
-      {error ? <Notice danger text={`Aggiornamento non riuscito. ${error} Il percorso precedente resta visibile.`} /> : null}
+      {error ? <Notice danger text={`Aggiornamento non riuscito. ${error} Il percorso precedente resta visibile. Il prossimo tentativo può richiedere qualche minuto.`} /> : null}
+      {retained ? <Notice text="Il percorso selezionato non compare più tra i risultati aggiornati. Verifica e scegli un’alternativa. La mappa e le tratte mostrano ancora il percorso precedente, da aggiornare; scegli un risultato aggiornato prima di salvare." /> : null}
       <View className="gap-2">
         <Text className="text-xs leading-5 text-[#59667A]">
           Consultato il {journeyDate(selected.fetchedAt)} alle {journeyTime(selected.fetchedAt)}
@@ -133,7 +134,7 @@ export function JourneyResults({ plans, selected, onSelect, onRefresh, loading, 
           {loading ? 'Aggiornamento…' : saved && query.kind === 'now' ? 'Ricalcola con partenza adesso' : 'Aggiorna percorsi'}
         </Button>
       </View>
-      <Text className="text-lg font-bold text-[#17243C]">{plans.length === 1 ? 'Percorso proposto' : `${plans.length} percorsi proposti`}</Text>
+      <Text className="text-lg font-bold text-[#17243C]">{retained ? `${plans.length} ${plans.length === 1 ? 'percorso aggiornato' : 'percorsi aggiornati'}` : plans.length === 1 ? 'Percorso proposto' : `${plans.length} percorsi proposti`}</Text>
       <View className="gap-2">
         {plans.map((plan, index) => (
           <Pressable
@@ -159,7 +160,7 @@ export function JourneyResults({ plans, selected, onSelect, onRefresh, loading, 
         ))}
       </View>
       <View className="gap-1">
-        <Text className="text-xl font-bold text-[#17243C]">Il viaggio, tratta per tratta</Text>
+        <Text className="text-xl font-bold text-[#17243C]">{retained ? 'Il percorso precedente, tratta per tratta' : 'Il viaggio, tratta per tratta'}</Text>
         {selected.departureAt != null ? <Text className="text-sm text-[#59667A]">{journeyDate(selected.departureAt)} · Ora italiana</Text> : null}
       </View>
       {selected.legs.map((leg, index) => {
@@ -183,7 +184,7 @@ export function JourneyResults({ plans, selected, onSelect, onRefresh, loading, 
                 <Text className="text-sm font-semibold text-[#2359D7]">{journeyTime(leg.arrivalAt)}{overnight ? ` del ${journeyDate(leg.arrivalAt!)}` : ''} · {leg.transitLeg ? leg.timingStatus === 'cancelled' ? 'Arrivo programmato a' : next?.interlineWithPreviousLeg ? 'Prosegui a bordo da' : 'Scendi a' : 'Arrivi a'}</Text>
                 <Text className="text-base leading-6 text-[#17243C]">{stopLabel(leg.toStop, leg.to)}</Text>
               </View>
-              {leg.transitLeg ? <Text className={`text-sm leading-5 ${leg.timingStatus === 'cancelled' ? 'font-semibold text-[#9B391B]' : 'text-[#59667A]'}`}>{journeyTimingLabel(leg, selected.fetchedAt, now, saved)} · {journeyDuration(leg.durationSeconds)}</Text> : null}
+              {leg.transitLeg ? <Text className={`text-sm leading-5 ${leg.timingStatus === 'cancelled' ? 'font-semibold text-[#9B391B]' : 'text-[#59667A]'}`}>{journeyTimingLabel(leg, selected.fetchedAt, now, saved || retained)} · {journeyDuration(leg.durationSeconds)}</Text> : null}
             </View>
           </View>
         );

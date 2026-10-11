@@ -18,6 +18,6 @@ async function main() {
     const board = await getDepartures(stop.id);
     console.log('Departures', { stop: stop.name, code: stop.code, count: board.departures.length, statuses: board.departures.map(d => d.status), warnings: board.warnings, updatedAt: board.sourceUpdatedAt });
   }
-  console.log('Alerts', (await getTransitAlerts(stops[0]?.id)).length);
+  console.log('Alerts', (await getTransitAlerts(stops[0]?.id)).alerts.length);
 }
 void main().catch(error => { console.error(String(error)); process.exitCode = 1; });
