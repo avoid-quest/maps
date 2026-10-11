@@ -117,6 +117,7 @@ test('a reviewed phone correction remains distinct from original provenance and 
 test('phone correction headers, duplicate or missing targets and mismatched values are rejected', () => {
   const mutations: ((value: ReturnType<typeof correctedFixture>) => void)[] = [
     (v) => { v.phoneOverrides.schemaVersion = 2; },
+    (v) => { v.phoneOverrides.schemaVersion = true as unknown as number; },
     (v) => { v.phoneOverrides.sha256 = 'invalid'; },
     (v) => { v.phoneOverrides.recordCount = 2; },
     (v) => { v.phoneOverrides.records[0]!.id = 'overture:missing'; },
