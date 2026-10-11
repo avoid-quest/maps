@@ -409,3 +409,99 @@ test('stable subscriptions, idempotent initialization and observers cannot break
   assert.equal(observed, 1);
   assert.equal(store.getSnapshot, getSnapshot); assert.equal(store.subscribe, subscribe);
 });
+
+test('failure callbacks contain only fixed states at actual read, parse, write and removal failures', async () => {
+  const events: unknown[][] = [];
+  const onFailure = (...args: unknown[]) => { events.push(args); };
+  const disk = memory({ [JOURNEY_STORAGE_KEY]: 'private malformed record', [STOPS_STORAGE_KEY]: stopBytes() });
+  const store = createSavedTravel({ ...options, onFailure });
+  await store.initialize({ ...disk, getItem: async key => {
+    if (key === STOPS_STORAGE_KEY) throw new Error('private read message with stop identifiers');
+    return disk.getItem(key);
+  } });
+  assert.deepEqual(events.map(event => event[0]).sort(), ['invalid', 'read-failed']);
+  assert.ok(events.every(event => event.length === 1 && typeof event[0] === 'string'));
+  assert.equal(disk.values.get(JOURNEY_STORAGE_KEY), 'private malformed record');
+  await store.initialize(disk);
+  assert.equal(events.length, 2, 'Idempotent initialization cannot duplicate failure events');
+  assert.equal(await store.saveJourney(journey()), true);
+  assert.equal(await store.clearStops(), true);
+  assert.equal(events.length, 2, 'Successful recovery is not a failure');
+
+  const failed = createSavedTravel({ ...options, onFailure });
+  await failed.initialize({ ...disk,
+    setItem: async () => { throw new Error('private write message with coordinates'); },
+    removeItem: async () => { throw new Error('private removal message with a destination'); },
+  });
+  assert.equal(await failed.saveJourney(journey()), false);
+  assert.equal(await failed.saveStop(stopA.id), false);
+  assert.equal(await failed.clearJourney(), false);
+  assert.equal(await failed.clearStops(), false);
+  assert.deepEqual(events.slice(2), [['write-failed'], ['write-failed'], ['remove-failed'], ['remove-failed']]);
+  assert.equal(JSON.stringify(events).includes('private'), false);
+  assert.equal(JSON.stringify(events).includes(JOURNEY_STORAGE_KEY), false);
+  assert.equal(JSON.stringify(events).includes(stopA.id), false);
+});
+
+test('unsupported and oversized persisted data emit invalid without exposing bytes or repeating on rejected edits', async () => {
+  for (const raw of ['{"version":2,"journey":{}}', '🚌'.repeat(MAX_JOURNEY_BYTES)]) {
+    const events: string[] = [];
+    const disk = memory({ [JOURNEY_STORAGE_KEY]: raw, [STOPS_STORAGE_KEY]: '{"version":2,"stops":[]}' });
+    const store = createSavedTravel({ ...options, onFailure: state => { events.push(state); } });
+    await store.initialize(disk);
+    assert.deepEqual(events, ['invalid', 'invalid']);
+    assert.equal(await store.saveStop(stopA.id), false);
+    assert.equal(await store.removeStop(stopA.id), false);
+    assert.deepEqual(events, ['invalid', 'invalid'], 'Rejected mutations do not repeat an earlier failed-read event');
+    assert.equal(disk.values.get(JOURNEY_STORAGE_KEY), raw);
+  }
+});
+
+test('expected validation, capacity, readiness and stale-stop outcomes emit no diagnostic event', async () => {
+  const events: string[] = [];
+  const disk = memory({ [STOPS_STORAGE_KEY]: stopBytes() });
+  const store = createSavedTravel({ ...options,
+    getStop: id => /^\d+$/.test(id) ? { ...stopA, id, code: `current-${id}` } : undefined,
+    onFailure: state => { events.push(state); },
+  });
+  assert.equal(await store.saveJourney(journey()), false);
+  await store.initialize(disk);
+  assert.equal(store.getSnapshot().stops[0]!.current, null);
+  assert.equal(await store.saveStop('missing'), false);
+  const invalidInput = journey(); invalidInput.destinationLabel = '';
+  assert.equal(await store.saveJourney(invalidInput), false);
+  assert.equal(await store.saveJourney(journey('🚌'.repeat(131_000))), false);
+  for (let index = 0; index < MAX_SAVED_STOPS; index++) assert.equal(await store.saveStop(String(index)), true);
+  assert.equal(await store.saveStop(String(MAX_SAVED_STOPS)), false);
+  assert.equal(store.getSnapshot().stopsFailure, 'limit-reached');
+  assert.deepEqual(events, []);
+});
+
+test('throwing failure callbacks cannot change storage outcomes, preserved values or queue recovery', async () => {
+  const events: string[] = [];
+  const disk = memory({ [JOURNEY_STORAGE_KEY]: journeyBytes(), [STOPS_STORAGE_KEY]: 'invalid saved stops' });
+  let fail = true;
+  const store = createSavedTravel({ ...options, onFailure: state => {
+    events.push(state);
+    throw new Error('Callback failed');
+  } });
+  await store.initialize({ ...disk,
+    getItem: async key => { if (fail && key === JOURNEY_STORAGE_KEY) throw new Error('Read failed'); return disk.getItem(key); },
+    setItem: async (key, value) => { if (fail) throw new Error('Write failed'); return disk.setItem(key, value); },
+    removeItem: async key => { if (fail) throw new Error('Removal failed'); return disk.removeItem(key); },
+  });
+  assert.equal(store.getSnapshot().journeyFailure, 'storage-unavailable');
+  assert.equal(store.getSnapshot().stopsFailure, 'invalid-data');
+  assert.equal(await store.saveJourney(journey('replacement')), false);
+  assert.equal(await store.clearJourney(), false);
+  assert.equal(disk.values.get(JOURNEY_STORAGE_KEY), journeyBytes());
+  assert.deepEqual(events, ['read-failed', 'invalid', 'write-failed', 'remove-failed']);
+  fail = false;
+  assert.equal(await store.saveJourney(journey('replacement')), true);
+  assert.equal(store.getSnapshot().journey?.plan.id, 'replacement');
+  assert.equal(await store.clearJourney(), true);
+  assert.equal(await store.clearStops(), true);
+  assert.equal(store.getSnapshot().journey, null);
+  assert.deepEqual(store.getSnapshot().stops, []);
+  assert.equal(events.length, 4);
+});

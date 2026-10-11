@@ -61,6 +61,34 @@ test('ring persists only the newest 120 events within its byte budget, in insert
   assert.match(text, /durationMs=400\b[\s\S]*durationMs=1590\b/);
 });
 
+test('saved-travel failure codes persist and export without saved values or raw errors', async () => {
+  const injected = {
+    at: NOW, type: 'saved-travel', state: 'read-failed', name: PRIVATE,
+    coordinates: [12.345678, 67.891234], rawError: PRIVATE, id: PRIVATE,
+    provider: 'photon', durationMs: 123, httpStatus: 500,
+  };
+  const storage = memoryStorage(JSON.stringify({ version: 1, enabled: true, events: [injected] }));
+  const store = createDiagnostics(() => NOW);
+  await store.initialize(storage);
+  for (const state of ['write-failed', 'remove-failed', 'invalid']) {
+    store.record({ ...injected, state } as unknown as DiagnosticInput);
+  }
+  store.record({ ...injected, state: PRIVATE } as unknown as DiagnosticInput);
+  await store.flush();
+  assert.deepEqual(store.getSnapshot().events, ['read-failed', 'write-failed', 'remove-failed', 'invalid'].map(state => ({
+    at: NOW, type: 'saved-travel', state,
+  })));
+  const restored = createDiagnostics(() => NOW);
+  await restored.initialize(storage);
+  assert.deepEqual(restored.getSnapshot().events, store.getSnapshot().events);
+  for (const text of [storage.value()!, report(restored.getSnapshot())]) {
+    for (const secret of [PRIVATE, '12.345678', '67.891234', 'rawError', 'provider=', 'durationMs', 'httpStatus']) {
+      assert.ok(!text.includes(secret), secret);
+    }
+  }
+  assert.match(report(restored.getSnapshot()), /saved-travel\.read-failed[\s\S]*saved-travel\.remove-failed[\s\S]*saved-travel\.invalid/);
+});
+
 test('clear follows pending writes so deleted events cannot reappear after restart', async () => {
   let release!: () => void;
   const blocked = new Promise<void>(resolve => { release = resolve; });

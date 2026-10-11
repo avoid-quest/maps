@@ -1,6 +1,7 @@
 import staticStops from '../data/gtt-stops.json';
 import manifest from '../data/manifest.json';
 import type { Coordinate, RouteLeg, RoutePlan, RouteStep, RouteStop, Stop, TransitTime, TravelMode } from '../domain/types';
+import { diagnostics } from './diagnostics';
 import { resolveTransitTime } from './transit-time';
 
 export const JOURNEY_STORAGE_KEY = '@avoid-maps/saved-journey-v1';
@@ -21,6 +22,8 @@ export interface SavedStop {
 }
 export interface SavedStopEntry { saved: SavedStop; current: Stop | null }
 export type SavedTravelFailure = 'invalid-data' | 'too-large' | 'storage-unavailable' | 'stop-unavailable' | 'limit-reached' | 'not-ready';
+/** Diagnostic events deliberately carry no saved values, identifiers or raw errors. */
+export type SavedTravelFailureEvent = 'read-failed' | 'write-failed' | 'remove-failed' | 'invalid';
 type LoadStatus = 'loading' | 'ready' | 'unavailable';
 export interface SavedTravelSnapshot {
   journey: SavedJourney | null;
@@ -35,10 +38,11 @@ export interface SavedTravelStorage {
   setItem(key: string, value: string): Promise<unknown>;
   removeItem(key: string): Promise<unknown>;
 }
-interface StoreOptions {
+export interface StoreOptions {
   now?: () => number;
   getStop?: (id: string) => Stop | undefined;
   datasetVersion?: string;
+  onFailure?: (state: SavedTravelFailureEvent) => void;
 }
 
 class InvalidSavedTravel extends Error {
@@ -233,7 +237,7 @@ function stopList(raw: string): SavedStop[] {
 interface SlotState<T> { value: T; status: LoadStatus; failure: SavedTravelFailure | null }
 
 /** Each key owns its committed value and write queue; failed writes never publish a proposed value. */
-function createSlot<T>(key: string, empty: T, parse: (raw: string) => T, serialize: (value: T) => string, notify: () => void) {
+function createSlot<T>(key: string, empty: T, parse: (raw: string) => T, serialize: (value: T) => string, notify: () => void, onFailure: (state: SavedTravelFailureEvent) => void) {
   let value = freeze(empty); let readStatus: LoadStatus = 'loading'; let readFailure: SavedTravelFailure | null = null;
   let mutationFailure: SavedTravelFailure | null = null;
   let storage: SavedTravelStorage | undefined; let initialization: Promise<void> | undefined;
@@ -256,8 +260,8 @@ function createSlot<T>(key: string, empty: T, parse: (raw: string) => T, seriali
         let loaded = empty; let failure: SavedTravelFailure | null = null;
         try {
           let raw: string | null;
-          try { raw = await target.getItem(key); } catch { invalid('storage-unavailable'); }
-          loaded = raw === null ? empty : parse(raw);
+          try { raw = await target.getItem(key); } catch { onFailure('read-failed'); invalid('storage-unavailable'); }
+          try { loaded = raw === null ? empty : parse(raw); } catch (error) { onFailure('invalid'); throw error; }
         } catch (error) { failure = reason(error); }
         // Even a read begun before removeItem can complete with the old bytes.
         if (!committedMutation) { value = freeze(loaded); readStatus = failure ? 'unavailable' : 'ready'; readFailure = failure; }
@@ -277,7 +281,7 @@ function createSlot<T>(key: string, empty: T, parse: (raw: string) => T, seriali
           try {
             if (remove) await target.removeItem(key);
             else await target.setItem(key, serialized!);
-          } catch { invalid('storage-unavailable'); }
+          } catch { onFailure(remove ? 'remove-failed' : 'write-failed'); invalid('storage-unavailable'); }
           value = next; committedMutation = true; readFailure = null; mutationFailure = null;
           return true;
         } catch (error) { mutationFailure = reason(error); return false; }
@@ -295,6 +299,9 @@ export function createSavedTravel(options: StoreOptions = {}) {
   const now = options.now ?? Date.now;
   const getStop = options.getStop ?? (id => installedStops.get(id));
   const datasetVersion = options.datasetVersion ?? manifest.gtt.version;
+  function onFailure(state: SavedTravelFailureEvent) {
+    try { options.onFailure?.(state); } catch { /* Diagnostics must not change persistence outcomes. */ }
+  }
   const listeners = new Set<() => void>();
   let snapshot: SavedTravelSnapshot = Object.freeze({
     journey: null, stops: Object.freeze([]), journeyStatus: 'loading', stopsStatus: 'loading', journeyFailure: null, stopsFailure: null,
@@ -320,9 +327,9 @@ export function createSavedTravel(options: StoreOptions = {}) {
   }
   const journeys = createSlot<SavedJourney | null>(JOURNEY_STORAGE_KEY, null,
     raw => savedJourney(decode(raw, MAX_JOURNEY_BYTES).journey),
-    value => encode({ version: 1, journey: value }, MAX_JOURNEY_BYTES), notify);
+    value => encode({ version: 1, journey: value }, MAX_JOURNEY_BYTES), notify, onFailure);
   const stops = createSlot<SavedStop[]>(STOPS_STORAGE_KEY, [], stopList,
-    value => encode({ version: 1, stops: value }, MAX_STOPS_BYTES), notify);
+    value => encode({ version: 1, stops: value }, MAX_STOPS_BYTES), notify, onFailure);
   let initialization: Promise<void> | undefined;
   return {
     getSnapshot: () => snapshot,
@@ -361,4 +368,4 @@ export function createSavedTravel(options: StoreOptions = {}) {
   };
 }
 
-export const savedTravel = createSavedTravel();
+export const savedTravel = createSavedTravel({ onFailure: state => diagnostics.record({ type: 'saved-travel', state }) });
