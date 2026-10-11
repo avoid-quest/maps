@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "version": "2026-10-11.1",
+  "records": [
+    {
+      "id": "overture:5461a9a5-2b94-41d2-97de-8f583288f42b",
+      "expected": {
+        "name": "Farmacia Ghinivert Di Bartone Domenico",
+        "address": "VIA MONTE NERO 27, PERRERO",
+        "phone": "0121 808827",
+        "coordinate": {
+          "latitude": 45.094913482666016,
+          "longitude": 7.697773456573486
+        }
+      },
+      "reason": "The source address and phone match the municipal pharmacy directory in Perrero; the regional source coordinate conflicts with that independently published locality. Excluded without inventing replacement coordinates.",
+      "source": {
+        "url": "https://comune.perrero.to.it/vivere-il-comune/economia-dett/8/Farmacia-del-principio",
+        "publisher": "Comune di Perrero",
+        "checkedAt": "2026-10-11T17:26:18.198306Z",
+        "publishedName": "Farmacia del principio",
+        "address": "Via Montenero 27, 10060 Perrero",
+        "phone": "0121808827",
+        "sourceLastModifiedAt": "2024-02-05T15:41",
+        "sourceLastModifiedTimezone": "unspecified"
+      }
+    }
+  ]
+}

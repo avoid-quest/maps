@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "recordCount": 37,
+  "sha256": "e7d7fcbd8e7b2f85f090d63a50e02739a9cd4c2def20a99ae73742eddadee3bd",
+  "originalPackageSha256": "959f7fefc3981bb8d7b6269e8fed8faf8267dd364699dfa4acc2b9eaac9c0529",
+  "originalRelease": "2026-09-23.1",
+  "originalPreparedAt": "2026-10-11T14:21:02.601179+00:00",
+  "selection": "Existing named supplemental records outside the food_and_drink/shopping hierarchy; retain original source timestamps. Main release records win an identical ID.",
+  "version": "2026-10-11.1",
+  "file": "places.supplements.json"
+}

@@ -1,9 +1,78 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { setImmediate } from 'node:timers/promises';
-import { fetchJSON, fetchResponse, requestQueue, ServiceError } from './network';
+import { fetchJSON, fetchResponse, requestQueue, ServiceError, wait } from './network';
 import { createDiagnosticReport, diagnostics } from './diagnostics';
 import { planRoute } from './routing';
+
+function queueClock() {
+  let now = 0;
+  let pending: { ms: number; resolve: () => void } | undefined;
+  const timing = {
+    now: () => now,
+    wait: (ms: number) => ms <= 0 ? Promise.resolve() : new Promise<void>((resolve) => {
+      assert.equal(pending, undefined);
+      pending = { ms, resolve };
+    }),
+  };
+  return {
+    timing,
+    setNow(value: number) { now = value; },
+    async expectWait(ms: number) { await setImmediate(); assert.equal(pending?.ms, ms); },
+    async wakeAt(value: number) {
+      assert.ok(pending);
+      now = value;
+      const { resolve } = pending; pending = undefined; resolve();
+      await setImmediate();
+    },
+  };
+}
+
+test('queue rechecks its deadline after every early wake and retains start-to-start spacing', async () => {
+  const clock = queueClock(); const queue = requestQueue(20, clock.timing); const starts: number[] = [];
+  const request = () => queue(async () => { starts.push(clock.timing.now()); });
+  await request();
+  const second = request();
+  await clock.expectWait(20);
+  await clock.wakeAt(15);
+  assert.deepEqual(starts, [0]);
+  await clock.expectWait(5);
+  await clock.wakeAt(19.75);
+  assert.deepEqual(starts, [0]);
+  await clock.expectWait(0.25);
+  await clock.wakeAt(20);
+  await second;
+  assert.deepEqual(starts, [0, 20]);
+});
+
+test('aborting the production wait rejects queued work immediately and leaves the next request usable', async () => {
+  let now = 0; let waiting!: () => void;
+  const didWait = new Promise<void>((resolve) => { waiting = resolve; });
+  const queue = requestQueue(60_000, { now: () => now, wait: (ms, signal) => { if (ms > 0) waiting(); return wait(ms, signal); } });
+  await queue(async () => 'first');
+  const controller = new AbortController(); let called = false;
+  const aborted = assert.rejects(queue(async () => { called = true; }, controller.signal), { name: 'AbortError' });
+  await didWait; controller.abort(); await aborted;
+  assert.equal(called, false);
+  now = 60_000;
+  assert.equal(await queue(async () => 'next'), 'next');
+});
+
+test('429 backoff begins when failure arrives, survives early wakes, and ordinary failures retain interval spacing', async () => {
+  const clock = queueClock(); const queue = requestQueue(20, clock.timing); const starts: number[] = [];
+  await assert.rejects(queue(async () => { clock.setNow(7); throw new ServiceError('limited', 'rate-limit'); }), { kind: 'rate-limit' });
+  const ordinary = queue(async () => { starts.push(clock.timing.now()); throw new ServiceError('offline'); });
+  const rejected = assert.rejects(ordinary, { kind: 'network' });
+  await clock.expectWait(60_000);
+  await clock.wakeAt(60_006);
+  assert.equal(starts.length, 0);
+  await clock.expectWait(1);
+  await clock.wakeAt(60_007); await rejected;
+  const next = queue(async () => { starts.push(clock.timing.now()); });
+  await clock.expectWait(20);
+  await clock.wakeAt(60_027); await next;
+  assert.deepEqual(starts, [60_007, 60_027]);
+});
 
 function stalledResponse(): Response {
   return new Response(new ReadableStream<Uint8Array>({ start(controller) { controller.enqueue(new TextEncoder().encode('{')); } }));
@@ -30,7 +99,8 @@ for (const [format, read] of Object.entries(readers)) {
   });
   test(`${format}: total request deadline includes a stalled body`, async (context) => {
     await diagnostics.clear();
-    const original = global.fetch; context.mock.timers.enable({ apis: ['setTimeout'] });
+    const original = global.fetch; const originalTimer = global.setTimeout; const originalNow = Date.now;
+    context.mock.timers.enable({ apis: ['setTimeout'] });
     try {
       global.fetch = async () => stalledResponse();
       const pending = read();
@@ -38,7 +108,11 @@ for (const [format, read] of Object.entries(readers)) {
       await setImmediate(); await setImmediate(); context.mock.timers.tick(18_001);
       await rejection;
       assert.equal(diagnostics.getSnapshot().events.at(-1)?.state, 'timeout');
-    } finally { global.fetch = original; context.mock.timers.reset(); }
+    } finally {
+      global.fetch = original; context.mock.timers.reset();
+      assert.equal(global.setTimeout, originalTimer);
+      assert.equal(Date.now, originalNow);
+    }
   });
 }
 test('complete JSON and binary bodies remain readable; malformed JSON stays distinct from network errors', async () => {

@@ -7,11 +7,11 @@ The interface is Italian. Local discovery uses a limited bundled place dataset; 
 ## Available in this version
 
 - Native vector map, manual map browsing and optional foreground Android location without Google Play services.
-- Local restaurant/shop discovery from 1,252 bundled Overture places; online Photon address/name search supplements this limited area.
+- Local restaurant/shop discovery from 23,274 bundled Overture records in a declared regional rectangle, with separately versioned supplements and documented corrections. This is incomplete coverage; online Photon address/name search supplements it when enabled.
 - Place details, available contact links, provenance, and locally saved favourites.
 - Walking, cycling and driving route previews with directions through FOSSGIS; experimental MATO transit journeys when choosing Mezzi.
 - Nearby GTT stops, direct live departures and service alerts with freshness and missing-data states.
-- Local favourites and bundled regional lookup data. Network outages retain local discovery and show honest unavailable states for online functions.
+- Local favourites, persisted **Solo ricerca locale** search policy and bundled regional lookup data. Network outages retain local discovery and show honest unavailable states for online functions.
 
 This is an early test build. It does **not** yet provide spoken turn-by-turn guidance, background navigation, live road traffic, full offline routing, Google-equivalent reviews, comprehensive business hours, or all-Italy transit coverage. A route preview is not an active navigation system. MATO's access/reuse policy remains unresolved. Choosing Mezzi requests its experimental journey planner and sends route coordinates to MATO/5T.
 
@@ -35,14 +35,7 @@ Prepare changes through feature branches and PRs following the [review workflow]
 
 Public map/search/routing/transit providers receive the requests sent to them and the user's IP address. Route providers receive route coordinates. Favorites remain on-device; no account or cloud history is created. Online services are best effort and may be unavailable. Full provider attribution, data terms, and transit-provider information are available in the app's information screen and [bundled licences and notices](src/data/licenses.json).
 
-Bundled GTT data contains stops and trip patterns for joining live predictions, **not** an offline timetable. Changed trip IDs can require a fresh package and APK. To refresh the developer-built dataset:
-
-```sh
-curl -fL https://www.gtt.to.it/open_data/gtt_gtfs.zip -o /tmp/avoid-maps-gtfs.zip
-duckdb < scripts/data-places.sql
-python3 scripts/data-prepare.py --gtfs /tmp/avoid-maps-gtfs.zip --places /tmp/avoid-maps-places.json
-bun run build:android
-```
+Bundled GTT data contains stops and trip patterns for joining live predictions, **not** an offline timetable. Changed trip IDs can require a fresh package and APK. Place and transit preparation are independent. Follow the [data preparation workflow](docs/development/data.md) to render the pinned extraction SQL, validate inputs, preserve provenance and prepare a reviewed package. New data ships through a rebuilt APK; the app has no in-app dataset updater.
 
 `bun run data:smoke` performs bounded live provider checks using public sample coordinates; ordinary unit tests use fixtures. Research and architectural tradeoffs are recorded in [the proposal](docs/research/recommendation.md).
 

@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "transformVersion": "1",
+  "inputSchema": "overture-places-2026-09",
+  "release": "2026-09-23.1",
+  "bounds": [
+    7.6,
+    45.0,
+    7.77,
+    45.14
+  ],
+  "retrievedAt": "2026-10-11",
+  "preparedAt": "2026-10-11",
+  "inputSha256": "82944a984d2bb7976ced3897b41fc2cf495094d16c4fc738e1be083efc8fc3e1",
+  "mainCategories": [
+    "food_and_drink",
+    "shopping"
+  ],
+  "rawCount": 25347,
+  "mainCount": 23238,
+  "count": 23274,
+  "licenses": [
+    [
+      "AllThePlaces",
+      "CC0-1.0"
+    ],
+    [
+      "BrightQuery",
+      "CDLA-Permissive-2.0"
+    ],
+    [
+      "DAC",
+      "CDLA-Permissive-2.0"
+    ],
+    [
+      "Foursquare",
+      "Apache-2.0"
+    ],
+    [
+      "Microsoft",
+      "CDLA-Permissive-2.0"
+    ],
+    [
+      "Overture",
+      "CDLA-Permissive-2.0"
+    ],
+    [
+      "PinMeTo",
+      "CDLA-Permissive-2.0"
+    ],
+    [
+      "meta",
+      "CDLA-Permissive-2.0"
+    ]
+  ],
+  "supplements": "places.supplements.json",
+  "supplementMetadata": "places.supplements.metadata.json",
+  "supplementSha256": "e7d7fcbd8e7b2f85f090d63a50e02739a9cd4c2def20a99ae73742eddadee3bd",
+  "supplementMetadataSha256": "fd95b957b8d2fae5513ee924a4866b5bab3a9f96a2ea13db6518284845d6fa5d",
+  "baseline": "places.baseline.json",
+  "baselineSha256": "eaf9e882f17ad21f56472505093c4d139d2dc1a5fe6e17a63ec659a3edbbf5fc",
+  "exclusions": "places.exclusions.json",
+  "exclusionsSha256": "0b804d93c02aabbbe292ed2e90466a06bc519341ff540cc5c2bc066109bd7549",
+  "phoneOverrides": "places.phone-overrides.json",
+  "phoneOverridesSha256": "ec45371865f8fb747343bc3e65830165f10693b2622a4f27b2fb85ca0d9dc3ff"
+}

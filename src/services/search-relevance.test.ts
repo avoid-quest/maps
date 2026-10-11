@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { searchLocalPlaces, searchLocalResult, searchPlaces, categoryLabel } from "./search";
+import { searchLocalPlaces, searchLocalResult, searchPlaces, categoryLabel, createLocalPlaceSearch } from "./search";
+import { createPlaceCatalog, placeCatalog, type PlaceCatalog, type CatalogPlace, type PlaceSearchEntry } from './place-catalog';
 const docks = { latitude: 45.0937, longitude: 7.6832 };
 
 test("food intent includes actual restaurants and excludes their furniture supplier", () => {
@@ -50,7 +51,11 @@ test("the pharmacy category excludes the combined drugstore family without hidin
 });
 
 test("local names tolerate one edit or adjacent transposition while exact and prefix names rank first", () => {
-  assert.equal(searchLocalPlaces("Amne", docks)[0]?.name, "Amen Bar");
+  // Wider coverage includes a genuine Amnesia prefix match; exact/prefix results must precede typos.
+  const amne = searchLocalPlaces("Amne", docks);
+  const prefixRank = amne.findIndex((place) => place.name === "Amnesia Preziosi");
+  const typoRank = amne.findIndex((place) => place.name === "Amen Bar");
+  assert.ok(prefixRank >= 0 && typoRank > prefixRank);
   assert.equal(searchLocalPlaces("Amen Bar", docks)[0]?.name, "Amen Bar");
   assert.equal(searchLocalPlaces("AMÉN", docks)[0]?.name, "Amen Bar");
   assert.ok(searchLocalPlaces("Hangra 107", docks).some((place) => /Hangar 107/i.test(place.name)));
@@ -70,14 +75,14 @@ test("address numbers match exactly while textual prefixes still find a numbered
   }
 });
 
-test("nonempty category results still disclose partial package coverage and actual truncation", () => {
-  const result = searchLocalResult("ristoranti", docks);
+test("nonempty category results disclose partial package coverage at the extraction edge", () => {
+  const result = searchLocalResult("ristoranti", { latitude: 45.07, longitude: 7.768 });
   assert.ok(result.places.length > 0);
   assert.equal(result.coverage.extent, "partial");
   assert.equal(result.coverage.centerInside, true);
   assert.equal(result.resultLimit, 60);
   assert.equal(result.truncated, true);
-  const edge = searchLocalResult("ristoranti", { latitude: 45.095, longitude: 7.714 });
+  const edge = searchLocalResult("ristoranti", { latitude: 45.07, longitude: 7.78 });
   assert.ok(edge.places.length > 0);
   assert.equal(edge.coverage.extent, "partial");
   assert.equal(edge.coverage.centerInside, false);
@@ -85,10 +90,108 @@ test("nonempty category results still disclose partial package coverage and actu
   assert.equal(name.coverage.extent, "package");
   assert.equal(name.coverage.radiusMeters, null);
   assert.equal(name.truncated, false);
-  // This fixed package has exactly 60 deduplicated pizzeria matches: reaching the cap is not truncation.
-  const exactCap = searchLocalResult("pizzerie", docks);
-  assert.equal(exactCap.places.length, exactCap.resultLimit);
-  assert.equal(exactCap.truncated, false);
+});
+
+test("59/60/61 distinct matches report the actual cap and decode only displayed records", () => {
+  for (const count of [59, 60, 61]) {
+    const entries: PlaceSearchEntry[] = Array.from({ length: count }, (_, i) => ({
+      id: `fixture:${i}`, name: `Ristorante di prova ${i}`, coordinate: docks,
+      category: 'restaurant', hierarchy: ['food_and_drink', 'restaurant'],
+      source: 'Fixture', attributions: ['Fixture · CC0-1.0'],
+    }));
+    let decoded = 0;
+    const catalog: PlaceCatalog = {
+      entries, metadata: { release: 'fixture', bounds: [7.6, 45, 7.77, 45.14], count, inputSha256: '0'.repeat(64) },
+      materialize(id): CatalogPlace | undefined {
+        decoded += 1;
+        const place = entries.find((entry) => entry.id === id);
+        return place ? { ...place, hierarchy: [...place.hierarchy], attributions: [...place.attributions], provenance: [{ dataset: 'Fixture', license: 'CC0-1.0' }], dataUpdatedAt: '2020-01-01' } : undefined;
+      },
+    };
+    const search = createLocalPlaceSearch(catalog);
+    assert.equal(decoded, 0);
+    const result = search('ristoranti', docks);
+    assert.equal(result.places.length, Math.min(count, 60));
+    assert.equal(result.truncated, count > 60);
+    assert.equal(result.resultLimit, 60);
+    assert.equal(decoded, Math.min(count, 60));
+    assert.equal(result.places[0]?.dataUpdatedAt, '2020-01-01');
+  }
+});
+
+test("duplicate contacts retain contributing provenance and applicable corrections without merging separate branches or tenants", () => {
+  const catalog = createPlaceCatalog({
+    schemaVersion: 1, release: 'fixture', count: 5, bounds: [7.6, 45, 7.77, 45.14], inputSha256: '0'.repeat(64),
+    columns: ['id', 'name', 'latitude', 'longitude', 'categoryRef', 'confidence', 'operatingStatus', 'address', 'website', 'phone', 'sourceRefs'],
+    categories: [['restaurant', ['food_and_drink', 'restaurant']]],
+    sourceTemplates: [
+      { dataset: 'Fixture', license: 'CC0-1.0', update_time: '2020-01-01' },
+      { dataset: 'Contact source', license: 'Apache-2.0', update_time: '2021-01-01T00:00:00Z', extra: { branch: 'Original branch' } },
+      { dataset: 'Other source', license: 'CDLA-Permissive-2.0', update_time: '2022-02-03T08:09:10' },
+    ],
+    sources: [[0, 'original', null], [1, 'contact-record', 0.8], [2, 'conflicting-record', 0.5]],
+    places: [
+      ['a', 'Ristorante Prova', docks.latitude, docks.longitude, 0, 0.9, 'open', null, null, null, [0]],
+      ['b', 'RISTORANTE PROVA', docks.latitude, docks.longitude, 0, 0.8, null, null, 'https://contacts.example/', '011123456', [1]],
+      ['c', 'Ristorante Prova', docks.latitude + 0.003, docks.longitude, 0, 0.9, 'open', null, null, null, [0]],
+      ['d', 'Altro Ristorante', docks.latitude, docks.longitude, 0, 0.9, 'open', null, null, null, [0]],
+      ['e', 'Ristorante Prova', docks.latitude, docks.longitude, 0, 0.5, 'temporarily_closed', null, 'https://other.example/', '011999999', [2]],
+    ],
+    phoneOverrides: {
+      schemaVersion: 1, version: 'fixture', sha256: '1'.repeat(64), recordCount: 2,
+      records: [
+        { id: 'overture:b', field: 'phone', originalValue: '011000000', value: '011123456', url: 'https://contacts.example/', checkedAt: '2026-10-11T00:00:00Z', reason: 'Branch contact confirmed.' },
+        { id: 'overture:e', field: 'phone', originalValue: '011888888', value: '011999999', url: 'https://other.example/', checkedAt: '2026-10-11T00:00:00Z', reason: 'Other contact confirmed.' },
+      ],
+    },
+  });
+  const search = createLocalPlaceSearch(catalog);
+  const result = search('ristoranti', docks);
+  assert.deepEqual(result.places.map((place) => place.id), ['overture:a', 'overture:d', 'overture:c']);
+  assert.equal(result.places[0]?.phone, '011123456');
+  assert.equal(result.places[0]?.website, 'https://contacts.example/');
+  assert.equal(result.places[0]?.dataUpdatedAt, '2022-02-03T08:09:10');
+  assert.ok(result.places.every((place) => place.operatingStatus === 'open' && place.confidence === 0.9));
+  assert.ok(result.places.slice(1).every((place) => place.dataUpdatedAt === '2020-01-01'));
+  const first = result.places[0] as CatalogPlace;
+  assert.deepEqual(first.provenance, ['overture:a', 'overture:b', 'overture:e'].flatMap((id) => catalog.materialize(id)!.provenance));
+  assert.deepEqual(first.fieldCorrections, catalog.materialize('overture:b')!.fieldCorrections);
+  assert.deepEqual(first.attributions, ['Fixture · CC0-1.0', 'Contact source · Apache-2.0',
+    'Telefono corretto da sito ufficiale · https://contacts.example/ · 2026-10-11', 'Other source · CDLA-Permissive-2.0']);
+  first.coordinate.latitude = 0;
+  first.hierarchy.push('changed');
+  first.attributions.push('changed');
+  first.provenance[0]!.record_id = 'changed';
+  const next = search('ristoranti', docks).places[0] as CatalogPlace;
+  assert.deepEqual(next.coordinate, docks);
+  assert.deepEqual(next.hierarchy, ['food_and_drink', 'restaurant']);
+  assert.ok(!next.attributions.includes('changed'));
+  assert.equal(next.provenance[0]?.record_id, 'original');
+});
+
+test('the result cap counts duplicate groups and hydrates contributors only in displayed groups', () => {
+  const entries: PlaceSearchEntry[] = Array.from({ length: 61 }, (_, i) => ['a', 'b'].map((copy) => ({
+    id: `fixture:${String(i).padStart(2, '0')}:${copy}`, name: `Ristorante ${i}`, coordinate: docks,
+    category: 'restaurant', hierarchy: ['food_and_drink', 'restaurant'], source: 'Fixture', attributions: ['Fixture · CC0-1.0'],
+  }))).flat();
+  const decoded: string[] = [];
+  const catalog: PlaceCatalog = {
+    entries, metadata: { release: 'fixture', bounds: [7.6, 45, 7.77, 45.14], count: entries.length, inputSha256: '0'.repeat(64) },
+    materialize(id) {
+      decoded.push(id);
+      const place = entries.find((entry) => entry.id === id)!;
+      return { ...place, hierarchy: [...place.hierarchy], attributions: [...place.attributions],
+        provenance: [{ dataset: 'Fixture', license: 'CC0-1.0', record_id: id }], dataUpdatedAt: '2020-01-01' };
+    },
+  };
+  const search = createLocalPlaceSearch(catalog);
+  assert.equal(decoded.length, 0);
+  const result = search('ristoranti', docks);
+  assert.equal(result.places.length, 60);
+  assert.equal(result.truncated, true);
+  assert.equal(result.resultLimit, 60);
+  assert.deepEqual(decoded, entries.slice(0, 120).map((entry) => entry.id));
+  assert.ok(result.places.every((place) => (place as CatalogPlace).provenance.length === 2));
 });
 
 test("local-only policy makes no remote requests for names, misses, categories or another search center", async () => {
@@ -125,6 +228,27 @@ test("opting out of online search cannot redisplay a cached Photon result", asyn
     assert.deepEqual(local.places, []);
     assert.equal(local.source, "Overture Places locale");
     assert.equal(requests, 1);
+  } finally { global.fetch = original; }
+});
+
+test('merging a Photon duplicate retains all local contributors and their contact provenance', async () => {
+  const winner = placeCatalog.materialize('overture:1eb26f86-9ea7-4203-9e36-3fd8179f5d1b')!;
+  const donor = placeCatalog.materialize('overture:15c8811e-1259-41b7-90f7-b65fc5b01f13')!;
+  assert.equal(winner.phone, undefined);
+  assert.ok(donor.phone);
+  const original = global.fetch;
+  try {
+    global.fetch = async () => Response.json({ features: [{
+      geometry: { coordinates: [winner.coordinate.longitude, winner.coordinate.latitude] },
+      properties: { name: winner.name, osm_type: 'N', osm_id: 987654321, street: 'Other address' },
+    }] });
+    const result = await searchPlaces(winner.name, { center: winner.coordinate, policy: 'local-and-online' });
+    const place = result.places.find((item) => item.id === winner.id) as CatalogPlace;
+    assert.equal(place.phone, donor.phone);
+    assert.equal(place.website, winner.website);
+    assert.equal(place.address, winner.address);
+    assert.deepEqual(place.provenance, [...winner.provenance, ...donor.provenance]);
+    assert.ok(place.attributions.includes('© OpenStreetMap contributors · ODbL'));
   } finally { global.fetch = original; }
 });
 

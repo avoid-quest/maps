@@ -20,15 +20,22 @@ export function wait(ms: number, signal?: AbortSignal): Promise<void> {
     signal?.addEventListener('abort', abort, { once: true });
   });
 }
+type QueueTiming = { now: () => number; wait: typeof wait };
 /** Serialize provider requests and impose start-to-start spacing, including failures. */
-export function requestQueue(intervalMs: number) {
+export function requestQueue(intervalMs: number, timing: QueueTiming = { now: () => performance.now(), wait }) {
   let tail: Promise<unknown> = Promise.resolve(); let nextAt = 0; let blockedUntil = 0;
   return <T>(request: () => Promise<T>, signal?: AbortSignal): Promise<T> => {
     const task = tail.catch(() => undefined).then(async () => {
-      checkAbort(signal); await wait(Math.max(nextAt, blockedUntil) - Date.now(), signal); checkAbort(signal);
-      nextAt = Date.now() + intervalMs;
+      checkAbort(signal);
+      // Timers can wake early. Monotonic deadlines also survive wall-clock corrections.
+      const deadline = Math.max(nextAt, blockedUntil);
+      for (let remaining = deadline - timing.now(); remaining > 0; remaining = deadline - timing.now()) {
+        await timing.wait(remaining, signal);
+        checkAbort(signal);
+      }
+      nextAt = timing.now() + intervalMs;
       try { return await request(); } catch (error) {
-        if (error instanceof ServiceError && error.kind === 'rate-limit') blockedUntil = Date.now() + 60_000;
+        if (error instanceof ServiceError && error.kind === 'rate-limit') blockedUntil = timing.now() + 60_000;
         throw error;
       }
     });
