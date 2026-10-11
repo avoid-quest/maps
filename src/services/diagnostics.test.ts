@@ -58,7 +58,7 @@ test('ring persists only the newest 120 events within its byte budget, in insert
   await restored.initialize(storage);
   assert.deepEqual(restored.getSnapshot().events, store.getSnapshot().events);
   const text = report(restored.getSnapshot());
-  assert.ok(text.indexOf('durationMs=400') < text.indexOf('durationMs=1590'));
+  assert.match(text, /durationMs=400\b[\s\S]*durationMs=1590\b/);
 });
 
 test('clear follows pending writes so deleted events cannot reappear after restart', async () => {
@@ -114,10 +114,137 @@ test('clear during a delayed read discards previously stored events', async () =
   assert.deepEqual(JSON.parse(storage.value()!).events, []);
 });
 
-test('malformed and oversized storage never becomes report text; storage failures stay visible', async () => {
-  for (const initial of [PRIVATE, 'x'.repeat(MAX_DIAGNOSTIC_BYTES + 1)]) {
+test('a failed read cannot overwrite a saved off switch even when writes work', async () => {
+  const saved = JSON.stringify({ version: 1, enabled: false, events: [{ at: NOW, type: 'app', state: 'launch' }] });
+  const storage = memoryStorage(saved);
+  const store = createDiagnostics(() => NOW);
+  store.record({ type: 'app', state: 'active' });
+  await store.initialize({ getItem: async () => { throw new Error(PRIVATE); }, setItem: storage.setItem });
+  store.record({ type: 'location', state: 'requested' });
+  await store.flush();
+  assert.equal(store.getSnapshot().enabled, false);
+  assert.equal(store.getSnapshot().preferenceKnown, false);
+  assert.equal(store.getSnapshot().storage, 'unavailable');
+  assert.deepEqual(store.getSnapshot().events, []);
+  assert.equal(storage.value(), saved);
+  assert.equal(await store.clear(), false);
+  assert.equal(storage.value(), saved);
+
+  assert.equal(await store.setEnabled(false), true);
+  assert.equal(store.getSnapshot().preferenceKnown, true);
+  assert.equal(store.getSnapshot().storage, 'local');
+  const restored = createDiagnostics(() => NOW);
+  await restored.initialize(storage);
+  assert.equal(restored.getSnapshot().enabled, false);
+  assert.deepEqual(restored.getSnapshot().events, []);
+});
+
+test('invalid or unsupported stored envelopes stay untouched until an explicit choice', async () => {
+  for (const envelope of [{ version: 1, enabled: false, events: {} }, { version: 2, enabled: false, events: [] }, null, [], {}]) {
+    const saved = JSON.stringify(envelope);
+    const storage = memoryStorage(saved);
     const store = createDiagnostics(() => NOW);
-    await store.initialize(memoryStorage(initial));
+    store.record({ type: 'app', state: 'launch' });
+    await store.initialize(storage);
+    store.record({ type: 'location', state: 'requested' });
+    await store.flush();
+    assert.equal(store.getSnapshot().enabled, false, saved);
+    assert.equal(store.getSnapshot().preferenceKnown, false, saved);
+    assert.equal(store.getSnapshot().storage, 'unavailable', saved);
+    assert.deepEqual(store.getSnapshot().events, [], saved);
+    assert.equal(await store.clear(), false, saved);
+    assert.equal(storage.value(), saved);
+
+    assert.equal(await store.setEnabled(false), true, saved);
+    const restored = createDiagnostics(() => NOW);
+    await restored.initialize(storage);
+    assert.equal(restored.getSnapshot().enabled, false, saved);
+    assert.equal(restored.getSnapshot().preferenceKnown, true, saved);
+    assert.deepEqual(restored.getSnapshot().events, [], saved);
+  }
+});
+
+test('explicit activation after a failed read records only subsequent events', async () => {
+  const storage = memoryStorage(JSON.stringify({ version: 1, enabled: false, events: [] }));
+  const store = createDiagnostics(() => NOW);
+  await store.initialize({ getItem: async () => { throw new Error(PRIVATE); }, setItem: storage.setItem });
+  store.record({ type: 'app', state: 'launch' });
+  assert.equal(await store.setEnabled(true), true);
+  store.record({ type: 'app', state: 'active' });
+  await store.flush();
+  assert.deepEqual(store.getSnapshot().events.map(event => event.state), ['active']);
+  const restored = createDiagnostics(() => NOW);
+  await restored.initialize(storage);
+  assert.equal(restored.getSnapshot().enabled, true);
+  assert.deepEqual(restored.getSnapshot().events, store.getSnapshot().events);
+});
+
+test('explicit startup choices take effect in order when a delayed read fails', async () => {
+  let reject!: (reason: Error) => void;
+  const loaded = new Promise<string>((_resolve, fail) => { reject = fail; });
+  const storage = memoryStorage(JSON.stringify({ version: 1, enabled: false, events: [] }));
+  const store = createDiagnostics(() => NOW);
+  const ready = store.initialize({ getItem: () => loaded, setItem: storage.setItem });
+  store.record({ type: 'app', state: 'launch' });
+  const enabled = store.setEnabled(true);
+  store.record({ type: 'app', state: 'active' });
+  const disabled = store.setEnabled(false);
+  store.record({ type: 'location', state: 'requested' });
+  reject(new Error(PRIVATE));
+  await ready;
+  assert.equal(await enabled, true);
+  assert.equal(await disabled, true);
+  assert.equal(store.getSnapshot().enabled, false);
+  assert.deepEqual(store.getSnapshot().events.map(event => event.state), ['active']);
+  assert.deepEqual(JSON.parse(storage.value()!).events, store.getSnapshot().events);
+});
+
+test('a delayed saved setting only authorizes startup events captured before an explicit choice', async () => {
+  for (const savedEnabled of [false, true]) {
+    let read!: (value: string) => void;
+    const loaded = new Promise<string>(resolve => { read = resolve; });
+    const storage = memoryStorage();
+    const store = createDiagnostics(() => NOW);
+    const ready = store.initialize({ getItem: () => loaded, setItem: storage.setItem });
+    store.record({ type: 'app', state: 'launch' });
+    const enabled = store.setEnabled(true);
+    store.record({ type: 'app', state: 'active' });
+    const disabled = store.setEnabled(false);
+    store.record({ type: 'location', state: 'requested' });
+    read(JSON.stringify({ version: 1, enabled: savedEnabled, events: [] }));
+    await ready; await enabled; await disabled;
+    assert.equal(store.getSnapshot().enabled, false);
+    assert.deepEqual(store.getSnapshot().events.map(event => event.state), savedEnabled ? ['launch', 'active'] : ['active']);
+    assert.deepEqual(JSON.parse(storage.value()!).events, store.getSnapshot().events);
+  }
+});
+
+test('clear during startup discards events on both sides of an explicit choice', async () => {
+  let read!: (value: string) => void;
+  const loaded = new Promise<string>(resolve => { read = resolve; });
+  const storage = memoryStorage();
+  const store = createDiagnostics(() => NOW);
+  const ready = store.initialize({ getItem: () => loaded, setItem: storage.setItem });
+  store.record({ type: 'app', state: 'launch' });
+  const enabled = store.setEnabled(true);
+  store.record({ type: 'app', state: 'active' });
+  const cleared = store.clear();
+  store.record({ type: 'app', state: 'background' });
+  read(JSON.stringify({ version: 1, enabled: true, events: [{ at: NOW, type: 'app', state: 'inactive' }] }));
+  await ready; await enabled; await cleared;
+  assert.deepEqual(store.getSnapshot().events.map(event => event.state), ['background']);
+  assert.deepEqual(JSON.parse(storage.value()!).events, store.getSnapshot().events);
+});
+
+test('malformed and oversized storage never becomes report text; storage failures stay visible', async () => {
+  for (const initial of [PRIVATE, '', 'x'.repeat(MAX_DIAGNOSTIC_BYTES + 1)]) {
+    const store = createDiagnostics(() => NOW);
+    const storage = memoryStorage(initial);
+    await store.initialize(storage);
+    await store.flush();
+    assert.equal(store.getSnapshot().enabled, false);
+    assert.equal(store.getSnapshot().preferenceKnown, false);
+    assert.equal(storage.value(), initial);
     assert.deepEqual(store.getSnapshot().events, []);
     assert.ok(!report(store.getSnapshot()).includes(PRIVATE));
   }
@@ -128,6 +255,9 @@ test('malformed and oversized storage never becomes report text; storage failure
   assert.equal(store.getSnapshot().storage, 'unavailable');
   assert.equal(await store.clear(), false);
   assert.equal(await store.setEnabled(false), false);
+  assert.equal(store.getSnapshot().preferenceKnown, true);
+  assert.equal(store.getSnapshot().enabled, false);
+  assert.equal(store.getSnapshot().storage, 'unavailable');
   assert.ok(!report(store.getSnapshot()).includes(PRIVATE));
 });
 

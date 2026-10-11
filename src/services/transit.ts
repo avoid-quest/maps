@@ -70,7 +70,7 @@ async function fetchFeed(file: string, maxAge: number, signal?: AbortSignal): Pr
   checkAbort(signal); const stored = cache.get(file); if (stored && Date.now() - stored.at < maxAge) return stored.feed;
   return queue(async () => {
     const current = cache.get(file); if (current && Date.now() - current.at < maxAge) return current.feed;
-    const provider = file === 'trip_update.aspx' ? 'gtt-arrivals' : 'gtt-alerts';
+    const provider = file === 'trip_update.aspx' ? 'gtt-arrivals' : file === 'alerts.aspx' ? 'gtt-alerts' : 'other';
     const response = await fetchResponse(`${GTT}${file}`, { signal }, provider);
     try {
       const decoded = Feed.decode(new Uint8Array(await response.arrayBuffer()));

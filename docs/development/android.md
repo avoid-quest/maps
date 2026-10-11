@@ -22,7 +22,7 @@ Install by copying the APK to the Android device and opening it in Files, or use
 
 Public release downloads need no GitHub account or token. In Obtainium, add `https://github.com/avoid-quest/maps` as a GitHub source and select `avoid-maps.apk` if needed. Keep the existing installation when updating: compatible signing preserves favourites. Obtainium access and upgrade preservation require a device test.
 
-Builds with local diagnostics read version/code from the embedded Expo configuration. The build script embeds the Git revision only when tracked and untracked source files are clean; builds with uncommitted source changes report `development`. The diagnostics report uses these public build identifiers and excludes device identifiers. Native dependency changes such as the clipboard module require a new APK.
+Builds with local diagnostics read version/code from the embedded Expo configuration. The build script embeds the Git revision when the checkout has no uncommitted tracked changes or unignored untracked files. Any such change, including documentation, reports `development`. The diagnostics report uses these public build identifiers and excludes device identifiers. Native dependency changes such as the clipboard module require a new APK.
 
 ## Acceptance without Google Play services
 

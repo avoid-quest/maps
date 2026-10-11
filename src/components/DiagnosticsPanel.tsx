@@ -48,12 +48,15 @@ export function DiagnosticsPanel() {
     <View className="flex-row items-center justify-between gap-3">
       <View className="flex-1">
         <Text className="text-base font-semibold text-[#17243C]">Registra eventi tecnici</Text>
-        <Text className="mt-1 text-sm text-[#59667A]">{!snapshot.ready ? 'Caricamento…' : snapshot.enabled ? 'Attiva' : 'Disattivata'} · {snapshot.events.length}/{MAX_DIAGNOSTIC_EVENTS} eventi</Text>
+        <Text className="mt-1 text-sm text-[#59667A]">{!snapshot.ready ? 'Caricamento…' : !snapshot.preferenceKnown ? 'Sospesa' : snapshot.enabled ? 'Attiva' : 'Disattivata'} · {snapshot.events.length}/{MAX_DIAGNOSTIC_EVENTS} eventi</Text>
       </View>
       <Switch accessibilityLabel="Registra eventi tecnici" value={snapshot.enabled} disabled={!snapshot.ready || busy} onValueChange={enabled => void setEnabled(enabled)} trackColor={{ true: colors.blue }} />
     </View>
     <Text className="text-sm leading-5 text-[#59667A]">Il registro conserva gli ultimi 120 eventi. Gli arresti nativi e i problemi prima dell’avvio dell’app possono non comparire.</Text>
-    {snapshot.storage === 'unavailable' ? <Notice danger text="Salvataggio locale non disponibile. Il report può contenere solo gli eventi di questa sessione." /> : null}
+    {snapshot.ready && !snapshot.preferenceKnown ? <>
+      <Notice danger text="Impossibile leggere l’impostazione salvata. La registrazione è sospesa e il registro salvato non è stato modificato. Puoi attivarla con l’interruttore o mantenerla disattivata: la scelta sostituirà il registro non leggibile con uno vuoto." />
+      <Button secondary disabled={busy} onPress={() => void setEnabled(false)}>Mantieni disattivata</Button>
+    </> : snapshot.storage === 'unavailable' ? <Notice danger text="Salvataggio locale non disponibile. Il report può contenere solo gli eventi di questa sessione." /> : null}
     <Button icon="document-text-outline" secondary disabled={!snapshot.ready || busy} onPress={() => { setReport(diagnosticReport()); setFeedback(''); setFailed(false); }}>
       {report === null ? 'Anteprima report' : 'Aggiorna anteprima'}
     </Button>
@@ -64,7 +67,7 @@ export function DiagnosticsPanel() {
       </ScrollView>
       <Button icon="copy-outline" disabled={busy} onPress={() => void copy()}>Copia report</Button>
     </> : null}
-    <Button icon="trash-outline" secondary disabled={!snapshot.ready || busy} onPress={() => void clear()}>Cancella registro</Button>
+    <Button icon="trash-outline" secondary disabled={!snapshot.ready || !snapshot.preferenceKnown || busy} onPress={() => void clear()}>Cancella registro</Button>
     {feedback ? <View accessibilityLiveRegion="polite"><Notice text={feedback} danger={failed} /></View> : null}
   </View>;
 }

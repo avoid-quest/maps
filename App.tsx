@@ -53,7 +53,6 @@ import {
 } from "./src/services";
 import { getCurrentLocation } from "./src/platform/location";
 import { DiagnosticsPanel } from "./src/components/DiagnosticsPanel";
-import { startDiagnostics } from "./src/services/diagnostics-runtime";
 
 const DOCKS: Coordinate = { latitude: 45.0937, longitude: 7.6832 };
 const tuple = (point: Coordinate): [number, number] => [
@@ -1440,7 +1439,6 @@ function PrivacyContent({ onLink }: { onLink: (url: string) => void }) {
 }
 
 export default function App() {
-  useEffect(startDiagnostics, []);
   return (
     <SafeAreaProvider>
       <MapsApp />

@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
-import { AppState, Platform } from 'react-native';
+import { Platform } from 'react-native';
 import manifest from '../data/manifest.json';
 import { createDiagnosticReport, diagnostics, observeUnexpectedErrors } from './diagnostics';
 
@@ -18,13 +18,13 @@ export function diagnosticReport(): string {
   });
 }
 
-export function startDiagnostics(): () => void {
-  void diagnostics.initialize(AsyncStorage);
-  diagnostics.record({ type: 'app', state: 'launch' });
-  const subscription = AppState.addEventListener('change', state => {
-    diagnostics.record({ type: 'app', state: state === 'active' || state === 'background' || state === 'inactive' ? state : 'unknown' });
-  });
+let started = false;
+export function startDiagnostics(): void {
+  if (started) return;
+  started = true;
   const hooks = (globalThis as typeof globalThis & { ErrorUtils?: Parameters<typeof observeUnexpectedErrors>[0] }).ErrorUtils;
-  const restore = observeUnexpectedErrors(hooks);
-  return () => { subscription.remove(); restore(); };
+  observeUnexpectedErrors(hooks);
+  void diagnostics.initialize(AsyncStorage);
+  // Keep a session boundary without writing every foreground/background transition.
+  diagnostics.record({ type: 'app', state: 'launch' });
 }

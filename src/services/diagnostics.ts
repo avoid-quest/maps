@@ -24,6 +24,7 @@ export interface DiagnosticStorage {
 }
 export interface DiagnosticSnapshot {
   ready: boolean;
+  preferenceKnown: boolean;
   enabled: boolean;
   storage: 'memory' | 'local' | 'unavailable';
   events: readonly DiagnosticEvent[];
@@ -60,19 +61,20 @@ function bounded(events: readonly unknown[]): DiagnosticEvent[] {
 }
 
 export function createDiagnostics(now = Date.now) {
-  let snapshot: DiagnosticSnapshot = { ready: false, enabled: true, storage: 'memory', events: [] };
+  let snapshot: DiagnosticSnapshot = { ready: false, preferenceKnown: false, enabled: true, storage: 'memory', events: [] };
   let storage: DiagnosticStorage | undefined;
   let initialization: Promise<void> | undefined;
   let writes: Promise<void> = Promise.resolve();
   let clearedBeforeReady = false;
   let enabledBeforeReady: boolean | undefined;
+  let eventsBeforeChoice: readonly DiagnosticEvent[] = [];
   const listeners = new Set<() => void>();
   function update(next: Partial<DiagnosticSnapshot>) {
     snapshot = { ...snapshot, ...next };
     listeners.forEach(listener => { try { listener(); } catch { /* Observers must not break application requests. */ } });
   }
   function persist() {
-    if (!storage || !snapshot.ready) return;
+    if (!storage || !snapshot.ready || !snapshot.preferenceKnown) return;
     const target = storage;
     const serialized = JSON.stringify({ version: 1, enabled: snapshot.enabled, events: bounded(snapshot.events) });
     // Capture state now, serialize writes, and never propagate storage failure to a provider.
@@ -93,15 +95,20 @@ export function createDiagnostics(now = Date.now) {
         try {
           const raw = await target.getItem(DIAGNOSTICS_KEY);
           if (raw && raw.length > MAX_DIAGNOSTIC_BYTES) throw new Error('Oversized diagnostic storage');
-          loaded = raw ? JSON.parse(raw) : undefined;
+          loaded = raw === null ? undefined : JSON.parse(raw);
         } catch { failed = true; }
         const stored = record(loaded) && loaded.version === 1 && typeof loaded.enabled === 'boolean' && Array.isArray(loaded.events) ? loaded : undefined;
-        const storedEnabled = stored ? stored.enabled as boolean : true;
+        if (loaded !== undefined && !stored) failed = true;
+        const storedEnabled = stored ? stored.enabled as boolean : !failed;
         const enabled = enabledBeforeReady ?? storedEnabled;
         const previous = stored && !clearedBeforeReady ? bounded(stored.events as unknown[]) : [];
-        // Events arriving during hydration must respect the saved off switch.
-        const pending = storedEnabled || enabledBeforeReady === true ? snapshot.events : [];
-        update({ ready: true, enabled, events: bounded([...previous, ...pending]), storage: failed ? 'unavailable' : 'local' });
+        // Startup events need the saved on switch; an explicit choice only authorizes later events.
+        const pending = [
+          ...(storedEnabled ? eventsBeforeChoice : []),
+          ...(storedEnabled || enabledBeforeReady !== undefined ? snapshot.events : []),
+        ];
+        update({ ready: true, preferenceKnown: !failed || enabledBeforeReady !== undefined, enabled, events: bounded([...previous, ...pending]), storage: failed ? 'unavailable' : 'local' });
+        eventsBeforeChoice = [];
         persist();
       })();
       return initialization;
@@ -119,13 +126,20 @@ export function createDiagnostics(now = Date.now) {
       persist();
     },
     async setEnabled(enabled: boolean) {
-      if (!snapshot.ready) enabledBeforeReady = enabled;
-      update({ enabled }); persist();
+      if (!snapshot.ready) {
+        if (enabledBeforeReady === undefined) {
+          eventsBeforeChoice = snapshot.events;
+          update({ events: [] });
+        }
+        enabledBeforeReady = enabled;
+      }
+      update({ enabled, preferenceKnown: true }); persist();
       await initialization; await writes;
       return snapshot.storage !== 'unavailable';
     },
     async clear() {
       if (!snapshot.ready) clearedBeforeReady = true;
+      eventsBeforeChoice = [];
       update({ events: [] }); persist();
       await initialization; await writes;
       return snapshot.storage !== 'unavailable';

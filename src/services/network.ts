@@ -4,7 +4,7 @@ export const USER_AGENT = 'AvoidMaps/0.1 (https://github.com/avoid-quest/maps)';
 export class ServiceError extends Error {
   constructor(message: string, public readonly kind: 'network' | 'unavailable' | 'rate-limit' | 'invalid' = 'network') { super(message); this.name = 'ServiceError'; }
 }
-/** Distinguish an HTTP response from a usable provider result without retaining its content. */
+/** Parse provider data; record an allowlisted service failure and rethrow if parsing fails. */
 export function parseServiceData<T>(provider: DiagnosticProvider, parse: () => T): T {
   try { return parse(); } catch (error) {
     diagnostics.record({ type: 'service', state: error instanceof ServiceError ? error.kind : 'invalid', provider });
