@@ -1,4 +1,4 @@
-import type { RouteLeg, TransitTime } from '../domain/types';
+import type { RouteLeg, TransitTime, TravelMode } from '../domain/types';
 import { resolveTransitTime, romeDateTime } from '../services/transit-time';
 
 export const journeyTime = (value?: number) => value == null ? 'Orario non disponibile' :
@@ -54,7 +54,8 @@ export function transitTimeLabel(value: TransitTime): string {
   return value.kind === 'now' ? 'Partenza adesso' :
     `${value.kind === 'arrive-by' ? 'Arrivo entro' : 'Partenza alle'} ${value.time.slice(0, 5)} del ${italianDate(value.date)}`;
 }
-export function savedJourneyTimeLabel(value: TransitTime, fetchedAt: number): string {
+export function savedJourneyTimeLabel(value: TransitTime, fetchedAt: number, mode: TravelMode = 'transit'): string | null {
+  if (mode !== 'transit') return null;
   return value.kind === 'now'
     ? `Partenza richiesta il ${journeyDate(fetchedAt)} alle ${journeyTime(fetchedAt)} (ora della consultazione)`
     : transitTimeLabel(value);

@@ -9,9 +9,11 @@ export interface RouteState {
   loading: boolean;
   error: string;
   saved: boolean;
+  /** View provenance survives a refresh that makes its displayed data fresh. */
+  restoredViewId: number | null;
 }
 export const emptyRouteState: RouteState = {
-  queryKey: '', request: 0, plans: [], selectedId: null, loading: false, error: '', saved: false,
+  queryKey: '', request: 0, plans: [], selectedId: null, loading: false, error: '', saved: false, restoredViewId: null,
 };
 type RouteAction =
   | { type: 'start'; queryKey: string; request: number }
@@ -31,7 +33,7 @@ export function routeReducer(state: RouteState, action: RouteAction): RouteState
   if (action.type === 'reset') return emptyRouteState;
   if (action.type === 'restore') return {
     queryKey: action.queryKey, request: action.request, plans: [action.plan],
-    selectedId: action.plan.id, loading: false, error: '', saved: true,
+    selectedId: action.plan.id, loading: false, error: '', saved: true, restoredViewId: action.request,
   };
   if (action.type === 'select') return state.plans.some(plan => plan.id === action.id)
     ? { ...state, selectedId: action.id } : state;

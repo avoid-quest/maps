@@ -140,7 +140,7 @@ function MapsApp() {
   const [origin, setOrigin] = useState<Coordinate>(DOCKS);
   const [originLabel, setOriginLabel] = useState("Centro della mappa");
   const [pickingOrigin, setPickingOrigin] = useState(false);
-  const { route, plans: routePlans, error: routeError, loading: routing, refresh: refreshRoutes, select: selectRoute, reset: resetRoutes, restore: restoreRoute, saved: restoredRoute } = useRoutePlans({
+  const { route, plans: routePlans, error: routeError, loading: routing, refresh: refreshRoutes, select: selectRoute, reset: resetRoutes, restore: restoreRoute, saved: restoredRoute, restoredViewId } = useRoutePlans({
     from: origin,
     to: selected?.coordinate,
     mode: routeMode,
@@ -213,13 +213,13 @@ function MapsApp() {
     void savedTravel.initialize(AsyncStorage);
   }, []);
   useEffect(() => {
-    if (restoredRoute && travel.journeyStatus === "ready" && !travel.journey) {
+    if (restoredViewId !== null && travel.journeyStatus === "ready" && !travel.journey) {
       cancelLocationRequest();
       resetRoutes();
       setRouteView(false);
       setSelected(null);
     }
-  }, [restoredRoute, travel.journeyStatus, travel.journey, cancelLocationRequest, resetRoutes]);
+  }, [restoredViewId, travel.journeyStatus, travel.journey, cancelLocationRequest, resetRoutes]);
   useEffect(() => {
     loadSavedPlaces()
       .then(setSaved)

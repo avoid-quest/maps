@@ -107,3 +107,14 @@ test('saved now describes historical consultation while fixed departure and arri
   assert.equal(savedJourneyTimeLabel({ kind: 'depart-at', date: '2026-10-12', time: '08:30' }, fetchedAt), 'Partenza alle 08:30 del 12/10/2026');
   assert.equal(savedJourneyTimeLabel({ kind: 'arrive-by', date: '2026-10-12', time: '19:45' }, fetchedAt), 'Arrivo entro 19:45 del 12/10/2026');
 });
+
+test('saved road journeys never claim a retained transit departure or arrival constraint', () => {
+  const fetchedAt = new Date('2026-10-11T21:15:00Z').getTime();
+  for (const mode of ['walk', 'bicycle', 'car'] as const) {
+    for (const transitTime of [
+      { kind: 'now' }, { kind: 'depart-at', date: '2026-10-12', time: '08:30' },
+      { kind: 'arrive-by', date: '2026-10-12', time: '19:45' },
+    ] as const) assert.equal(savedJourneyTimeLabel(transitTime, fetchedAt, mode), null);
+  }
+  assert.equal(savedJourneyTimeLabel({ kind: 'arrive-by', date: '2026-10-12', time: '19:45' }, fetchedAt, 'transit'), 'Arrivo entro 19:45 del 12/10/2026');
+});

@@ -64,5 +64,6 @@ export function useRoutePlans({ from, to, mode, transitTime, enabled }: {
     reset,
     restore,
     saved: visible.saved,
+    restoredViewId: visible.restoredViewId,
   };
 }

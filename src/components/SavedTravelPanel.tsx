@@ -24,6 +24,9 @@ export function SavedTravelPanel({ snapshot, journeyBusy, stopsBusy, onOpenJourn
 }) {
   const journeyError = savedTravelFailureMessage(snapshot.journeyFailure);
   const stopsError = savedTravelFailureMessage(snapshot.stopsFailure);
+  const scheduleLabel = snapshot.journey ? savedJourneyTimeLabel(
+    snapshot.journey.query.transitTime, snapshot.journey.plan.fetchedAt, snapshot.journey.query.mode,
+  ) : null;
   return (
     <View className="gap-6 p-5">
       <Text className="text-sm leading-6 text-[#59667A]">Viaggi, fermate e luoghi restano su questo dispositivo, senza account. La copia di un viaggio si aggiorna solo quando la sostituisci.</Text>
@@ -35,7 +38,7 @@ export function SavedTravelPanel({ snapshot, journeyBusy, stopsBusy, onOpenJourn
           <View className="gap-3 rounded-2xl border border-[#E2E8F0] p-4">
             <Text className="text-base font-semibold leading-6 text-[#17243C]">{snapshot.journey.originLabel} → {snapshot.journey.destinationLabel}</Text>
             <Text className="text-sm font-semibold text-[#9A5800]">Viaggio salvato · da aggiornare</Text>
-            <Text className="text-sm leading-5 text-[#59667A]">{savedJourneyTimeLabel(snapshot.journey.query.transitTime, snapshot.journey.plan.fetchedAt)}</Text>
+            {scheduleLabel ? <Text className="text-sm leading-5 text-[#59667A]">{scheduleLabel}</Text> : null}
             <Text className="text-xs leading-5 text-[#59667A]">Consultato il {journeyDate(snapshot.journey.plan.fetchedAt)} alle {journeyTime(snapshot.journey.plan.fetchedAt)}. Percorso: {snapshot.journey.plan.source}.</Text>
             <Button icon="map-outline" onPress={() => onOpenJourney(snapshot.journey!)}>Apri viaggio salvato</Button>
             <Button secondary icon="trash-outline" loading={journeyBusy} onPress={onClearJourney}>Rimuovi viaggio salvato</Button>
