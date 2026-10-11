@@ -8,6 +8,8 @@ Signing keys remain outside Git and release artifacts; CI verifies source and re
 
 ## Reporting a device failure
 
-Use a public destination or stop for reproduction. Include app version/build, Android version, approximate/precise/denied location permission, online/offline state, steps, expected behavior and actual behavior. Reports and PR comments are public. Keep home/work locations, favourites, private searches, personal screenshots, device identifiers and credentials out of the report. Avoid full device logs; share a previewed local diagnostic report when that feature is available.
+Use a public destination or stop for reproduction. Include app version/build, Android version, approximate/precise/denied location permission, online/offline state, steps, expected behavior and actual behavior. Reports and PR comments are public. Keep home/work locations, favourites, private searches, personal screenshots, device identifiers and credentials out of the report. Full device logs are unnecessary.
+
+In builds with **Diagnostica locale**, open **Privacy e fonti**, preview the report and copy it only when you choose to share it. The report contains bounded local status events and public build metadata; it excludes searches, coordinates, destinations, raw errors, request URLs/headers and device identifiers. Copying sends no network request. Review the visible text before pasting into an issue. The switch and clear action control the local history. Version 0.1.1 predates this diagnostics UI.
 
 Device evidence must distinguish a successful install from a successful launch, a route planning preview from navigation, and an emulator check from physical-device behavior. Request outcomes and retrieval timestamps do not prove provider freshness or location accuracy.

@@ -1,6 +1,6 @@
 import type { Coordinate, RouteLeg, RoutePlan, RouteStep, TravelMode } from '../domain/types';
 import { decodePolyline, validCoordinate } from './geo';
-import { fetchJSON, requestQueue, ServiceError } from './network';
+import { fetchJSON, parseServiceData, requestQueue, ServiceError } from './network';
 const roadRequest = requestQueue(1100); const transitRequest = requestQueue(2000);
 export const ROAD_PROFILES = { walk: 'routed-foot', bicycle: 'routed-bike', car: 'routed-car' } as const;
 export const MATO_ENDPOINT = 'https://mapi.5t.torino.it/routing/v1/routers/mat/index/graphql';
@@ -53,8 +53,12 @@ export function romeDateTime(now = new Date()): { date: string; time: string } {
 export async function planRoute(options: { from: Coordinate; to: Coordinate; mode: TravelMode; signal?: AbortSignal }): Promise<RoutePlan> {
   const { from, to, mode, signal } = options;
   if (!validCoordinate(from) || !validCoordinate(to)) throw new ServiceError('Posizione non valida.', 'invalid');
-  if (mode !== 'transit') return parseRoadRoute(await roadRequest(() => fetchJSON<OSRMResponse>(roadRouteURL(from, to, mode), { signal }), signal), mode);
+  if (mode !== 'transit') {
+    const response = await roadRequest(() => fetchJSON<OSRMResponse>(roadRouteURL(from, to, mode), { signal }, 'fossgis'), signal);
+    return parseServiceData('fossgis', () => parseRoadRoute(response, mode));
+  }
   const { date, time } = romeDateTime();
   const query = `query { plan(from:{lat:${from.latitude},lon:${from.longitude}},to:{lat:${to.latitude},lon:${to.longitude}},date:"${date}",time:"${time}",numItineraries:2) { itineraries { duration legs { mode duration distance realTime startTime endTime route { shortName longName } from { name } to { name } legGeometry { points } } } } }`;
-  return parseTransitRoute(await transitRequest(() => fetchJSON<MatoResponse>(MATO_ENDPOINT, { method: 'POST', signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query }) }), signal));
+  const response = await transitRequest(() => fetchJSON<MatoResponse>(MATO_ENDPOINT, { method: 'POST', signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query }) }, 'mato'), signal);
+  return parseServiceData('mato', () => parseTransitRoute(response));
 }

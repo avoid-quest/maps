@@ -3,6 +3,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { Map, Camera, GeoJSONSource, Layer, type CameraRef } from '@maplibre/maplibre-react-native';
 import type { FeatureCollection, Point } from 'geojson';
 import type { MapCanvasProps } from './MapCanvas.types';
+import { diagnostics } from '../services/diagnostics';
 
 export default function MapCanvas({ center, zoom = 14.5, markers = [], selectedMarkerId, route, userLocation, onPressMarker, onMapPress, onRegionChanged }: MapCanvasProps) {
   const camera = useRef<CameraRef>(null);
@@ -19,7 +20,7 @@ export default function MapCanvas({ center, zoom = 14.5, markers = [], selectedM
     <Map style={styles.container} mapStyle="https://tiles.openfreemap.org/styles/liberty" logo={false} attribution attributionPosition={{ bottom: 8, right: 8 }}
       onPress={event => onMapPress?.(event.nativeEvent.lngLat)}
       onRegionDidChange={event => { if (event.nativeEvent.userInteraction) onRegionChanged?.(event.nativeEvent.center); }}
-      onDidFailLoadingMap={() => setMapError(true)} onDidFinishLoadingMap={() => setMapError(false)}>
+      onDidFailLoadingMap={() => { setMapError(true); diagnostics.record({ type: 'map', state: 'failed' }); }} onDidFinishLoadingMap={() => { setMapError(false); diagnostics.record({ type: 'map', state: 'loaded' }); }}>
       <Camera ref={camera} initialViewState={{ center, zoom }} />
       {route && <GeoJSONSource id="journey" data={{ type: 'Feature', geometry: route, properties: {} }}><Layer id="journey-casing" type="line" paint={{ 'line-color': '#ffffff', 'line-width': 9 }} layout={{ 'line-cap': 'round', 'line-join': 'round' }} /><Layer id="journey-line" type="line" paint={{ 'line-color': '#185CE5', 'line-width': 5 }} layout={{ 'line-cap': 'round', 'line-join': 'round' }} /></GeoJSONSource>}
       <GeoJSONSource id="places" data={data} onPress={event => { event.stopPropagation(); const id = event.nativeEvent.features[0]?.properties?.id; if (typeof id === 'string') onPressMarker?.(id); }}>

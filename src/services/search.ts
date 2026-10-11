@@ -1,7 +1,7 @@
 import rawPlaces from "../data/places.json";
 import type { Coordinate, Place, SearchResult } from "../domain/types";
 import { distanceMeters, normalize } from "./geo";
-import { checkAbort, fetchJSON, requestQueue, ServiceError } from "./network";
+import { checkAbort, fetchJSON, parseServiceData, requestQueue, ServiceError } from "./network";
 const request = requestQueue(1000);
 const places = rawPlaces as (Place & { hierarchy: string[] })[];
 export const SEARCH_CATEGORIES = [
@@ -216,36 +216,38 @@ export async function searchPlaces(
         () =>
           fetchJSON<PhotonResponse>(`https://photon.komoot.io/api/?${params}`, {
             signal: options.signal,
-          }),
+          }, 'photon'),
         options.signal,
       );
-      if (!Array.isArray(result.features))
-        throw new ServiceError(
-          "Ricerca online: risposta non valida.",
-          "invalid",
-        );
-      online = result.features.flatMap((f) => {
-        if (!f.geometry?.coordinates || f.geometry.coordinates.length < 2)
-          return [];
-        const p = f.properties;
-        const coordinate = {
-          longitude: f.geometry.coordinates[0]!,
-          latitude: f.geometry.coordinates[1]!,
-        };
-        return [
-          {
-            id: `osm:${p.osm_type}:${p.osm_id}`,
-            name: String(p.name ?? p.street ?? p.city ?? q),
-            coordinate,
-            category: String(p.osm_value ?? ""),
-            address: [p.street, p.housenumber, p.postcode, p.city]
-              .filter(Boolean)
-              .join(" "),
-            source: "Photon / OpenStreetMap",
-            attributions: ["© OpenStreetMap contributors · ODbL"],
-            distanceMeters: distanceMeters(options.center, coordinate),
-          },
-        ];
+      online = parseServiceData('photon', () => {
+        if (!Array.isArray(result.features))
+          throw new ServiceError(
+            "Ricerca online: risposta non valida.",
+            "invalid",
+          );
+        return result.features.flatMap((f) => {
+          if (!f.geometry?.coordinates || f.geometry.coordinates.length < 2)
+            return [];
+          const p = f.properties;
+          const coordinate = {
+            longitude: f.geometry.coordinates[0]!,
+            latitude: f.geometry.coordinates[1]!,
+          };
+          return [
+            {
+              id: `osm:${p.osm_type}:${p.osm_id}`,
+              name: String(p.name ?? p.street ?? p.city ?? q),
+              coordinate,
+              category: String(p.osm_value ?? ""),
+              address: [p.street, p.housenumber, p.postcode, p.city]
+                .filter(Boolean)
+                .join(" "),
+              source: "Photon / OpenStreetMap",
+              attributions: ["© OpenStreetMap contributors · ODbL"],
+              distanceMeters: distanceMeters(options.center, coordinate),
+            },
+          ];
+        });
       });
       if (cache.size > 80) cache.clear();
       cache.set(key, { at: Date.now(), places: online });

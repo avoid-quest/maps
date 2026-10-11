@@ -8,6 +8,11 @@ if [[ ! -f "$AVOID_MAPS_SIGNING_PROPERTIES" ]]; then
   exit 1
 fi
 export EXPO_NO_TELEMETRY=1
+export AVOID_MAPS_BUILD_REVISION=development
+if git diff --quiet && git diff --cached --quiet && [[ -z "$(git ls-files --others --exclude-standard)" ]]; then
+  AVOID_MAPS_BUILD_REVISION="$(git rev-parse HEAD)"
+  export AVOID_MAPS_BUILD_REVISION
+fi
 node node_modules/expo/bin/cli prebuild --platform android --no-install
 (cd android && ./gradlew assembleRelease -PreactNativeArchitectures="${AVOID_MAPS_ARCH:-arm64-v8a}" --no-daemon --max-workers=4)
 mkdir -p artifacts
