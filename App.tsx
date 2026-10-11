@@ -59,6 +59,10 @@ import { DiscoverySettings } from "./src/components/DiscoverySettings";
 import { searchPreferences } from "./src/services/search-preferences";
 import { JourneyResults, TransitTimeForm } from "./src/components/JourneyPlanner";
 import { useRoutePlans } from "./src/components/useRoutePlans";
+import { routeQueryKey } from "./src/components/route-state";
+import { SavedTravelPanel, savedTravelFailureMessage } from "./src/components/SavedTravelPanel";
+import { journeyDate, journeyTime } from "./src/components/journey-presentation";
+import { savedTravel, type SavedJourney } from "./src/services/saved-travel";
 
 const DOCKS: Coordinate = { latitude: 45.0937, longitude: 7.6832 };
 const tuple = (point: Coordinate): [number, number] => [
@@ -122,8 +126,12 @@ function MapsApp() {
   const [searchError, setSearchError] = useState("");
   const [retrySearch, setRetrySearch] = useState(0);
   const [saved, setSaved] = useState<Place[]>([]);
+  const travel = useSyncExternalStore(savedTravel.subscribe, savedTravel.getSnapshot, savedTravel.getSnapshot);
+  const [journeyBusy, setJourneyBusy] = useState(false);
+  const [stopsBusy, setStopsBusy] = useState(false);
   const [selected, setSelected] = useState<Place | null>(null);
   const [listOnly, setListOnly] = useState(false);
+  const detailScroll = useRef<ScrollView>(null);
   const [privacy, setPrivacy] = useState(false);
   const [routeMode, setRouteMode] = useState<TravelMode>("walk");
   const [originPending, setOriginPending] = useState(false);
@@ -132,7 +140,7 @@ function MapsApp() {
   const [origin, setOrigin] = useState<Coordinate>(DOCKS);
   const [originLabel, setOriginLabel] = useState("Centro della mappa");
   const [pickingOrigin, setPickingOrigin] = useState(false);
-  const { route, plans: routePlans, error: routeError, loading: routing, refresh: refreshRoutes, select: selectRoute, reset: resetRoutes } = useRoutePlans({
+  const { route, plans: routePlans, error: routeError, loading: routing, refresh: refreshRoutes, select: selectRoute, reset: resetRoutes, restore: restoreRoute, saved: restoredRoute, restoredViewId } = useRoutePlans({
     from: origin,
     to: selected?.coordinate,
     mode: routeMode,
@@ -147,6 +155,11 @@ function MapsApp() {
   const [alertsError, setAlertsError] = useState("");
   const [refreshBoard, setRefreshBoard] = useState(0);
   const [now, setNow] = useState(Date.now());
+  const detailKey = privacy ? "privacy" : routeView ? `route:${selected?.id}`
+    : stop ? `stop:${stop.id}` : selected ? `place:${selected.id}` : `list:${tab}`;
+  useEffect(() => {
+    detailScroll.current?.scrollTo({ y: 0, animated: false });
+  }, [detailKey]);
   const stops = useMemo(
     () => getNearbyStops(searchCenter, { limit: 15, radiusMeters: 1800 }),
     [searchCenter],
@@ -174,6 +187,7 @@ function MapsApp() {
           cancelLocationRequest();
           setRouteView(false);
           resetRoutes();
+          if (selected?.id === "saved-journey-destination") setSelected(null);
           return true;
         }
         if (selected || stop) {
@@ -196,7 +210,16 @@ function MapsApp() {
   }, [pickingOrigin, privacy, routeView, selected, stop, listOnly, tab, cancelLocationRequest, resetRoutes]);
   useEffect(() => {
     void searchPreferences.initialize(AsyncStorage);
+    void savedTravel.initialize(AsyncStorage);
   }, []);
+  useEffect(() => {
+    if (restoredViewId !== null && travel.journeyStatus === "ready" && !travel.journey) {
+      cancelLocationRequest();
+      resetRoutes();
+      setRouteView(false);
+      setSelected(null);
+    }
+  }, [restoredViewId, travel.journeyStatus, travel.journey, cancelLocationRequest, resetRoutes]);
   useEffect(() => {
     loadSavedPlaces()
       .then(setSaved)
@@ -355,6 +378,59 @@ function MapsApp() {
       setLocationMessage("Salvataggio non riuscito. Riprova.");
     }
   }
+  function openSavedJourney(journey: SavedJourney) {
+    cancelLocationRequest();
+    Keyboard.dismiss();
+    setTab("saved");
+    setStop(null);
+    setPrivacy(false);
+    setPickingOrigin(false);
+    setOrigin(journey.query.from);
+    setOriginLabel(journey.originLabel);
+    setSelected({
+      id: "saved-journey-destination", name: journey.destinationLabel,
+      coordinate: journey.query.to, source: journey.plan.source,
+      attributions: ["Dati © OpenStreetMap contributors"],
+    });
+    setRouteMode(journey.query.mode);
+    setTransitTime(journey.query.transitTime);
+    setCenter(journey.query.to);
+    setListOnly(false);
+    setRouteView(true);
+    restoreRoute(journey);
+  }
+  async function saveSelectedJourney() {
+    if (!route || !selected || journeyBusy) return;
+    setJourneyBusy(true);
+    try {
+      await savedTravel.saveJourney({
+        query: { from: origin, to: selected.coordinate, mode: routeMode, transitTime },
+        originLabel, destinationLabel: selected.name, plan: route,
+      });
+    } finally { setJourneyBusy(false); }
+  }
+  async function clearSavedJourney() {
+    if (journeyBusy) return;
+    setJourneyBusy(true);
+    try { await savedTravel.clearJourney(); }
+    finally { setJourneyBusy(false); }
+  }
+  async function mutateSavedStops(action: () => Promise<boolean>) {
+    if (stopsBusy) return;
+    setStopsBusy(true);
+    try { await action(); }
+    finally { setStopsBusy(false); }
+  }
+  function openSavedStop(current: Stop) {
+    cancelLocationRequest();
+    setSelected(null);
+    setRouteView(false);
+    resetRoutes();
+    setPickingOrigin(false);
+    setStop(current);
+    setCenter(current.coordinate);
+    setListOnly(false);
+  }
   function searchArea() {
     cancelLocationRequest();
     setSearchCenter(viewport.current);
@@ -420,7 +496,7 @@ function MapsApp() {
           : tab === "transit"
             ? "Muoviti a Torino"
             : tab === "saved"
-              ? "I tuoi luoghi"
+              ? "I tuoi salvati"
               : query.trim()
                 ? `Risultati per “${query.trim()}”`
                 : category === "ristoranti"
@@ -433,6 +509,12 @@ function MapsApp() {
   const isSaved = selected
     ? saved.some((item) => item.id === selected.id)
     : false;
+  const savedJourneyVisible = !!route && (restoredRoute || (!!travel.journey && !!selected
+    && travel.journey.plan.id === route.id && travel.journey.plan.fetchedAt === route.fetchedAt
+    && routeQueryKey(travel.journey.query) === routeQueryKey({ from: origin, to: selected.coordinate, mode: routeMode, transitTime })));
+  const journeySaveError = savedTravelFailureMessage(travel.journeyFailure);
+  const stopSaveError = savedTravelFailureMessage(travel.stopsFailure);
+  const stopSaved = !!stop && travel.stops.some(entry => entry.current?.id === stop.id);
   const routeGeometry = useMemo<LineString | null>(
     () =>
       route && route.geometry.length > 1
@@ -462,9 +544,12 @@ function MapsApp() {
         kind: "place",
         label: selected.name,
       });
+    if (stop && !markers.some(item => item.id === stop.id)) markers.push({
+      id: stop.id, coordinate: tuple(stop.coordinate), kind: "stop", label: stop.name,
+    });
 
     return markers;
-  }, [tab, stops, shownPlaces, selected]);
+  }, [tab, stops, shownPlaces, selected, stop]);
 
   return (
     <SafeAreaView className="flex-1 bg-white" edges={["top", "bottom"]}>
@@ -708,6 +793,7 @@ function MapsApp() {
                         setRouteView(false);
                         resetRoutes();
                         setPickingOrigin(false);
+                        if (selected?.id === "saved-journey-destination") setSelected(null);
                       } else {
                         setSelected(null);
                         setStop(null);
@@ -718,7 +804,7 @@ function MapsApp() {
                   >
                     <Icon name="arrow-back" size={17} color={colors.blue} />
                     <Text className="text-sm font-semibold text-[#2359D7]">
-                      {privacy && routeView ? "Percorso" : routeView || (privacy && selected) ? "Luogo" : privacy && stop ? "Fermata" : "Esplora"}
+                      {privacy && routeView ? "Percorso" : routeView && selected?.id === "saved-journey-destination" ? "Salvati" : routeView || (privacy && selected) ? "Luogo" : privacy && stop ? "Fermata" : tab === "saved" ? "Salvati" : tab === "transit" ? "Trasporti" : "Esplora"}
                     </Text>
                   </Pressable>
                 ) : null}
@@ -755,6 +841,7 @@ function MapsApp() {
           </View>
 
           <ScrollView
+            ref={detailScroll}
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={{ paddingBottom: 24 }}
           >
@@ -771,6 +858,7 @@ function MapsApp() {
               <PrivacyContent onLink={openLink} />
             ) : routeView && selected ? (
               <View className="gap-4 p-5">
+                {savedJourneyVisible ? <Notice text="Viaggio salvato · da aggiornare" /> : null}
                 <View className="rounded-2xl bg-[#F3F6FA] p-4">
                   <Text className="text-xs text-[#59667A]">Da</Text>
                   <Text className="mt-1 font-semibold text-[#17243C]">
@@ -831,6 +919,7 @@ function MapsApp() {
                 </View>
                 {routeMode === "transit" ? (
                   <TransitTimeForm
+                    key={JSON.stringify(transitTime)}
                     value={transitTime}
                     disabled={routing || originPending || pickingOrigin}
                     onSubmit={(value) => { setTransitTime(value); refreshRoutes(); }}
@@ -848,10 +937,11 @@ function MapsApp() {
                     error={routeError}
                     now={now}
                     query={transitTime}
+                    saved={savedJourneyVisible}
                   />
-                ) : routing || originPending ? (
+                ) : (routing && !route) || originPending ? (
                   <Loading label="Calcolo del percorso…" />
-                ) : routeError ? (
+                ) : routeError && !route ? (
                   <Notice
                     danger
                     text={routeError}
@@ -860,6 +950,9 @@ function MapsApp() {
                   />
                 ) : route ? (
                   <>
+                    <Text className="text-xs leading-5 text-[#59667A]">Consultato il {journeyDate(route.fetchedAt)} alle {journeyTime(route.fetchedAt)}. {savedJourneyVisible ? "Da aggiornare." : ""}</Text>
+                    {routeError ? <Notice danger text={`Aggiornamento non riuscito. ${routeError} Il percorso precedente resta visibile.`} /> : null}
+                    <Button secondary icon="refresh-outline" loading={routing} onPress={refreshRoutes}>Ricalcola percorso</Button>
                     <View className="flex-row items-baseline gap-3">
                       <Text className="text-3xl font-bold text-[#2359D7]">
                         {duration(route.durationSeconds)}
@@ -901,10 +994,23 @@ function MapsApp() {
                       </View>
                     ))}
                     <Text className="text-xs leading-5 text-[#59667A]">
-                      Percorso: {route.source}. Dati © OpenStreetMap
+                      Pianificazione del viaggio, senza guida vocale. Percorso: {route.source}. Dati © OpenStreetMap
                       contributors.
                     </Text>
                   </>
+                ) : null}
+                {route && !pickingOrigin && !originPending ? (
+                  <View className="gap-3 border-t border-[#E2E8F0] pt-4">
+                    <Text className="text-sm leading-6 text-[#59667A]">Una copia locale del percorso selezionato, con le tratte e gli orari consultati. Aggiornare i percorsi non sostituisce la copia salvata.</Text>
+                    {journeySaveError ? <Notice danger text={journeySaveError} /> : null}
+                    {savedJourneyVisible ? (
+                      <Button secondary icon="trash-outline" loading={journeyBusy} onPress={clearSavedJourney}>Rimuovi viaggio salvato</Button>
+                    ) : (
+                      <Button icon="bookmark-outline" loading={journeyBusy} disabled={routing || travel.journeyStatus === "loading"} onPress={saveSelectedJourney}>
+                        {travel.journey || travel.journeyStatus === "unavailable" ? "Sostituisci viaggio salvato" : "Salva viaggio selezionato"}
+                      </Button>
+                    )}
+                  </View>
                 ) : null}
               </View>
             ) : selected ? (
@@ -981,6 +1087,12 @@ function MapsApp() {
               </View>
             ) : stop ? (
               <View className="gap-4 p-5">
+                {stopSaveError ? <Notice danger text={stopSaveError} /> : null}
+                <Button
+                  secondary icon={stopSaved ? "bookmark" : "bookmark-outline"}
+                  loading={stopsBusy} disabled={travel.stopsStatus === "loading"}
+                  onPress={() => mutateSavedStops(() => stopSaved ? savedTravel.removeStop(stop.id) : savedTravel.saveStop(stop.id))}
+                >{stopSaved ? "Rimuovi fermata salvata" : "Salva fermata"}</Button>
                 <View className="flex-row items-center justify-between">
                   <Text className="flex-1 text-sm text-[#59667A]">
                     Fermata {stop.code}
@@ -1125,6 +1237,13 @@ function MapsApp() {
               </>
             ) : (
               <>
+                {tab === "saved" ? <SavedTravelPanel
+                  snapshot={travel} journeyBusy={journeyBusy} stopsBusy={stopsBusy}
+                  onOpenJourney={openSavedJourney} onClearJourney={clearSavedJourney}
+                  onOpenStop={openSavedStop}
+                  onRemoveStop={id => mutateSavedStops(() => savedTravel.removeStop(id))}
+                  onClearStops={() => mutateSavedStops(() => savedTravel.clearStops())}
+                /> : null}
                 {searching && tab === "explore" ? (
                   <View className="flex-row items-center gap-2 px-5 pt-3">
                     <ActivityIndicator size="small" color={colors.blue} />
@@ -1381,7 +1500,7 @@ function PrivacyContent({ onLink }: { onLink: (url: string) => void }) {
   return (
     <View className="gap-4 p-5">
       <Text className="text-base leading-6 text-[#17243C]">
-        Nessun account. I luoghi salvati restano sul dispositivo. La posizione
+        Nessun account. Viaggi, fermate e luoghi salvati restano sul dispositivo. La posizione
         si attiva quando la richiedi.
       </Text>
       <Text className="text-sm leading-6 text-[#59667A]">
@@ -1405,7 +1524,7 @@ function PrivacyContent({ onLink }: { onLink: (url: string) => void }) {
           </Text>
         </View>
       ))}
-      <Notice text="Mappe online, arrivi in tempo reale e percorsi richiedono una connessione. La disponibilità dei servizi pubblici può variare." />
+      <Notice text="Mappe online, arrivi in tempo reale e calcolo dei percorsi richiedono una connessione. Puoi riaprire la copia di un viaggio salvato senza connessione; i suoi orari sono da aggiornare. La disponibilità dei servizi pubblici può variare." />
       <Text className="mt-2 text-lg font-semibold text-[#17243C]">
         Licenze dei dati
       </Text>

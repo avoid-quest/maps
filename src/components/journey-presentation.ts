@@ -1,4 +1,4 @@
-import type { RouteLeg, TransitTime } from '../domain/types';
+import type { RouteLeg, TransitTime, TravelMode } from '../domain/types';
 import { resolveTransitTime, romeDateTime } from '../services/transit-time';
 
 export const journeyTime = (value?: number) => value == null ? 'Orario non disponibile' :
@@ -54,11 +54,17 @@ export function transitTimeLabel(value: TransitTime): string {
   return value.kind === 'now' ? 'Partenza adesso' :
     `${value.kind === 'arrive-by' ? 'Arrivo entro' : 'Partenza alle'} ${value.time.slice(0, 5)} del ${italianDate(value.date)}`;
 }
-export function journeyTimingLabel(leg: RouteLeg, fetchedAt: number, now: number): string {
+export function savedJourneyTimeLabel(value: TransitTime, fetchedAt: number, mode: TravelMode = 'transit'): string | null {
+  if (mode !== 'transit') return null;
+  return value.kind === 'now'
+    ? `Partenza richiesta il ${journeyDate(fetchedAt)} alle ${journeyTime(fetchedAt)} (ora della consultazione)`
+    : transitTimeLabel(value);
+}
+export function journeyTimingLabel(leg: RouteLeg, fetchedAt: number, now: number, saved = false): string {
   if (leg.timingStatus === 'cancelled') return 'Corsa cancellata';
   if (leg.timingStatus === 'scheduled') return 'Orario programmato';
   if (leg.timingStatus === 'unknown') return 'Stato dell’orario non disponibile';
-  return now - fetchedAt > 120_000 ? 'Previsione MATO da aggiornare' : 'Previsione MATO';
+  return saved || now - fetchedAt > 120_000 ? 'Previsione MATO da aggiornare' : 'Previsione MATO';
 }
 export function waitBefore(leg: RouteLeg, previous?: RouteLeg): number {
   return leg.departureAt != null && previous?.arrivalAt != null

@@ -8,6 +8,7 @@ const states = {
   map: ['loaded', 'failed'],
   location: ['requested', 'approximate', 'precise', 'granted', 'denied', 'fix', 'timeout', 'unavailable'],
   favorites: ['read-failed', 'write-failed'],
+  'saved-travel': ['read-failed', 'write-failed', 'remove-failed', 'invalid'],
   clipboard: ['copied', 'failed'],
   service: ['invalid', 'unavailable', 'network', 'rate-limit'],
   request: ['ok', 'network', 'timeout', 'cancelled', 'rate-limit', 'unavailable', 'invalid'],

@@ -10,6 +10,8 @@ Source `scripts/toolchain-env.sh` if using the prepared local Node/Android tools
 
 The release build generates `android/` through Expo prebuild and invokes Gradle locally. It bundles JavaScript and assets into the APK, so installation requires neither Metro nor an Expo account. Generated native directories and build outputs are ignored by Git. Native customizations belong in config plugins.
 
+The build script supplies a temporary Gradle init script that appends Clang `-ffile-prefix-map` flags for the checkout, Gradle cache and local home prefixes. These paths come from the current build environment and map to relative paths in C/C++ source strings. This removes local compiler-header paths without excluding native sources or packaging metadata. The init script is deleted on exit. Scan the resulting APK for local paths as part of release inspection; JavaScript and prebuilt dependencies require their own content checks.
+
 ## Signing and updates
 
 The release signing key lives outside the checkout at `~/.local/share/avoid-maps/signing/release.jks`; its local password configuration is `release.properties` in the same directory. Back up both files privately. Keeping this key allows future APKs to update the app while retaining favourites. Losing it requires uninstalling the app before installing a newly signed build, which removes app data.

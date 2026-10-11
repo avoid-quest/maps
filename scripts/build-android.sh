@@ -14,7 +14,32 @@ if git diff --quiet && git diff --cached --quiet && [[ -z "$(git ls-files --othe
   export AVOID_MAPS_BUILD_REVISION
 fi
 node node_modules/expo/bin/cli prebuild --platform android --no-install
-(cd android && ./gradlew assembleRelease -PreactNativeArchitectures="${AVOID_MAPS_ARCH:-arm64-v8a}" --no-daemon --max-workers=4)
+NATIVE_PATH_INIT="$(mktemp "${TMPDIR:-/tmp}/maps-native-paths.XXXXXX.gradle")"
+trap 'rm -f "$NATIVE_PATH_INIT"' EXIT
+cat > "$NATIVE_PATH_INIT" <<'GRADLE'
+gradle.beforeProject { project ->
+    project.plugins.withId('com.android.application') {
+        project.extensions.getByName('androidComponents').finalizeDsl { android ->
+            def prefixes = [project.rootDir.parentFile.canonicalPath,
+                            gradle.gradleUserHomeDir.canonicalPath,
+                            System.getProperty('user.home')].unique()
+            if (prefixes.any { it == null || it.isEmpty() || (it =~ /[\x00-\x1f\x7f;=]/).find() }) {
+                throw new GradleException('Native path mapping requires build paths without control characters, semicolons or equals signs.')
+            }
+            def mappings = prefixes.collect { prefix ->
+                // CMake passes these flags through Ninja and then a POSIX shell.
+                // Quote the whole argument, escape shell metacharacters and double Ninja dollars.
+                def escaped = prefix.replace('\\', '\\\\').replace('"', '\\"')
+                                    .replace('$', '\\$$').replace('`', '\\`')
+                '"-ffile-prefix-map=' + escaped + '=."'
+            }
+            android.defaultConfig.externalNativeBuild.cmake.cFlags(*mappings)
+            android.defaultConfig.externalNativeBuild.cmake.cppFlags(*mappings)
+        }
+    }
+}
+GRADLE
+(cd android && ./gradlew assembleRelease -PreactNativeArchitectures="${AVOID_MAPS_ARCH:-arm64-v8a}" --init-script "$NATIVE_PATH_INIT" --no-daemon --max-workers=4)
 mkdir -p artifacts
 APK_PATH="artifacts/avoid-maps.apk"
 if [[ "${AVOID_MAPS_ARCH:-arm64-v8a}" != "arm64-v8a" ]]; then APK_PATH="artifacts/avoid-maps-${AVOID_MAPS_ARCH}.apk"; fi
