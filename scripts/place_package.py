@@ -36,6 +36,12 @@ def require(condition, message):
         raise ValidationError(message)
 
 
+def validate_schema_header(document, label):
+    require(isinstance(document, dict) and type(document.get("schemaVersion")) is int
+            and document["schemaVersion"] == SCHEMA_VERSION,
+            f"unsupported {label} schemaVersion")
+
+
 def encoded(value):
     return (json.dumps(value, ensure_ascii=False, separators=(",", ":"),
                        allow_nan=False) + "\n").encode("utf-8")
@@ -80,7 +86,7 @@ def validate_bounds(bounds):
 
 
 def validate_config(config):
-    require(config.get("schemaVersion") == SCHEMA_VERSION, "unsupported package schemaVersion")
+    validate_schema_header(config, "package")
     require(config.get("transformVersion") == TRANSFORM_VERSION, "unsupported transformVersion")
     require(config.get("inputSchema") == INPUT_SCHEMA, "unsupported inputSchema")
     release = config.get("release")
@@ -251,8 +257,7 @@ def merge_places(main, supplements, closed, bounds, baseline_ids):
 
 def apply_exclusions(places, exclusions):
     """Apply reviewed source conflicts only when the recorded original fields match."""
-    require(isinstance(exclusions, dict) and exclusions.get("schemaVersion") == 1,
-            "unsupported exclusions schemaVersion")
+    validate_schema_header(exclusions, "exclusions")
     require(isinstance(exclusions.get("version"), str) and exclusions["version"], "missing exclusions version")
     require(isinstance(exclusions.get("records"), list), "invalid exclusions records")
     by_id = {place["id"]: place for place in places}
@@ -299,7 +304,7 @@ def validate_phone_correction(correction):
 
 
 def phone_corrections(overrides):
-    require(isinstance(overrides, dict) and overrides.get("schemaVersion") == 1, "unsupported phone overrides schemaVersion")
+    validate_schema_header(overrides, "phone overrides")
     require(isinstance(overrides.get("version"), str) and overrides["version"], "missing phone overrides version")
     require(isinstance(overrides.get("records"), list), "invalid phone overrides records")
     corrections = {}
@@ -367,7 +372,10 @@ def reference(value, array, label):
 
 
 def decode_package(package):
-    require(package.get("schemaVersion") == SCHEMA_VERSION, "unsupported package schemaVersion")
+    validate_schema_header(package, "package")
+    for field in ("supplement", "exclusions"):
+        if field in package:
+            validate_schema_header(package[field], field)
     require(package.get("transformVersion") == TRANSFORM_VERSION, "unsupported transformVersion")
     require(package.get("columns") == COLUMNS, "invalid compact columns")
     validate_bounds(package.get("bounds"))
@@ -439,13 +447,14 @@ def prepare_places(raw_path, config_path):
     raw = checked_json(raw_path, config.get("inputSha256"), "raw input")
     supplement_meta = checked_json(config_path.parent / config["supplementMetadata"],
                                    config.get("supplementMetadataSha256"), "supplement metadata")
-    require(supplement_meta.get("schemaVersion") == 1, "unsupported supplement schemaVersion")
+    validate_schema_header(supplement_meta, "supplement")
     require(isinstance(supplement_meta.get("version"), str) and supplement_meta["version"], "missing supplement version")
     require(supplement_meta.get("sha256") == config.get("supplementSha256"), "supplement metadata hash mismatch")
     supplements = checked_json(config_path.parent / config["supplements"], config["supplementSha256"], "supplement")
     require(len(supplements) == supplement_meta.get("recordCount"), "supplement count mismatch")
     baseline = checked_json(config_path.parent / config["baseline"], config.get("baselineSha256"), "baseline")
-    require(baseline.get("schemaVersion") == 1 and isinstance(baseline.get("ids"), list), "invalid baseline schema")
+    validate_schema_header(baseline, "baseline")
+    require(isinstance(baseline.get("ids"), list), "invalid baseline IDs")
     baseline_ids = baseline["ids"]
     require(all(isinstance(identity, str) and identity.startswith("overture:") for identity in baseline_ids)
             and len(set(baseline_ids)) == len(baseline_ids), "invalid baseline IDs")

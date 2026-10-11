@@ -85,6 +85,56 @@ def fixture(directory, rows=None, supplements=None, baseline_ids=None):
 
 
 class PlacePackageTests(unittest.TestCase):
+    def test_package_schema_headers_require_integer_version_one(self):
+        place = normalized()
+        package = package_for([place])
+        package.update(supplement={"schemaVersion": 1}, exclusions={"schemaVersion": 1},
+                       phoneOverrides={"schemaVersion": 1, "version": "2026-10-11.1", "records": []})
+        self.assertEqual(decode_package(package), [place])
+        for field in (None, "supplement", "exclusions", "phoneOverrides"):
+            for version in (True, False, 1.0, "1", 0, 2):
+                with self.subTest(header=field or "package", version=repr(version)):
+                    malformed = copy.deepcopy(package)
+                    header = malformed if field is None else malformed[field]
+                    header["schemaVersion"] = version
+                    with self.assertRaisesRegex(ValidationError, "schemaVersion"):
+                        decode_package(malformed)
+
+    def test_source_and_companion_schema_headers_fail_before_cli_output(self):
+        companions = {
+            "source.json": None,
+            "supplement-meta.json": "supplementMetadataSha256",
+            "baseline.json": "baselineSha256",
+            "exclusions.json": "exclusionsSha256",
+            "phone-overrides.json": "phoneOverridesSha256",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            folder = pathlib.Path(directory)
+            config = fixture(folder)
+            validate_config(config)
+            self.assertEqual(len(decode_package(json.loads(prepare_places(folder / "raw.json", folder / "source.json")[0]))), 2)
+            for filename, hash_field in companions.items():
+                for version in (True, False, 1.0, "1", 0, 2):
+                    with self.subTest(header=filename, version=repr(version)):
+                        config = fixture(folder)
+                        header = read_json(folder / filename)
+                        header["schemaVersion"] = version
+                        payload = encoded(header)
+                        (folder / filename).write_bytes(payload)
+                        if hash_field:
+                            # Keep integrity pins valid so rejection exercises header validation.
+                            config[hash_field] = sha256(payload)
+                            (folder / "source.json").write_bytes(encoded(config))
+                        output = folder / "output"
+                        output.mkdir(exist_ok=True)
+                        sentinel = output / "places.compact.json"
+                        sentinel.write_bytes(b"unchanged existing package\n")
+                        result = self.cli(folder, "--places", str(folder / "raw.json"), "--output", str(output))
+                        self.assertNotEqual(result.returncode, 0)
+                        self.assertIn("schemaVersion", result.stderr)
+                        self.assertEqual(sentinel.read_bytes(), b"unchanged existing package\n")
+                        self.assertEqual(list(output.iterdir()), [sentinel])
+
     def test_evidenced_exclusion_requires_exact_original_fields_and_preserves_other_records(self):
         a, b = normalized(), normalized("b")
         exclusions = {"schemaVersion": 1, "version": "2026-10-11.1", "records": [{
