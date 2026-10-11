@@ -1,6 +1,6 @@
 # From the first Android device test to an everyday maps app
 
-Audit: 2026-10-11. Released baseline: 0.1.6 / Android code 7, including local journey/stop persistence, the broader compact place package and reproducible compiler path mapping. Active-view transit refresh is in development; manual acceptance, final review and a new inspected release APK remain pending. Reassess the affected rows after implementation changes. Versioned APK and native evidence belong in [delivery.md](delivery.md); installation belongs in [android.md](android.md).
+Audit: 2026-10-11. Released baseline: 0.1.6 / Android code 7, including local journey/stop persistence, the broader compact place package and reproducible compiler path mapping. Active-view transit refresh is in development; simulated browser acceptance is complete, while final independent rechecks and a new inspected release APK remain pending. Reassess the affected rows after implementation changes. Versioned APK and native evidence belong in [delivery.md](delivery.md); installation belongs in [android.md](android.md).
 
 Version 0.1.2 installed and rendered its bundled main interface with Metro stopped on a Google-free software emulator. An Android system-process ANR blocked healthy interaction checks; the map stayed gray/loading. **Native map/clipboard/location acceptance and physical-device runtime remain unverified.** The main remaining work is retaining useful data during active transit refresh, broadening discovery and place details, and implementing active navigation. Expo/NativeWind remains the selected foundation.
 
@@ -41,7 +41,7 @@ Native save/restore/contact/map/location/lifecycle, force-stop persistence, acce
 
 ## Active-view transit refresh: in development
 
-This scope targets foreground refresh and correct retrieval age. Source integration, manual acceptance, independent review and a new release remain pending. Journey-to-GTT stop-link UI is deferred to a separate small PR; it is not included in this scope.
+This scope targets foreground refresh and correct retrieval age. Source integration and simulated browser acceptance are complete; final independent rechecks and a new release remain pending. Journey-to-GTT stop-link UI is deferred to a separate small PR; it is not included in this scope.
 
 - **Preserve retrieval age.** GTT cache hits retain the original `fetchedAt`; departure windows and prediction age are evaluated at the current time. Arrivals and alerts have independent retrieval timestamps, source timestamps, errors and retained snapshots. Failure never renews age or turns unavailable alerts into an empty successful result.
 - **Refresh only the active view.** Target intervals are 60 seconds for arrivals, 300 seconds for alerts and 120 seconds for transit plans. Roads have no automatic refresh. Saved restoration makes no provider/location call and stays unarmed until explicit refresh of that query; automatic updates never write saved bytes.
@@ -49,7 +49,9 @@ This scope targets foreground refresh and correct retrieval age. Source integrat
 - **Bound requests and retain data.** Manual/timer requests coalesce while pending; resource backoff is capped at 15 minutes and manual refresh respects the existing rate-limit cooldown. Same-query failure retains displayed data and its age; arrivals and alerts can succeed or fail independently. Cache hits cannot create a retry loop.
 - **Keep the selected preview explicit.** If its stable ID disappears from fresh alternatives, retain its old geometry/time with a stale notice. Only explicit selection or reappearance of that ID changes the displayed itinerary. Saving that retained selection is disabled until a fresh alternative is chosen; an existing saved snapshot remains untouched.
 
-Acceptance requires deterministic cadence/cache/identity/lifecycle tests, simulated browser request counters and the affected Italian/narrow-layout flows, plus `bun run verify` and independent review. Android foreground/background/screen-lock/return, real-provider cadence and battery behavior remain device checks; browser fixtures do not establish those outcomes.
+The working source passes `bun run verify` with typecheck, zero-warning lint and 161 tests. Simulated feeds and virtual request timers at 320 pixels cover unarmed saved restoration, selected-ID disappearance/reappearance and explicit choice, unchanged saved bytes, independent resource cadence/failure retention, Privacy/background cancellation, bounded resume and zero road automatic requests. Basemap requests remained enabled; document width matched the viewport.
+
+Fix-specific browser checks confirm that a still-young manual cache hit preserves its original deadline. A source timestamp aged from 290 to 310 seconds produces the stale-source warning on the real 30-second display tick, with no extra alert fetch or changed retrieval text. Reaching the original deadline makes the next alert request; fresh source data clears the stale warning and updates retrieval text. Exact cadence is established by deterministic controller tests. Final independent rechecks and the signed release remain pending. Android foreground/background/screen-lock/return, real-provider cadence and battery behavior remain device checks; browser fixtures do not establish those outcomes.
 
 ## First Android device session: acceptance evidence
 

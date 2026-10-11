@@ -4,6 +4,7 @@ import staticStops from '../data/gtt-stops.json';
 import staticLookup from '../data/gtt-trips.json';
 import manifest from '../data/manifest.json';
 import type { Coordinate, Departure, DepartureBoard, Stop, TransitAlertSnapshot } from '../domain/types';
+import { transitAlertWarnings } from '../domain/transit-alert-freshness';
 import { distanceMeters } from './geo';
 import { checkAbort, fetchResponse, parseServiceData, requestQueue, ServiceError } from './network';
 import { diagnostics } from './diagnostics';
@@ -104,9 +105,8 @@ export async function getTransitAlerts(stopId?: string, options: { signal?: Abor
   if (stopId !== undefined && !stop) throw new ServiceError('Fermata non presente nel pacchetto installato.', 'invalid');
   const { feed, fetchedAt } = await fetchFeed('alerts.aspx', 5 * 60_000, options.signal); const now = Date.now();
   checkAbort(options.signal);
-  const sourceUpdatedAt = epoch(feed.header?.timestamp); const warnings: string[] = [];
-  if (!sourceUpdatedAt || sourceUpdatedAt > now + 60_000) warnings.push('La data di aggiornamento degli avvisi GTT non è verificabile.');
-  else if (now - sourceUpdatedAt > 5 * 60_000) warnings.push('Il feed degli avvisi GTT non è aggiornato: la loro applicabilità attuale non è confermata.');
+  const sourceUpdatedAt = epoch(feed.header?.timestamp);
+  const warnings = transitAlertWarnings(sourceUpdatedAt, now);
   const routeIds = stop ? new Set(Object.values(lookup.trips).filter(t => stop.lines.includes(t[0])).map(t => t[2])) : undefined;
   const alerts = (feed.entity ?? []).flatMap(entity => {
     const alert = entity.alert; if (!alert || entity.isDeleted) return [];

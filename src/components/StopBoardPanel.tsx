@@ -3,6 +3,7 @@ import type { Departure, Stop } from '../domain/types';
 import { colors } from '../theme/tokens';
 import { Button, EmptyState, IconButton, Notice } from './Controls';
 import { displayedDepartureStatus } from './departure-status';
+import { transitAlertWarnings } from '../domain/transit-alert-freshness';
 import { journeyDate, journeyDistance, journeyTime } from './journey-presentation';
 import type { useStopBoard } from './useStopBoard';
 
@@ -34,7 +35,7 @@ export function StopBoardPanel({ stop, state, now, onLink, onDirections }: {
     {alerts ? <>
       <Text className="text-xs leading-5 text-[#59667A]">Avvisi consultati il {journeyDate(alerts.fetchedAt)} alle {journeyTime(alerts.fetchedAt)} · {alerts.source}</Text>
       {now - alerts.fetchedAt > 300_000 && !alertsError ? <Notice text="Avvisi da aggiornare: la loro validità attuale non è verificata." /> : null}
-      {alerts.warnings.map((warning, index) => <Notice key={index} text={warning} />)}
+      {transitAlertWarnings(alerts.sourceUpdatedAt, now, alerts.warnings).map((warning, index) => <Notice key={index} text={warning} />)}
       {alerts.alerts.length ? alerts.alerts.map(alert => <View key={alert.id} className="rounded-2xl bg-[#FFF5DE] p-4">
         <Text className="font-semibold text-[#17243C]">{alert.title}</Text>
         <Text className="mt-2 text-sm leading-5 text-[#59667A]">{alert.description}</Text>

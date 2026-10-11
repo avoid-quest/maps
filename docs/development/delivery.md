@@ -14,6 +14,8 @@ Application id: `quest.avoid.maps`. Released [version 0.1.6](https://github.com/
 
 All 698 APK ZIP entries passed CRC and signing-material/private-metadata/local-path scans with zero hits. Version 0.1.6 makes compiler path mapping part of the normal build, quoting complete arguments for the pinned CMake/Ninja/shell path and rejecting unsupported delimiters or controls with a fixed error. This replaces 0.1.5's generated-only build override. The [delivery evidence](https://github.com/avoid-quest/maps/pull/6#issuecomment-6112862714) records the audit and anonymous verification. Keep release credentials outside Git and preserve the signing key across upgrades.
 
+Active-view refresh has completed source/fixture and simulated browser checks, including both review fixes; [the roadmap](roadmap.md#active-view-transit-refresh-in-development) records that development evidence. Final independent rechecks and a new inspected release APK remain pending; the 0.1.6 artifact above does not contain this scope.
+
 ## Native evidence and checks outstanding
 
 On 2026-10-11, a Google-free AOSP API 36 x86_64 software emulator booted and installed the separately audited 0.1.2/code 3 APK. The installed version was confirmed; the Google Play services package was absent. With Metro stopped and no ADB reverse mappings, a cold ActivityManager launch exited successfully with `Status: ok`.

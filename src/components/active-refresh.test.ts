@@ -117,7 +117,29 @@ test('wall-clock jumps cannot change waiting poll or cooldown deadlines', async 
   assert.equal(h.clock.nextDue, due); assert.equal(h.requests.length, 2);
 });
 
-test('a first cache hit retains original cadence; unchanged or overdue fetchedAt never creates an immediate retry loop', async () => {
+test('early manual cache hits keep the original alert deadline, then overdue cache hits wait a full interval', async () => {
+  const h = harness(REFRESH_INTERVALS.alerts);
+  const fetchedAt = h.clock.wall;
+  h.open(); await h.success('initial', fetchedAt);
+  assert.equal(h.clock.nextDue, 300_000);
+
+  for (const refreshAt of [60_000, 299_000]) {
+    h.clock.advance(refreshAt - h.clock.mono);
+    h.control.refresh(); await h.success('same cached alerts', fetchedAt);
+    assert.equal(h.clock.nextDue, 300_000, 'A manual cache hit cannot postpone retrieval expiry');
+  }
+
+  assert.equal(h.requests.length, 3);
+  h.clock.advance(999); assert.equal(h.requests.length, 3);
+  h.clock.advance(1); assert.equal(h.requests.length, 4);
+  await h.success('unchanged at expiry', fetchedAt);
+  assert.equal(h.clock.nextDue, 600_000, 'An unchanged expired result cannot spin');
+  h.clock.advance(300_000); await h.success('unchanged overdue', fetchedAt);
+  assert.equal(h.requests.length, 5);
+  assert.equal(h.clock.nextDue, 900_000);
+});
+
+test('a first cache hit retains original cadence; overdue fetchedAt never creates an immediate retry loop', async () => {
   const h = harness(); h.open(); const cachedAt = h.clock.wall - 30_000;
   await h.success('cached', cachedAt); assert.equal(h.clock.nextDue, 30_000);
   h.clock.advance(30_000); await h.success('same cached value', cachedAt);

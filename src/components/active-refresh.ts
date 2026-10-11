@@ -54,7 +54,6 @@ export function createActiveRefresh<T>(options: ActiveRefreshOptions<T>): Active
   let pollAt = 0;
   let retryAt = 0;
   let failures = 0;
-  let latestFetchedAt: number | undefined;
   let loading = false;
   let inFlight: { abort: AbortController; generation: number } | undefined;
 
@@ -96,13 +95,11 @@ export function createActiveRefresh<T>(options: ActiveRefreshOptions<T>): Active
     if (interval === null) return completedAt;
     const fetchedAt = result.fetchedAt;
     const age = Number.isFinite(fetchedAt) ? Math.max(0, timing.wallNow() - fetchedAt) : Infinity;
-    const unchanged = latestFetchedAt !== undefined && fetchedAt <= latestFetchedAt;
     const remaining = interval - age;
-    // Preserve a first cache hit's remaining cadence. Unchanged, overdue or invalid
-    // retrieval times wait a full interval, so old cache entries cannot spin.
-    const delay = unchanged || !Number.isFinite(remaining) || remaining <= 0
+    // Every still-young cache hit keeps the original retrieval cadence. Overdue
+    // or invalid retrieval times wait a full interval, so old entries cannot spin.
+    const delay = !Number.isFinite(remaining) || remaining <= 0
       ? interval : Math.max(CACHE_RETRY_FLOOR_MS, remaining);
-    if (Number.isFinite(fetchedAt)) latestFetchedAt = Math.max(latestFetchedAt ?? -Infinity, fetchedAt);
     return completedAt + delay;
   }
   function start() {
