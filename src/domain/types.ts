@@ -1,5 +1,6 @@
 export interface Coordinate { latitude: number; longitude: number }
 export type TravelMode = 'walk' | 'bicycle' | 'car' | 'transit';
+export type TransitTime = { kind: 'now' } | { kind: 'depart-at' | 'arrive-by'; date: string; time: string };
 export interface Place {
   id: string; name: string; coordinate: Coordinate; category?: string; address?: string;
   website?: string; phone?: string; source: string; attributions: string[];
@@ -7,13 +8,21 @@ export interface Place {
 }
 export type SavedPlace = Place;
 export interface RouteStep { instruction: string; distanceMeters: number; coordinate?: Coordinate }
+export interface RouteStop {
+  id: string; name: string; code?: string; coordinate?: Coordinate; platformCode?: string;
+}
 export interface RouteLeg {
-  mode: string; line?: string; headsign?: string; from: string; to: string;
+  id: string; mode: string; line?: string; headsign?: string; from: string; to: string;
+  fromStop?: RouteStop; toStop?: RouteStop; tripId?: string; serviceDate?: string;
+  transitLeg: boolean; interlineWithPreviousLeg: boolean;
+  timingStatus: 'scheduled' | 'prediction' | 'cancelled' | 'unknown';
   durationSeconds: number; distanceMeters: number; departureAt?: number; arrivalAt?: number;
   realTime: boolean; geometry: Coordinate[]; steps: RouteStep[];
 }
 export interface RoutePlan {
   id: string; mode: TravelMode; distanceMeters: number; durationSeconds: number;
+  departureAt?: number; arrivalAt?: number;
+  walkingDurationSeconds: number; walkingDistanceMeters: number; waitingDurationSeconds: number; transferCount: number;
   geometry: Coordinate[]; legs: RouteLeg[]; source: string; warnings: string[]; fetchedAt: number;
 }
 export interface Stop { id: string; code: string; name: string; coordinate: Coordinate; lines: string[]; distanceMeters?: number }

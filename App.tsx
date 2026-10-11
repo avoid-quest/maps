@@ -32,9 +32,9 @@ import type {
   Departure,
   DepartureBoard,
   Place,
-  RoutePlan,
   Stop,
   TransitAlert,
+  TransitTime,
   TravelMode,
 } from "./src/domain/types";
 import {
@@ -42,7 +42,6 @@ import {
   getNearbyStops,
   getTransitAlerts,
   loadSavedPlaces,
-  planRoute,
   removeSavedPlace,
   savePlace,
   searchPlaces,
@@ -53,6 +52,8 @@ import {
 } from "./src/services";
 import { getCurrentLocation } from "./src/platform/location";
 import { DiagnosticsPanel } from "./src/components/DiagnosticsPanel";
+import { JourneyResults, TransitTimeForm } from "./src/components/JourneyPlanner";
+import { useRoutePlans } from "./src/components/useRoutePlans";
 
 const DOCKS: Coordinate = { latitude: 45.0937, longitude: 7.6832 };
 const tuple = (point: Coordinate): [number, number] => [
@@ -115,15 +116,19 @@ function MapsApp() {
   const [listOnly, setListOnly] = useState(false);
   const [privacy, setPrivacy] = useState(false);
   const [routeMode, setRouteMode] = useState<TravelMode>("walk");
-  const [routing, setRouting] = useState(false);
   const [originPending, setOriginPending] = useState(false);
   const [routeView, setRouteView] = useState(false);
-  const [route, setRoute] = useState<RoutePlan | null>(null);
-  const [routeError, setRouteError] = useState("");
+  const [transitTime, setTransitTime] = useState<TransitTime>({ kind: "now" });
   const [origin, setOrigin] = useState<Coordinate>(DOCKS);
   const [originLabel, setOriginLabel] = useState("Centro della mappa");
   const [pickingOrigin, setPickingOrigin] = useState(false);
-  const [retryRoute, setRetryRoute] = useState(0);
+  const { route, plans: routePlans, error: routeError, loading: routing, refresh: refreshRoutes, select: selectRoute, reset: resetRoutes } = useRoutePlans({
+    from: origin,
+    to: selected?.coordinate,
+    mode: routeMode,
+    transitTime,
+    enabled: routeView && !pickingOrigin && !originPending,
+  });
   const [stop, setStop] = useState<Stop | null>(null);
   const [board, setBoard] = useState<DepartureBoard | null>(null);
   const [alerts, setAlerts] = useState<TransitAlert[]>([]);
@@ -158,7 +163,7 @@ function MapsApp() {
         if (routeView) {
           cancelLocationRequest();
           setRouteView(false);
-          setRoute(null);
+          resetRoutes();
           return true;
         }
         if (selected || stop) {
@@ -178,7 +183,7 @@ function MapsApp() {
       },
     );
     return () => subscription.remove();
-  }, [pickingOrigin, privacy, routeView, selected, stop, listOnly, tab, cancelLocationRequest]);
+  }, [pickingOrigin, privacy, routeView, selected, stop, listOnly, tab, cancelLocationRequest, resetRoutes]);
   useEffect(() => {
     loadSavedPlaces()
       .then(setSaved)
@@ -233,42 +238,6 @@ function MapsApp() {
     };
   }, [query, category, searchCenter, retrySearch, tab]);
 
-  useEffect(() => {
-    if (!selected || !routeView || pickingOrigin || originPending) return;
-    const controller = new AbortController();
-    setRouting(true);
-    setRoute(null);
-    setRouteError("");
-    planRoute({
-      from: origin,
-      to: selected.coordinate,
-      mode: routeMode,
-      signal: controller.signal,
-    })
-      .then((value) => {
-        if (!controller.signal.aborted) setRoute(value);
-      })
-      .catch((error) => {
-        if (!controller.signal.aborted)
-          setRouteError(
-            error instanceof Error
-              ? error.message
-              : "Percorso non disponibile.",
-          );
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setRouting(false);
-      });
-    return () => controller.abort();
-  }, [
-    selected,
-    routeView,
-    origin,
-    routeMode,
-    retryRoute,
-    pickingOrigin,
-    originPending,
-  ]);
 
   useEffect(() => {
     if (!stop) return;
@@ -338,7 +307,7 @@ function MapsApp() {
     Keyboard.dismiss();
     setSelected(place);
     setRouteView(false);
-    setRoute(null);
+    resetRoutes();
     setCenter(place.coordinate);
     setListOnly(false);
     setStop(null);
@@ -350,7 +319,7 @@ function MapsApp() {
     setSelected(null);
     setStop(null);
     setRouteView(false);
-    setRoute(null);
+    resetRoutes();
     setPickingOrigin(false);
     setPrivacy(false);
   }
@@ -372,13 +341,12 @@ function MapsApp() {
     setSelected(null);
     setStop(null);
     setRouteView(false);
-    setRoute(null);
+    resetRoutes();
   }
   async function beginRoute(destination?: Place) {
     if (destination) openPlace(destination);
     const request = ++locationRequest.current;
-    setRoute(null);
-    setRouteError("");
+    resetRoutes();
     setOrigin(searchCenter);
     setOriginLabel("Centro dell’area esplorata");
     setRouteView(true);
@@ -446,7 +414,7 @@ function MapsApp() {
     : false;
   const routeGeometry = useMemo<LineString | null>(
     () =>
-      route
+      route && route.geometry.length > 1
         ? { type: "LineString", coordinates: route.geometry.map(tuple) }
         : null,
     [route],
@@ -490,11 +458,11 @@ function MapsApp() {
               <Text className="text-xl font-bold text-[#17243C]">Maps</Text>
             </View>
           ) : null}
-          <View className="min-h-12 flex-1 flex-row items-center rounded-2xl bg-[#F3F6FA] pl-4 pr-1">
+          <View className="min-h-12 min-w-0 flex-1 flex-row items-center rounded-2xl bg-[#F3F6FA] pl-4 pr-1">
             <Icon name="search-outline" color={colors.muted} size={21} />
             <TextInput
               accessibilityLabel="Cerca luoghi, indirizzi o attività"
-              className="min-h-12 flex-1 px-3 text-base text-[#17243C]"
+              className="min-h-12 min-w-0 flex-1 px-3 text-base text-[#17243C]"
               placeholder="Dove vuoi andare?"
               placeholderTextColor={colors.muted}
               value={query}
@@ -507,7 +475,7 @@ function MapsApp() {
                 setSelected(null);
                 setStop(null);
                 setRouteView(false);
-                setRoute(null);
+                resetRoutes();
                 setPrivacy(false);
               }}
               onSubmitEditing={() => {
@@ -716,7 +684,7 @@ function MapsApp() {
                       if (routeView) {
                         cancelLocationRequest();
                         setRouteView(false);
-                        setRoute(null);
+                        resetRoutes();
                         setPickingOrigin(false);
                       } else {
                         setSelected(null);
@@ -834,8 +802,26 @@ function MapsApp() {
                     </Pressable>
                   ))}
                 </View>
+                {routeMode === "transit" ? (
+                  <TransitTimeForm
+                    value={transitTime}
+                    disabled={routing || originPending || pickingOrigin}
+                    onSubmit={(value) => { setTransitTime(value); refreshRoutes(); }}
+                  />
+                ) : null}
                 {pickingOrigin ? (
                   <Notice text="Scegli la partenza sulla mappa per calcolare il percorso." />
+                ) : routeMode === "transit" && route ? (
+                  <JourneyResults
+                    plans={routePlans}
+                    selected={route}
+                    onSelect={selectRoute}
+                    onRefresh={refreshRoutes}
+                    loading={routing}
+                    error={routeError}
+                    now={now}
+                    query={transitTime}
+                  />
                 ) : routing || originPending ? (
                   <Loading label="Calcolo del percorso…" />
                 ) : routeError ? (
@@ -843,7 +829,7 @@ function MapsApp() {
                     danger
                     text={routeError}
                     action="Riprova"
-                    onAction={() => setRetryRoute((value) => value + 1)}
+                    onAction={refreshRoutes}
                   />
                 ) : route ? (
                   <>
@@ -863,24 +849,6 @@ function MapsApp() {
                         key={index}
                         className="border-t border-[#E2E8F0] pt-4"
                       >
-                        {routeMode === "transit" ? (
-                          <View className="mb-3">
-                            <Text className="text-base font-semibold text-[#17243C]">
-                              {leg.line
-                                ? `${leg.line} · ${leg.headsign || leg.to}`
-                                : `${leg.from} → ${leg.to}`}
-                            </Text>
-                            <Text className="mt-1 text-sm text-[#59667A]">
-                              {duration(leg.durationSeconds)}
-                              {leg.departureAt
-                                ? ` · ${time(leg.departureAt)}`
-                                : ""}
-                              {leg.realTime
-                                ? ` · Previsione consultata alle ${time(route.fetchedAt)}${now - route.fetchedAt > 120_000 ? " · Da aggiornare" : ""}`
-                                : " · Orario previsto"}
-                            </Text>
-                          </View>
-                        ) : null}
                         {leg.steps.map((step, stepIndex) => (
                           <View
                             key={stepIndex}

@@ -1,6 +1,6 @@
 export * from '../domain/types';
 export { searchPlaces, searchLocalPlaces, SEARCH_CATEGORIES, categoryLabel } from './search';
-export { planRoute } from './routing';
+export { planRoute, planRoutes, romeDateTime, resolveTransitTime, type PlanRouteOptions } from './routing';
 export { getNearbyStops, getStop, getDepartures, getTransitAlerts } from './transit';
 export { loadSavedPlaces, savePlace, removeSavedPlace } from './favorites';
 export { distanceMeters, TURIN_CENTER } from './geo';
