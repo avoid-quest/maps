@@ -31,5 +31,17 @@ export interface Departure {
   status: 'live' | 'scheduled' | 'stale' | 'cancelled' | 'unknown'; sourceUpdatedAt?: number; source: string;
 }
 export interface DepartureBoard { departures: Departure[]; fetchedAt: number; sourceUpdatedAt?: number; warnings: string[]; source: string }
-export interface SearchResult { places: Place[]; warnings: string[]; source: string }
+export type SearchPolicy = 'local-only' | 'local-and-online';
+export interface SearchOptions { center: Coordinate; signal?: AbortSignal; policy?: SearchPolicy }
+/** Coverage of the local package only; it never describes Photon coverage or completeness. */
+export interface PlaceCoverage {
+  bounds: [number, number, number, number];
+  centerInside: boolean;
+  radiusMeters: number | null;
+  extent: 'contained' | 'partial' | 'outside' | 'package';
+}
+export interface SearchResult {
+  places: Place[]; warnings: string[]; source: string;
+  coverage: PlaceCoverage; resultLimit: number; truncated: boolean;
+}
 export interface TransitAlert { id: string; title: string; description: string; url?: string; source: string }

@@ -1,6 +1,7 @@
 import "./global.css";
 import type { LineString } from "geojson";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   ActivityIndicator,
   BackHandler,
@@ -32,6 +33,8 @@ import type {
   Departure,
   DepartureBoard,
   Place,
+  SearchPolicy,
+  SearchResult,
   Stop,
   TransitAlert,
   TransitTime,
@@ -45,13 +48,15 @@ import {
   removeSavedPlace,
   savePlace,
   searchPlaces,
-  searchLocalPlaces,
+  searchLocalResult,
   categoryLabel,
   DATA_LICENSES,
   PROVIDER_NOTICES,
 } from "./src/services";
 import { getCurrentLocation } from "./src/platform/location";
 import { DiagnosticsPanel } from "./src/components/DiagnosticsPanel";
+import { DiscoverySettings } from "./src/components/DiscoverySettings";
+import { searchPreferences } from "./src/services/search-preferences";
 import { JourneyResults, TransitTimeForm } from "./src/components/JourneyPlanner";
 import { useRoutePlans } from "./src/components/useRoutePlans";
 
@@ -106,8 +111,13 @@ function MapsApp() {
   const [location, setLocation] = useState<Coordinate | null>(null);
   const [locating, setLocating] = useState(false);
   const [locationMessage, setLocationMessage] = useState("");
-  const [results, setResults] = useState<Place[]>([]);
-  const [searchWarnings, setSearchWarnings] = useState<string[]>([]);
+  const preference = useSyncExternalStore(searchPreferences.subscribe, searchPreferences.getSnapshot, searchPreferences.getSnapshot);
+  const searchPolicy: SearchPolicy = preference.ready && preference.preferenceKnown ? preference.policy : "local-only";
+  const localResult = useMemo(() => searchLocalResult(query.trim() || category, searchCenter), [query, category, searchCenter]);
+  const [completedSearch, setCompletedSearch] = useState<{ result: SearchResult; policy: SearchPolicy; local: SearchResult } | null>(null);
+  const searchResult = completedSearch?.policy === searchPolicy && completedSearch.local === localResult ? completedSearch.result : localResult;
+  const results = searchResult.places;
+  const searchWarnings = searchResult.warnings;
   const [searching, setSearching] = useState(true);
   const [searchError, setSearchError] = useState("");
   const [retrySearch, setRetrySearch] = useState(0);
@@ -185,6 +195,9 @@ function MapsApp() {
     return () => subscription.remove();
   }, [pickingOrigin, privacy, routeView, selected, stop, listOnly, tab, cancelLocationRequest, resetRoutes]);
   useEffect(() => {
+    void searchPreferences.initialize(AsyncStorage);
+  }, []);
+  useEffect(() => {
     loadSavedPlaces()
       .then(setSaved)
       .catch(() =>
@@ -200,20 +213,28 @@ function MapsApp() {
   useEffect(() => {
     if (tab !== "explore") return;
     const controller = new AbortController();
-    setSearching(true);
+    // A switch change aborts now, without waiting for React's effect cleanup.
+    const unsubscribe = searchPreferences.subscribe(() => {
+      const current = searchPreferences.getSnapshot();
+      if (!current.ready || !current.preferenceKnown || current.policy !== searchPolicy) controller.abort();
+    });
     setSearchError("");
-    setSearchWarnings([]);
-    setResults(searchLocalPlaces(query.trim() || category, searchCenter));
+    setCompletedSearch({ result: localResult, policy: searchPolicy, local: localResult });
+    if (!preference.ready || searchPolicy === "local-only") {
+      setSearching(false);
+      return () => { unsubscribe(); controller.abort(); };
+    }
+    setSearching(true);
     const timer = setTimeout(
       () => {
         searchPlaces(query.trim() || category, {
           center: searchCenter,
           signal: controller.signal,
+          policy: searchPolicy,
         })
           .then((result) => {
             if (!controller.signal.aborted) {
-              setResults(result.places);
-              setSearchWarnings(result.warnings);
+              setCompletedSearch({ result, policy: searchPolicy, local: localResult });
             }
           })
           .catch((error) => {
@@ -223,7 +244,6 @@ function MapsApp() {
                   ? error.message
                   : "Ricerca non disponibile.",
               );
-              setResults([]);
             }
           })
           .finally(() => {
@@ -235,8 +255,9 @@ function MapsApp() {
     return () => {
       clearTimeout(timer);
       controller.abort();
+      unsubscribe();
     };
-  }, [query, category, searchCenter, retrySearch, tab]);
+  }, [query, category, searchCenter, retrySearch, tab, preference.ready, searchPolicy, localResult]);
 
 
   useEffect(() => {
@@ -489,18 +510,17 @@ function MapsApp() {
                 label="Cancella ricerca"
                 onPress={() => setQuery("")}
               />
-            ) : (
-              <IconButton
-                icon="options-outline"
-                label="Privacy e fonti"
-                active={privacy}
-                onPress={() => setPrivacy((value) => !value)}
-              />
-            )}
+            ) : null}
           </View>
+          <IconButton
+            icon="options-outline"
+            label="Privacy e fonti"
+            active={privacy}
+            onPress={() => { Keyboard.dismiss(); setPrivacy((value) => !value); }}
+          />
           {!wide ? null : (
             <Text className="ml-3 text-sm text-[#59667A]">
-              Torino, a modo tuo
+              Esplora la mappa
             </Text>
           )}
         </View>
@@ -570,6 +590,7 @@ function MapsApp() {
               selectedMarkerId={selected?.id ?? stop?.id}
               userLocation={location ? tuple(location) : null}
               route={routeGeometry}
+              coverageBounds={tab === "explore" && !routeView && !selected ? searchResult.coverage.bounds : undefined}
               zoom={15}
               onMapPress={onMapPress}
               onRegionChanged={(coordinate) => {
@@ -614,16 +635,14 @@ function MapsApp() {
                     color={colors.blue}
                   />
                   <Text className="text-xs font-semibold text-[#17243C]">
-                    {Math.abs(searchCenter.latitude - DOCKS.latitude) +
-                      Math.abs(searchCenter.longitude - DOCKS.longitude) <
-                    0.003
-                      ? "Docks Dora e dintorni"
+                    {tab === "explore" && !routeView && !selected
+                      ? "Tratteggio: dati locali"
                       : "Area della mappa"}
                   </Text>
                 </View>
                 {!location ? (
                   <Text className="mt-0.5 text-[11px] text-[#59667A]">
-                    Esplorazione manuale · GPS non attivo
+                    GPS non attivo
                   </Text>
                 ) : null}
               </View>
@@ -656,10 +675,11 @@ function MapsApp() {
                 />
               </View>
             ) : areaChanged && !selected && !stop ? (
-              <View className="absolute bottom-10 self-center">
+              <View className="absolute bottom-10 max-w-[95%] self-center rounded-2xl bg-white">
                 <Button icon="search-outline" secondary onPress={searchArea}>
                   Cerca in quest’area
                 </Button>
+                <Text className="px-3 pb-2 text-center text-xs text-[#59667A]">{tab === "transit" ? "Fermate intorno al centro" : searchResult.coverage.radiusMeters !== null ? `Raggio ${distance(searchResult.coverage.radiusMeters)} dal centro` : searchPolicy === "local-only" ? "Nomi nell’intero pacchetto locale" : "Nomi nel pacchetto; area come riferimento online"}</Text>
               </View>
             ) : null}
           </View>
@@ -681,7 +701,9 @@ function MapsApp() {
                   <Pressable
                     accessibilityRole="button"
                     onPress={() => {
-                      if (routeView) {
+                      if (privacy) {
+                        setPrivacy(false);
+                      } else if (routeView) {
                         cancelLocationRequest();
                         setRouteView(false);
                         resetRoutes();
@@ -696,7 +718,7 @@ function MapsApp() {
                   >
                     <Icon name="arrow-back" size={17} color={colors.blue} />
                     <Text className="text-sm font-semibold text-[#2359D7]">
-                      {routeView ? "Luogo" : "Esplora"}
+                      {privacy && routeView ? "Percorso" : routeView || (privacy && selected) ? "Luogo" : privacy && stop ? "Fermata" : "Esplora"}
                     </Text>
                   </Pressable>
                 ) : null}
@@ -712,9 +734,14 @@ function MapsApp() {
                       ? "Sempre qui, solo sul tuo dispositivo"
                       : tab === "transit"
                         ? "Fermate nell’area della mappa"
-                        : `${shownPlaces.length} luoghi nell’area della mappa`}
+                        : `${shownPlaces.length} ${shownPlaces.length === 1 ? "risultato" : "risultati"}${searchResult.truncated ? ` · primi ${searchResult.resultLimit}` : ""}${searchPolicy === "local-only" ? " · solo locali" : ""}`}
                   </Text>
                 ) : null}
+                {!selected && !stop && !privacy && tab === "explore" ? <Text className="mt-1 text-xs leading-4 text-[#59667A]">
+                  {searchResult.coverage.radiusMeters !== null
+                    ? `Raggio ${distance(searchResult.coverage.radiusMeters)} · ${searchResult.coverage.extent === "outside" ? "fuori dal pacchetto locale" : searchResult.coverage.extent === "partial" ? "copertura locale parziale" : "nel pacchetto locale"}`
+                    : `Nomi nel pacchetto locale${searchResult.coverage.centerInside ? "" : " · centro fuori copertura"}${searchPolicy === "local-and-online" ? "; Photon online" : ""}`}
+                </Text> : null}
               </View>
               {!wide && !selected && !stop && !privacy ? (
                 <IconButton
@@ -1134,12 +1161,16 @@ function MapsApp() {
                     title={
                       tab === "saved"
                         ? "Tieni a portata i tuoi posti"
-                        : "Nessun luogo trovato"
+                        : searchResult.coverage.extent === "outside" ? "Fuori dal pacchetto locale" : "Nessuna corrispondenza"
                     }
                     description={
                       tab === "saved"
                         ? "Apri un luogo e tocca Salva. Lo ritrovi qui, senza account."
-                        : "Prova un nome, una categoria diversa o sposta la mappa per ampliare la ricerca."
+                        : searchResult.coverage.extent === "outside"
+                          ? "Il raggio di ricerca non raggiunge il pacchetto. Torna verso il confine tratteggiato sulla mappa: l’assenza di risultati non indica che non ci siano attività."
+                          : searchPolicy === "local-only"
+                            ? "Il luogo può mancare nel pacchetto. Prova un altro nome o una categoria. Puoi abilitare la ricerca online in Privacy e fonti."
+                            : "Prova un altro nome o una categoria. Le fonti possono essere incomplete: nessun risultato non significa che il luogo sia chiuso."
                     }
                   />
                 )}
@@ -1356,9 +1387,10 @@ function PrivacyContent({ onLink }: { onLink: (url: string) => void }) {
       <Text className="text-sm leading-6 text-[#59667A]">
         Le mappe online comunicano l’area visualizzata a OpenFreeMap. Le
         richieste dirette espongono il tuo indirizzo IP al fornitore. Il
-        pacchetto locale dei luoghi copre Docks Dora e una parte di Barriera di
-        Milano.
+        confine tratteggiato sulla mappa mostra l’estensione del pacchetto
+        locale: la presenza di dati non garantisce un elenco completo.
       </Text>
+      <DiscoverySettings />
       <DiagnosticsPanel />
       {PROVIDER_NOTICES.map((notice, index) => (
         <View key={notice.name}>

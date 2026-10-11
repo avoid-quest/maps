@@ -5,10 +5,15 @@ import type { FeatureCollection, Point } from 'geojson';
 import type { MapCanvasProps } from './MapCanvas.types';
 import { diagnostics } from '../services/diagnostics';
 
-export default function MapCanvas({ center, zoom = 14.5, markers = [], selectedMarkerId, route, userLocation, onPressMarker, onMapPress, onRegionChanged }: MapCanvasProps) {
+export default function MapCanvas({ center, zoom = 14.5, markers = [], selectedMarkerId, route, coverageBounds, userLocation, onPressMarker, onMapPress, onRegionChanged }: MapCanvasProps) {
   const camera = useRef<CameraRef>(null);
   const [mapError, setMapError] = useState(false);
   const [longitude, latitude] = center;
+  const coverage = useMemo(() => {
+    if (!coverageBounds) return null;
+    const [west, south, east, north] = coverageBounds;
+    return { type: 'Feature' as const, geometry: { type: 'Polygon' as const, coordinates: [[[west, south], [east, south], [east, north], [west, north], [west, south]]] }, properties: {} };
+  }, [coverageBounds]);
   const data = useMemo<FeatureCollection<Point>>(() => ({ type: 'FeatureCollection', features: markers.map(marker => ({ type: 'Feature', id: marker.id, geometry: { type: 'Point', coordinates: marker.coordinate }, properties: { id: marker.id, kind: marker.kind, selected: marker.id === selectedMarkerId, label: marker.label ?? '' } })) }), [markers, selectedMarkerId]);
   useEffect(() => { camera.current?.easeTo({ center: [longitude, latitude], zoom, duration: 450 }); }, [longitude, latitude, zoom]);
   useEffect(() => {
@@ -22,6 +27,10 @@ export default function MapCanvas({ center, zoom = 14.5, markers = [], selectedM
       onRegionDidChange={event => { if (event.nativeEvent.userInteraction) onRegionChanged?.(event.nativeEvent.center); }}
       onDidFailLoadingMap={() => { setMapError(true); diagnostics.record({ type: 'map', state: 'failed' }); }} onDidFinishLoadingMap={() => { setMapError(false); diagnostics.record({ type: 'map', state: 'loaded' }); }}>
       <Camera ref={camera} initialViewState={{ center, zoom }} />
+      {coverage && <GeoJSONSource id="local-coverage" data={coverage}>
+        <Layer id="local-coverage-fill" type="fill" paint={{ 'fill-color': '#167469', 'fill-opacity': 0.035 }} />
+        <Layer id="local-coverage-line" type="line" paint={{ 'line-color': '#167469', 'line-width': 2, 'line-dasharray': [3, 2] }} />
+      </GeoJSONSource>}
       {route && <GeoJSONSource id="journey" data={{ type: 'Feature', geometry: route, properties: {} }}><Layer id="journey-casing" type="line" paint={{ 'line-color': '#ffffff', 'line-width': 9 }} layout={{ 'line-cap': 'round', 'line-join': 'round' }} /><Layer id="journey-line" type="line" paint={{ 'line-color': '#185CE5', 'line-width': 5 }} layout={{ 'line-cap': 'round', 'line-join': 'round' }} /></GeoJSONSource>}
       <GeoJSONSource id="places" data={data} onPress={event => { event.stopPropagation(); const id = event.nativeEvent.features[0]?.properties?.id; if (typeof id === 'string') onPressMarker?.(id); }}>
         <Layer id="place-circles" type="circle" paint={{ 'circle-radius': ['case', ['get', 'selected'], 12, 7], 'circle-color': ['case', ['==', ['get', 'kind'], 'stop'], '#B9711B', '#185CE5'], 'circle-stroke-width': 3, 'circle-stroke-color': '#ffffff' }} />
