@@ -71,7 +71,7 @@ function phoneCorrections(value: unknown): Map<string, PlaceFieldCorrection> {
   }
   return corrections;
 }
-function correctionAttribution(correction: PlaceFieldCorrection): string {
+export function correctionAttribution(correction: PlaceFieldCorrection): string {
   return `Telefono corretto da sito ufficiale · ${correction.url} · ${correction.checkedAt.slice(0, 10)}`;
 }
 
