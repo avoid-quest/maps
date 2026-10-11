@@ -4,7 +4,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-test('offline place package generation, validation, and transit isolation', () => {
+test('offline place package generation, validation, and transit isolation', { timeout: 35_000 }, () => {
   const result = spawnSync('python3', ['-B', '-m', 'unittest', 'discover', '-s', 'scripts', '-p', 'test_place_package.py'], {
     cwd: path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'),
     encoding: 'utf8',
