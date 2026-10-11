@@ -102,10 +102,10 @@ function parseItinerary(itinerary: MatoItinerary, fetchedAt: number): RoutePlan 
       if (!geometry.every(validCoordinate)) invalidTransitData();
     }
     const status = timingStatus(leg, transitLeg);
-    // Stable source identifiers survive prediction changes. Incomplete identities use exact
-    // schedule/endpoint hints rather than collapsing unrelated trips by a displayed line name.
-    const identity = transitLeg && tripId && serviceDate && text(leg.from.stop?.gtfsId) && text(leg.to.stop?.gtfsId)
-      ? [tripId, serviceDate, leg.from.stop!.gtfsId, leg.to.stop!.gtfsId]
+    // Known trips retain identity across prediction changes, even without a stop ID.
+    // Only unidentified trips need timing hints to avoid merging unrelated services.
+    const identity = transitLeg && tripId && serviceDate
+      ? [tripId, serviceDate, text(leg.from.stop?.gtfsId) ?? pointIdentity(leg.from), text(leg.to.stop?.gtfsId) ?? pointIdentity(leg.to)]
       : [mode, tripId, serviceDate, pointIdentity(leg.from), pointIdentity(leg.to), leg.route?.shortName, transitLeg ? leg.startTime : undefined, transitLeg ? leg.endTime : undefined, geometry];
     return {
       id: `mato:leg:${JSON.stringify(identity)}`, mode, line: text(leg.route?.shortName) ?? text(leg.route?.longName),
@@ -135,7 +135,7 @@ function parseItinerary(itinerary: MatoItinerary, fetchedAt: number): RoutePlan 
   if (legs.some(leg => leg.timingStatus === 'cancelled')) warnings.push('Il viaggio include una corsa cancellata. Scegli un’altra alternativa o aggiorna il percorso.');
   if (legs.some(leg => leg.transitLeg && leg.timingStatus === 'unknown')) warnings.push('Lo stato di alcune tratte non è disponibile. Verifica le partenze prima di viaggiare.');
   const walkingOnly = legs.every(leg => leg.mode === 'walk');
-  if (walkingOnly) warnings.push('Il servizio propone solo un percorso a piedi. Nessun collegamento pubblico trovato per questa richiesta.');
+  if (walkingOnly) warnings.push('Questa alternativa prevede solo un percorso a piedi.');
   return {
     id: `mato:journey:${JSON.stringify([legs.map(leg => leg.id), walkingOnly ? [departureAt, arrivalAt] : undefined])}`,
     mode: 'transit', departureAt, arrivalAt, distanceMeters: legs.reduce((sum, leg) => sum + leg.distanceMeters, 0), durationSeconds: itinerary.duration,

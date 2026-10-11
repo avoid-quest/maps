@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import type { Coordinate } from '../domain/types';
 import { parseRoadRoute, parseTransitRoute, parseTransitRoutes, planRoute, planRoutes, type MatoItinerary, type MatoLeg, type MatoResponse } from './routing';
 import { ServiceError } from './network';
+import { emptyRouteState, routeReducer } from '../components/route-state';
 
 const start = Date.parse('2026-10-12T07:00:00Z');
 const fetchedAt = Date.parse('2026-10-11T12:00:00Z');
@@ -70,6 +71,31 @@ test('trip identity survives response reordering and prediction changes, and sep
   assert.equal(parseTransitRoutes(response(first, structuredClone(first))).length, 1);
 });
 
+test('refresh preserves the selected trip after delays and reordering when stop IDs are missing', () => {
+  for (const missing of [['from'], ['to'], ['from', 'to']] as const) {
+    const selected = itinerary();
+    for (const endpoint of missing) delete selected.legs[1]![endpoint].stop!.gtfsId;
+    const other = itinerary(); other.legs[3]!.trip!.gtfsId = 'gtt:unrelated';
+    const before = parseTransitRoutes(response(selected, other), fetchedAt);
+    let state = routeReducer(emptyRouteState, { type: 'start', queryKey: 'journey', request: 1 });
+    state = routeReducer(state, { type: 'success', queryKey: 'journey', request: 1, plans: before });
+
+    const delayed = shiftTimes(structuredClone(selected), 120);
+    delayed.legs[1]!.realTime = true; delayed.legs[1]!.realtimeState = 'UPDATED';
+    const after = parseTransitRoutes(response(other, delayed), fetchedAt + 300_000);
+    state = routeReducer(state, { type: 'start', queryKey: 'journey', request: 2 });
+    state = routeReducer(state, { type: 'success', queryKey: 'journey', request: 2, plans: after });
+    assert.ok(state.selectedId === after[1]!.id, 'Refresh must retain the selected trip instead of selecting the unrelated first alternative');
+    assert.equal(before[0]!.legs[1]!.id, after[1]!.legs[1]!.id);
+    assert.equal(after[1]!.legs[1]!.timingStatus, 'prediction');
+
+    const differentStop = structuredClone(selected);
+    differentStop.legs[1]![missing[0]].name = 'Altra fermata';
+    differentStop.legs[1]![missing[0]].stop!.code = '9999';
+    assert.equal(parseTransitRoutes(response(selected, differentStop)).length, 2);
+  }
+});
+
 test('stay-aboard legs do not add a transfer; walking breaks an interline continuation', () => {
   const first = leg('TRAM', 0, 10, 'first'); const second = leg('BUS', 12, 22, 'second');
   second.interlineWithPreviousLeg = true;
@@ -118,6 +144,9 @@ test('all-walking alternatives distinguish geometry and schedule, with explicit 
     assert.ok(plan.warnings.some(warning => warning.includes('solo un percorso a piedi')));
     assert.equal(plan.legs[0]!.timingStatus, 'unknown');
   }
+  const mixed = parseTransitRoutes(response(first, itinerary()));
+  assert.ok(mixed[0]!.warnings.includes('Questa alternativa prevede solo un percorso a piedi.'));
+  assert.ok(mixed.every(plan => plan.warnings.every(warning => !warning.includes('Nessun collegamento pubblico'))));
 });
 
 test('malformed alternatives cannot leak impossible times or geometry into otherwise valid results', () => {
