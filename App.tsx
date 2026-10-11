@@ -514,7 +514,7 @@ function MapsApp() {
     && routeQueryKey(travel.journey.query) === routeQueryKey({ from: origin, to: selected.coordinate, mode: routeMode, transitTime })));
   const journeySaveError = savedTravelFailureMessage(travel.journeyFailure);
   const stopSaveError = savedTravelFailureMessage(travel.stopsFailure);
-  const stopSaved = !!stop && travel.stops.some(entry => entry.saved.id === stop.id);
+  const stopSaved = !!stop && travel.stops.some(entry => entry.current?.id === stop.id);
   const routeGeometry = useMemo<LineString | null>(
     () =>
       route && route.geometry.length > 1

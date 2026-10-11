@@ -356,6 +356,31 @@ test('saved stops use exact installed ID/code/coordinates; missing or changed id
   assert.equal(upgraded.getSnapshot().stops[0]!.saved.datasetVersion, '20261011');
 });
 
+test('explicit save replaces a changed same-ID stop; a failed replacement preserves the unavailable shortcut', async () => {
+  const originalBytes = stopBytes();
+  const disk = memory({ [STOPS_STORAGE_KEY]: originalBytes });
+  const current = { ...stopA, code: 'updated-code', coordinate: { ...from, longitude: from.longitude + 0.00001 } };
+  let fail = true;
+  const store = createSavedTravel({ ...options, getStop: id => id === current.id ? current : undefined, datasetVersion: '20261012' });
+  await store.initialize({ ...disk, setItem: async (key, value) => {
+    if (fail) throw new Error('Storage unavailable');
+    return disk.setItem(key, value);
+  } });
+  assert.equal(store.getSnapshot().stops[0]!.current, null);
+  assert.equal(await store.saveStop(current.id), false);
+  assert.equal(disk.values.get(STOPS_STORAGE_KEY), originalBytes);
+  assert.equal(store.getSnapshot().stops[0]!.saved.code, stopA.code);
+  assert.equal(store.getSnapshot().stops[0]!.current, null);
+  fail = false;
+  assert.equal(await store.saveStop(current.id), true);
+  assert.equal(store.getSnapshot().stops.length, 1);
+  assert.equal(store.getSnapshot().stops[0]!.saved.code, current.code);
+  assert.deepEqual(store.getSnapshot().stops[0]!.current?.coordinate, current.coordinate);
+  const reloaded = createSavedTravel({ ...options, getStop: id => id === current.id ? current : undefined });
+  await reloaded.initialize(disk);
+  assert.equal(reloaded.getSnapshot().stops[0]!.current?.code, current.code);
+});
+
 test('corrupt stop data cannot be silently discarded by adding or removing one stop', async () => {
   for (const raw of ['', '{', '{"version":2,"stops":[]}', '{"version":1,"stops":[{}]}', 'x'.repeat(MAX_STOPS_BYTES + 1)]) {
     const disk = memory({ [STOPS_STORAGE_KEY]: raw, [JOURNEY_STORAGE_KEY]: journeyBytes() });
