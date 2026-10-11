@@ -72,11 +72,39 @@ test('policy observers cancel online work synchronously before a slow disk write
   unsubscribe();
 });
 test('writes remain ordered and failed persistence leaves the session choice active', async () => {
-  const storage = memoryStorage();
+  let persisted: string | null = null;
+  const pending: { value: string; finish: () => void }[] = [];
+  const storage: SearchPreferenceStorage = {
+    getItem: async key => { assert.equal(key, SEARCH_PREFERENCES_KEY); return persisted; },
+    setItem: async (key, value) => {
+      assert.equal(key, SEARCH_PREFERENCES_KEY);
+      await new Promise<void>(resolve => { pending.push({ value, finish: resolve }); });
+      persisted = value;
+    },
+  };
   const store = createSearchPreferences();
   await store.initialize(storage);
-  await Promise.all([store.setPolicy('local-only'), store.setPolicy('local-and-online'), store.setPolicy('local-only')]);
-  assert.equal(JSON.parse(storage.value()!).policy, 'local-only');
+  const first = store.setPolicy('local-only');
+  const second = store.setPolicy('local-and-online');
+  const last = store.setPolicy('local-only');
+  await Promise.resolve();
+  assert.equal(pending.length, 1, 'Later writes must wait while the first write is pending');
+  assert.equal(persisted, null);
+  pending[0]!.finish();
+  assert.equal(await first, true);
+  assert.equal(pending.length, 2, 'The final write must wait while the second write is pending');
+  assert.equal(JSON.parse(pending[1]!.value).policy, 'local-and-online');
+  assert.equal(JSON.parse(persisted!).policy, 'local-only');
+  pending[1]!.finish();
+  assert.equal(await second, true);
+  assert.equal(pending.length, 3);
+  assert.equal(JSON.parse(persisted!).policy, 'local-and-online');
+  pending[2]!.finish();
+  assert.equal(await last, true);
+  assert.equal(JSON.parse(persisted!).policy, 'local-only');
+  const restored = createSearchPreferences();
+  await restored.initialize(storage);
+  assert.equal(restored.getSnapshot().policy, 'local-only');
   const broken: SearchPreferenceStorage = { getItem: async () => null, setItem: async () => { throw new Error('full'); } };
   const failed = createSearchPreferences();
   await failed.initialize(broken);
