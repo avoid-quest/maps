@@ -32,7 +32,7 @@ test('AppState subscription reconciles initial activity and reports inactive sta
 
   source.currentState = 'background';
   const stop = subscribeAppActive(source, active => activity.push(active));
-  assert.equal(activity.at(-1), false, 'A transition before subscription is reconciled immediately');
+  assert.deepEqual(activity, [false, true, false, false, false], 'A transition before subscription is reconciled immediately');
   stop();
 });
 
