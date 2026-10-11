@@ -8,11 +8,15 @@ type Category = [string | null, string[]];
 type Source = [number, string | null, number | null, number?];
 type Row = [string, string, number, number, number, number | null, string | null, string | null, string | null, string | null, number[], number?];
 
-export interface PlaceSearchEntry extends Place { hierarchy: string[] }
-export interface CatalogPlace extends PlaceSearchEntry { provenance: SourceTemplate[] }
+export type PlaceSearchEntry = Readonly<Omit<Place, 'coordinate' | 'attributions' | 'fieldCorrections'>> & {
+  readonly coordinate: Readonly<Place['coordinate']>;
+  readonly hierarchy: readonly string[];
+  readonly attributions: readonly string[];
+};
+export interface CatalogPlace extends Place { hierarchy: string[]; provenance: SourceTemplate[] }
 export interface PlaceCatalog {
   readonly entries: readonly PlaceSearchEntry[];
-  readonly metadata: { release: string; bounds: PlaceCoverage['bounds']; count: number; inputSha256: string };
+  readonly metadata: Readonly<{ release: string; bounds: Readonly<PlaceCoverage['bounds']>; count: number; inputSha256: string }>;
   /** Decode a fresh complete record; callers cannot mutate the package through the returned object. */
   materialize(id: string): CatalogPlace | undefined;
 }
@@ -71,7 +75,10 @@ function correctionAttribution(correction: PlaceFieldCorrection): string {
   return `Telefono corretto da sito ufficiale · ${correction.url} · ${correction.checkedAt.slice(0, 10)}`;
 }
 
-/** Validate compact references once, retaining full provenance in shared tuples until display. */
+/**
+ * On success, takes ownership of retained compact rows and dictionaries: callers must not mutate
+ * those inputs afterward. Exposed catalog values are frozen; materialized details are fresh copies.
+ */
 export function createPlaceCatalog(value: unknown): PlaceCatalog {
   invariant(object(value) && value.schemaVersion === 1);
   invariant(Array.isArray(value.columns) && value.columns.length === COLUMNS.length && value.columns.every((column, i) => column === COLUMNS[i]));
@@ -103,7 +110,7 @@ export function createPlaceCatalog(value: unknown): PlaceCatalog {
   const sources = value.sources as Source[];
   const corrections = phoneCorrections(value.phoneOverrides);
   const rows = new Map<string, Row>();
-  const attributionLists = new Map<string, string[]>();
+  const attributionLists = new Map<string, readonly string[]>();
   const entries: PlaceSearchEntry[] = [];
   for (const candidate of value.places) {
     invariant(Array.isArray(candidate) && (candidate.length === 11 || candidate.length === 12));
@@ -130,16 +137,17 @@ export function createPlaceCatalog(value: unknown): PlaceCatalog {
       notices.push(correctionAttribution(correction));
     }
     const key = JSON.stringify(notices);
-    const attributions = attributionLists.get(key) ?? notices;
+    const attributions = attributionLists.get(key) ?? Object.freeze(notices);
     attributionLists.set(key, attributions);
-    entries.push({ id, name: row[1], coordinate: { latitude: row[2], longitude: row[3] }, category, hierarchy,
-      confidence: row[5], source: 'Overture Places', attributions, ...contacts(row) });
+    entries.push(Object.freeze({ id, name: row[1], coordinate: Object.freeze({ latitude: row[2], longitude: row[3] }), category, hierarchy,
+      confidence: row[5], source: 'Overture Places', attributions, ...contacts(row) }));
   }
   invariant([...corrections.keys()].every((id) => rows.has(id)));
-  return {
-    entries,
-    metadata: { release: value.release, bounds: [...bounds], count: entries.length, inputSha256: value.inputSha256 },
-    materialize(id) {
+  for (const [, hierarchy] of categories) Object.freeze(hierarchy);
+  return Object.freeze({
+    entries: Object.freeze(entries),
+    metadata: Object.freeze({ release: value.release, bounds: Object.freeze([...bounds] as PlaceCoverage['bounds']), count: entries.length, inputSha256: value.inputSha256 }),
+    materialize(id: string) {
       const row = rows.get(id);
       if (!row) return undefined;
       const [category, hierarchy] = categories[row[4]]!;
@@ -159,7 +167,7 @@ export function createPlaceCatalog(value: unknown): PlaceCatalog {
         ...(correction ? { fieldCorrections: [{ ...correction }] } : {}),
       };
     },
-  };
+  });
 }
 
 export const placeCatalog = createPlaceCatalog(packedPlaces);

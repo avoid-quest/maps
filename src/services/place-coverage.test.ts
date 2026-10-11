@@ -9,6 +9,7 @@ const fixtureBounds: PlaceCoverage['bounds'] = [7.674, 45.087, 7.704, 45.103];
 
 test('the extraction rectangle comes from package metadata, not a promised administrative boundary', () => {
   assert.deepEqual(PLACE_BOUNDS, manifest.places.bounds);
+  assert.deepEqual(getPlaceCoverage(center).bounds, manifest.places.bounds);
   assert.equal(getPlaceCoverage(center, 100, fixtureBounds).extent, 'contained');
   assert.equal(getPlaceCoverage(center, 5000, fixtureBounds).extent, 'partial');
   assert.equal(getPlaceCoverage(center, 5000, fixtureBounds).centerInside, true);

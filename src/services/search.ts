@@ -181,9 +181,9 @@ function localMatches(query: string, center: Coordinate, searchIndex = index, ca
   const q = normalize(query);
   const tokens = words(q);
   const categoryTerms = aliases[q] ?? [];
-  const coverage = getPlaceCoverage(center, categoryTerms.length ? LOCAL_SEARCH_RADIUS_METERS : null, catalog.metadata.bounds);
+  const coverage = getPlaceCoverage(center, categoryTerms.length ? LOCAL_SEARCH_RADIUS_METERS : null, [...catalog.metadata.bounds]);
   if (q.length < 2) return { places: [] as Place[], coverage };
-  const matches: { place: Place; rank: number; exactTokens: number; distance: number }[] = [];
+  const matches: { place: PlaceSearchEntry; rank: number; exactTokens: number; distance: number }[] = [];
   for (const entry of searchIndex) {
     let rank = 0;
     if (categoryTerms.length) {
@@ -238,7 +238,7 @@ export function searchLocalPlaces(query: string, center: Coordinate): Place[] {
   return searchLocalResult(query, center).places;
 }
 /** Only matching names within 70 m merge; co-located independent tenants remain separate. */
-export function deduplicatePlaces(input: Place[]): Place[] {
+export function deduplicatePlaces(input: readonly (Place | PlaceSearchEntry)[]): Place[] {
   const results: Place[] = [];
   const byId = new Map<string, Place>();
   const byName = new Map<string, Place[]>();
@@ -248,7 +248,7 @@ export function deduplicatePlaces(input: Place[]): Place[] {
       (candidate) => distanceMeters(candidate.coordinate, place.coordinate) < 70,
     );
     if (!existing) {
-      const next = { ...place };
+      const next = { ...place, coordinate: { ...place.coordinate }, attributions: [...place.attributions] };
       results.push(next);
       byId.set(place.id, next);
       const sameName = byName.get(name) ?? [];

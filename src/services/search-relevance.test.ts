@@ -52,7 +52,10 @@ test("the pharmacy category excludes the combined drugstore family without hidin
 
 test("local names tolerate one edit or adjacent transposition while exact and prefix names rank first", () => {
   // Wider coverage includes a genuine Amnesia prefix match; exact/prefix results must precede typos.
-  assert.ok(searchLocalPlaces("Amne", docks).some((place) => place.name === "Amen Bar"));
+  const amne = searchLocalPlaces("Amne", docks);
+  const prefixRank = amne.findIndex((place) => place.name === "Amnesia Preziosi");
+  const typoRank = amne.findIndex((place) => place.name === "Amen Bar");
+  assert.ok(prefixRank >= 0 && typoRank > prefixRank);
   assert.equal(searchLocalPlaces("Amen Bar", docks)[0]?.name, "Amen Bar");
   assert.equal(searchLocalPlaces("AMÉN", docks)[0]?.name, "Amen Bar");
   assert.ok(searchLocalPlaces("Hangra 107", docks).some((place) => /Hangar 107/i.test(place.name)));
@@ -102,7 +105,7 @@ test("59/60/61 distinct matches report the actual cap and decode only displayed 
       materialize(id): CatalogPlace | undefined {
         decoded += 1;
         const place = entries.find((entry) => entry.id === id);
-        return place ? { ...place, provenance: [{ dataset: 'Fixture', license: 'CC0-1.0' }], dataUpdatedAt: '2020-01-01' } : undefined;
+        return place ? { ...place, hierarchy: [...place.hierarchy], attributions: [...place.attributions], provenance: [{ dataset: 'Fixture', license: 'CC0-1.0' }], dataUpdatedAt: '2020-01-01' } : undefined;
       },
     };
     const search = createLocalPlaceSearch(catalog);

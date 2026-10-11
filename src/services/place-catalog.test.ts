@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import manifest from '../data/manifest.json';
 import { createPlaceCatalog, placeCatalog } from './place-catalog';
+import { createLocalPlaceSearch } from './search';
 
 function fixture() {
   return {
@@ -46,6 +47,43 @@ test('search entries omit full provenance and returned records cannot mutate lat
   first.attributions.push('changed');
   (first.provenance[0]!.extra as { labels: string[] }).labels.push('changed');
   assert.deepEqual(catalog.materialize('overture:id-a'), original);
+});
+
+test('shared search entries cannot contaminate another entry, later details or searches', () => {
+  const value = fixture();
+  value.places.push(['id-b', 'Seconda farmacia', 45.094, 7.6832, 0, null, null, null, null, '011222222', [0, 1], 5]);
+  value.count = 2;
+  const catalog = createPlaceCatalog(value);
+  const search = createLocalPlaceSearch(catalog);
+  const center = { latitude: 45.0937, longitude: 7.6832 };
+  const originalSearch = search('farmacie', center);
+  const originals = catalog.entries.map((entry) => catalog.materialize(entry.id));
+  const first = catalog.entries[0]!; const second = catalog.entries[1]!;
+  assert.equal(first.hierarchy, second.hierarchy);
+  assert.equal(first.attributions, second.attributions);
+  for (const [target, key, replacement] of [
+    [first, 'name', 'changed'], [first, 'category', 'restaurant'],
+    [first.coordinate, 'latitude', 0], [first.hierarchy, '0', 'changed'],
+    [first.attributions, '0', 'changed'], [catalog.entries, '0', second],
+    [catalog.metadata, 'count', 0], [catalog.metadata.bounds, '0', 0],
+    [value.categories[0]![1] as object, '0', 'changed'],
+  ] as const) {
+    assert.equal(Reflect.set(target, key, replacement), false);
+  }
+  assert.deepEqual(catalog.entries.map((entry) => catalog.materialize(entry.id)), originals);
+  assert.deepEqual(search('farmacie', center), originalSearch);
+  assert.deepEqual(createLocalPlaceSearch(catalog)('farmacie', center), originalSearch);
+});
+
+test('rejected input remains mutable even when validation fails after earlier valid rows', () => {
+  const value = fixture();
+  value.places.push(['invalid-last-row', 'Fuori area', 0, 7.6832, 0, null, null, null, null, null, [0, 1]]);
+  value.count = 2;
+  assert.throws(() => createPlaceCatalog(value), /Pacchetto dei luoghi non valido/);
+  for (const target of [value.categories, value.categories[0]![1], value.sourceTemplates[0]!.extra!.labels, value.sources, value.places, value.places[0]]) {
+    assert.equal(Object.isFrozen(target), false);
+  }
+  assert.equal(Reflect.set(value.places[0]!, '1', 'Still editable'), true);
 });
 
 function correctedFixture() {
@@ -94,6 +132,7 @@ test('phone correction headers, duplicate or missing targets and mismatched valu
 });
 
 test('malformed versions, columns, references, IDs and coordinates are rejected before search', () => {
+  assert.throws(() => createPlaceCatalog({ ...fixture(), schemaVersion: true }), /Pacchetto dei luoghi non valido/);
   const mutations: ((value: ReturnType<typeof fixture>) => void)[] = [
     (v) => { v.schemaVersion = 2; },
     (v) => { v.columns[2] = 'longitude'; },
