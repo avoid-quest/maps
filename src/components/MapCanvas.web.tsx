@@ -3,6 +3,7 @@ import * as maplibregl from 'maplibre-gl';
 import type { GeoJSONSource, Map as WebMap } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import type { MapCanvasProps } from './MapCanvas.types';
+import { diagnostics } from '../services/diagnostics';
 
 export default function MapCanvas(props: MapCanvasProps) {
   const container = useRef<HTMLDivElement>(null);
@@ -27,9 +28,9 @@ export default function MapCanvas(props: MapCanvasProps) {
       instance.addLayer({ id: 'place-label', type: 'symbol', source: 'places', filter: ['==', ['get', 'selected'], true], layout: { 'text-field': ['get', 'label'], 'text-font': ['Noto Sans Regular'], 'text-size': 13, 'text-offset': [0, 1.6], 'text-anchor': 'top' }, paint: { 'text-color': '#172330', 'text-halo-color': '#fff', 'text-halo-width': 2 } });
       instance.addSource('position', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
       instance.addLayer({ id: 'position-dot', type: 'circle', source: 'position', paint: { 'circle-radius': 8, 'circle-color': '#185CE5', 'circle-stroke-color': '#fff', 'circle-stroke-width': 4 } });
-      setLoaded(true); setFailed(false);
+      setLoaded(true); setFailed(false); diagnostics.record({ type: 'map', state: 'loaded' });
     });
-    instance.on('error', () => { if (!instance.isStyleLoaded()) setFailed(true); });
+    instance.on('error', () => { if (!instance.isStyleLoaded()) { setFailed(true); diagnostics.record({ type: 'map', state: 'failed' }); } });
     instance.on('click', event => {
       const features = instance.getLayer('place-circles') ? instance.queryRenderedFeatures([[event.point.x - 22, event.point.y - 22], [event.point.x + 22, event.point.y + 22]], { layers: ['place-circles'] }) : [];
       const id = features[0]?.properties?.id;

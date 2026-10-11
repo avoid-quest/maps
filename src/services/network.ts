@@ -1,6 +1,15 @@
+import { diagnostics, type DiagnosticProvider, type DiagnosticInput } from './diagnostics';
+
 export const USER_AGENT = 'AvoidMaps/0.1 (https://github.com/avoid-quest/maps)';
 export class ServiceError extends Error {
   constructor(message: string, public readonly kind: 'network' | 'unavailable' | 'rate-limit' | 'invalid' = 'network') { super(message); this.name = 'ServiceError'; }
+}
+/** Distinguish an HTTP response from a usable provider result without retaining its content. */
+export function parseServiceData<T>(provider: DiagnosticProvider, parse: () => T): T {
+  try { return parse(); } catch (error) {
+    diagnostics.record({ type: 'service', state: error instanceof ServiceError ? error.kind : 'invalid', provider });
+    throw error;
+  }
 }
 export function checkAbort(signal?: AbortSignal) { if (signal?.aborted) { const error = new Error('Request cancelled'); error.name = 'AbortError'; throw error; } }
 export function wait(ms: number, signal?: AbortSignal): Promise<void> {
@@ -27,8 +36,11 @@ export function requestQueue(intervalMs: number) {
   };
 }
 /** Resolve only after the complete body arrives, so the request deadline covers JSON and protobuf alike. */
-export async function fetchResponse(url: string, options: RequestInit = {}): Promise<Response> {
+export async function fetchResponse(url: string, options: RequestInit = {}, provider: DiagnosticProvider = 'other'): Promise<Response> {
   checkAbort(options.signal ?? undefined);
+  const started = Date.now();
+  let httpStatus: number | undefined;
+  let state: Extract<DiagnosticInput, { type: 'request' }>['state'] = 'ok';
   const controller = new AbortController(); let timedOut = false;
   let rejectAbort!: (error: Error) => void;
   const aborted = new Promise<never>((_, reject) => { rejectAbort = reject; });
@@ -42,6 +54,7 @@ export async function fetchResponse(url: string, options: RequestInit = {}): Pro
   try {
     return await Promise.race([aborted, (async () => {
       const response = await fetch(url, { ...options, signal: controller.signal, headers: { 'User-Agent': USER_AGENT, ...options.headers } });
+      httpStatus = response.status;
       if (response.status === 429) throw new ServiceError('Il servizio ha limitato le richieste. Riprova tra un minuto.', 'rate-limit');
       if (!response.ok) throw new ServiceError(`Servizio temporaneamente non disponibile (HTTP ${response.status}).`, 'unavailable');
       const body = await response.arrayBuffer();
@@ -50,12 +63,19 @@ export async function fetchResponse(url: string, options: RequestInit = {}): Pro
       });
     })()]);
   } catch (error) {
-    if (options.signal?.aborted) checkAbort(options.signal);
-    if (error instanceof ServiceError) throw error;
+    if (options.signal?.aborted) { state = 'cancelled'; checkAbort(options.signal); }
+    if (error instanceof ServiceError) { state = error.kind; throw error; }
+    state = timedOut ? 'timeout' : 'network';
     throw new ServiceError(timedOut ? 'Il servizio non ha risposto in tempo. Riprova.' : 'Connessione non disponibile. Controlla la rete e riprova.');
-  } finally { clearTimeout(timer); options.signal?.removeEventListener('abort', cancel); }
+  } finally {
+    clearTimeout(timer); options.signal?.removeEventListener('abort', cancel);
+    diagnostics.record({ type: 'request', state, provider, durationMs: Date.now() - started, httpStatus });
+  }
 }
-export async function fetchJSON<T>(url: string, options?: RequestInit): Promise<T> {
-  const response = await fetchResponse(url, options);
-  try { return await response.json() as T; } catch { throw new ServiceError('Il servizio ha restituito dati non validi.', 'invalid'); }
+export async function fetchJSON<T>(url: string, options?: RequestInit, provider: DiagnosticProvider = 'other'): Promise<T> {
+  const response = await fetchResponse(url, options, provider);
+  try { return await response.json() as T; } catch {
+    diagnostics.record({ type: 'service', state: 'invalid', provider });
+    throw new ServiceError('Il servizio ha restituito dati non validi.', 'invalid');
+  }
 }

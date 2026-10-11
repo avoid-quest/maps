@@ -1,5 +1,6 @@
 import { AppState, PermissionsAndroid, Platform } from 'react-native';
 import { LocationManager, type GeolocationPosition } from '@maplibre/maplibre-react-native';
+import { diagnostics } from '../services/diagnostics';
 
 export class LocationError extends Error {
   constructor(public code: 'denied' | 'unavailable' | 'timeout', message: string) { super(message); this.name = 'LocationError'; }
@@ -7,13 +8,21 @@ export class LocationError extends Error {
 export interface CurrentLocation { coordinate: [number, number]; accuracy: number | null }
 let pending: Promise<CurrentLocation> | undefined;
 export function getCurrentLocation(): Promise<CurrentLocation> {
-  if (!pending) pending = locate().finally(() => { pending = undefined; });
+  if (!pending) {
+    diagnostics.record({ type: 'location', state: 'requested' });
+    pending = locate().then(position => {
+      diagnostics.record({ type: 'location', state: 'fix' }); return position;
+    }, error => {
+      diagnostics.record({ type: 'location', state: error instanceof LocationError ? error.code : 'unavailable' }); throw error;
+    }).finally(() => { pending = undefined; });
+  }
   return pending;
 }
 async function locate(): Promise<CurrentLocation> {
   if (Platform.OS === 'android') {
     const results = await PermissionsAndroid.requestMultiple([PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION, PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION]);
     if (results[PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION] !== PermissionsAndroid.RESULTS.GRANTED && results[PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION] !== PermissionsAndroid.RESULTS.GRANTED) throw new LocationError('denied', 'Posizione non autorizzata. Puoi comunque cercare sulla mappa.');
+    diagnostics.record({ type: 'location', state: results[PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION] === PermissionsAndroid.RESULTS.GRANTED ? 'precise' : 'approximate' });
   } else if (!await LocationManager.requestPermissions()) throw new LocationError('denied', 'Posizione non autorizzata.');
   return new Promise((resolve, reject) => {
     let settled = false;

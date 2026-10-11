@@ -5,7 +5,8 @@ import staticLookup from '../data/gtt-trips.json';
 import manifest from '../data/manifest.json';
 import type { Coordinate, Departure, DepartureBoard, Stop, TransitAlert } from '../domain/types';
 import { distanceMeters } from './geo';
-import { checkAbort, fetchResponse, requestQueue, ServiceError } from './network';
+import { checkAbort, fetchResponse, parseServiceData, requestQueue, ServiceError } from './network';
+import { diagnostics } from './diagnostics';
 const Feed = Root.fromJSON(schema).lookupType('transit_realtime.FeedMessage');
 const GTT = 'https://percorsieorari.gtt.to.it/das_gtfsrt/';
 const queue = requestQueue(1500);
@@ -69,7 +70,8 @@ async function fetchFeed(file: string, maxAge: number, signal?: AbortSignal): Pr
   checkAbort(signal); const stored = cache.get(file); if (stored && Date.now() - stored.at < maxAge) return stored.feed;
   return queue(async () => {
     const current = cache.get(file); if (current && Date.now() - current.at < maxAge) return current.feed;
-    const response = await fetchResponse(`${GTT}${file}`, { signal });
+    const provider = file === 'trip_update.aspx' ? 'gtt-arrivals' : 'gtt-alerts';
+    const response = await fetchResponse(`${GTT}${file}`, { signal }, provider);
     try {
       const decoded = Feed.decode(new Uint8Array(await response.arrayBuffer()));
       const feed = Feed.toObject(decoded, { longs: Number, enums: String }) as RTFeed;
@@ -77,12 +79,16 @@ async function fetchFeed(file: string, maxAge: number, signal?: AbortSignal): Pr
       // Protobuf omits an empty repeated field; an empty FULL_DATASET is a valid no-predictions snapshot.
       feed.entity ??= [];
       cache.set(file, { at: Date.now(), feed }); return feed;
-    } catch { throw new ServiceError('GTT ha restituito un feed non valido. Nessuna previsione inventata.', 'invalid'); }
+    } catch {
+      diagnostics.record({ type: 'service', state: 'invalid', provider });
+      throw new ServiceError('GTT ha restituito un feed non valido. Nessuna previsione inventata.', 'invalid');
+    }
   }, signal);
 }
 export async function getDepartures(stopId: string, options: { signal?: AbortSignal } = {}): Promise<DepartureBoard> {
   if (!getStop(stopId)) throw new ServiceError('Fermata non presente nel pacchetto installato.', 'invalid');
-  return departuresFromFeed(await fetchFeed('trip_update.aspx', 30_000, options.signal), stopId);
+  const feed = await fetchFeed('trip_update.aspx', 30_000, options.signal);
+  return parseServiceData('gtt-arrivals', () => departuresFromFeed(feed, stopId));
 }
 function text(value?: Translation): string { return value?.translation?.find(t => t.language === 'it')?.text ?? value?.translation?.[0]?.text ?? ''; }
 export async function getTransitAlerts(stopId?: string, options: { signal?: AbortSignal } = {}): Promise<TransitAlert[]> {
