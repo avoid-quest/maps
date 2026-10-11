@@ -17,7 +17,6 @@ import {
 } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import MapCanvas from "./src/components/MapCanvas";
-import { displayedDepartureStatus } from "./src/components/departure-status";
 import type { MapMarker } from "./src/components/MapCanvas.types";
 import {
   Button,
@@ -30,20 +29,15 @@ import {
 import { colors } from "./src/theme/tokens";
 import type {
   Coordinate,
-  Departure,
-  DepartureBoard,
   Place,
   SearchPolicy,
   SearchResult,
   Stop,
-  TransitAlert,
   TransitTime,
   TravelMode,
 } from "./src/domain/types";
 import {
-  getDepartures,
   getNearbyStops,
-  getTransitAlerts,
   loadSavedPlaces,
   removeSavedPlace,
   savePlace,
@@ -59,6 +53,9 @@ import { DiscoverySettings } from "./src/components/DiscoverySettings";
 import { searchPreferences } from "./src/services/search-preferences";
 import { JourneyResults, TransitTimeForm } from "./src/components/JourneyPlanner";
 import { useRoutePlans } from "./src/components/useRoutePlans";
+import { useStopBoard } from "./src/components/useStopBoard";
+import { StopBoardPanel } from "./src/components/StopBoardPanel";
+import { useAppActive } from "./src/components/useAppActive";
 import { routeQueryKey } from "./src/components/route-state";
 import { SavedTravelPanel, savedTravelFailureMessage } from "./src/components/SavedTravelPanel";
 import { journeyDate, journeyTime } from "./src/components/journey-presentation";
@@ -83,11 +80,6 @@ const duration = (seconds: number) =>
   seconds < 3600
     ? `${Math.max(1, Math.round(seconds / 60))} min`
     : `${Math.floor(seconds / 3600)} h ${Math.round((seconds % 3600) / 60)} min`;
-const time = (value: number) =>
-  new Date(value).toLocaleTimeString("it-IT", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
 const categories: { label: string; query: string; icon: IconName }[] = [
   { label: "Mangiare", query: "ristoranti", icon: "restaurant-outline" },
   { label: "Caffè e bar", query: "bar", icon: "cafe-outline" },
@@ -140,20 +132,28 @@ function MapsApp() {
   const [origin, setOrigin] = useState<Coordinate>(DOCKS);
   const [originLabel, setOriginLabel] = useState("Centro della mappa");
   const [pickingOrigin, setPickingOrigin] = useState(false);
-  const { route, plans: routePlans, error: routeError, loading: routing, refresh: refreshRoutes, select: selectRoute, reset: resetRoutes, restore: restoreRoute, saved: restoredRoute, restoredViewId } = useRoutePlans({
+  const [stop, setStop] = useState<Stop | null>(null);
+  const suspendActiveWork = useRef(() => {});
+  const appActive = useAppActive(active => { if (!active) suspendActiveWork.current(); });
+  const { route, plans: routePlans, error: routeError, loading: routing, refresh: refreshRoutes, select: selectRoute, reset: resetRoutes, restore: restoreRoute, saved: restoredRoute, restoredViewId, retainedSelection, suspend: suspendRoutes } = useRoutePlans({
     from: origin,
     to: selected?.coordinate,
     mode: routeMode,
     transitTime,
-    enabled: routeView && !pickingOrigin && !originPending,
+    enabled: routeView,
+    active: routeView && appActive && !privacy && !pickingOrigin && !originPending && !locating,
   });
-  const [stop, setStop] = useState<Stop | null>(null);
-  const [board, setBoard] = useState<DepartureBoard | null>(null);
-  const [alerts, setAlerts] = useState<TransitAlert[]>([]);
-  const [transitLoading, setTransitLoading] = useState(false);
-  const [transitError, setTransitError] = useState("");
-  const [alertsError, setAlertsError] = useState("");
-  const [refreshBoard, setRefreshBoard] = useState(0);
+  const stopBoard = useStopBoard({ stopId: stop?.id, active: !!stop && appActive && !privacy && !routeView && !selected });
+  const suspendStopBoard = stopBoard.suspend;
+  const suspendTransitWork = useCallback(() => {
+    suspendRoutes();
+    suspendStopBoard();
+  }, [suspendRoutes, suspendStopBoard]);
+  suspendActiveWork.current = suspendTransitWork;
+  const changeStop = useCallback((next: Stop | null) => {
+    if (next?.id !== stop?.id) suspendStopBoard();
+    setStop(next);
+  }, [stop?.id, suspendStopBoard]);
   const [now, setNow] = useState(Date.now());
   const detailKey = privacy ? "privacy" : routeView ? `route:${selected?.id}`
     : stop ? `stop:${stop.id}` : selected ? `place:${selected.id}` : `list:${tab}`;
@@ -192,7 +192,7 @@ function MapsApp() {
         }
         if (selected || stop) {
           setSelected(null);
-          setStop(null);
+          changeStop(null);
           return true;
         }
         if (listOnly) {
@@ -207,7 +207,7 @@ function MapsApp() {
       },
     );
     return () => subscription.remove();
-  }, [pickingOrigin, privacy, routeView, selected, stop, listOnly, tab, cancelLocationRequest, resetRoutes]);
+  }, [pickingOrigin, privacy, routeView, selected, stop, listOnly, tab, cancelLocationRequest, resetRoutes, changeStop]);
   useEffect(() => {
     void searchPreferences.initialize(AsyncStorage);
     void savedTravel.initialize(AsyncStorage);
@@ -283,41 +283,8 @@ function MapsApp() {
   }, [query, category, searchCenter, retrySearch, tab, preference.ready, searchPolicy, localResult]);
 
 
-  useEffect(() => {
-    if (!stop) return;
-    const controller = new AbortController();
-    setTransitLoading(true);
-    setTransitError("");
-    setAlertsError("");
-    setBoard(null);
-    setAlerts([]);
-    getDepartures(stop.id, { signal: controller.signal })
-      .then((value) => {
-        if (!controller.signal.aborted) setBoard(value);
-      })
-      .catch((error) => {
-        if (!controller.signal.aborted)
-          setTransitError(
-            error instanceof Error ? error.message : "Arrivi non disponibili.",
-          );
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setTransitLoading(false);
-      });
-    getTransitAlerts(stop.id, { signal: controller.signal })
-      .then((value) => {
-        if (!controller.signal.aborted) setAlerts(value);
-      })
-      .catch(() => {
-        if (!controller.signal.aborted)
-          setAlertsError(
-            "Avvisi di servizio non disponibili.",
-          );
-      });
-    return () => controller.abort();
-  }, [stop, refreshBoard]);
-
   async function locate() {
+    if (routeView) { suspendRoutes(); setOriginPending(true); }
     const request = ++locationRequest.current;
     setLocating(true);
     setLocationMessage("");
@@ -343,7 +310,7 @@ function MapsApp() {
           : "Posizione non disponibile. Puoi continuare a esplorare la mappa.",
       );
     } finally {
-      if (request === locationRequest.current) setLocating(false);
+      if (request === locationRequest.current) { setLocating(false); setOriginPending(false); }
     }
   }
   function openPlace(place: Place) {
@@ -354,14 +321,14 @@ function MapsApp() {
     resetRoutes();
     setCenter(place.coordinate);
     setListOnly(false);
-    setStop(null);
+    changeStop(null);
   }
   function changeTab(next: typeof tab) {
     cancelLocationRequest();
     Keyboard.dismiss();
     setTab(next);
     setSelected(null);
-    setStop(null);
+    changeStop(null);
     setRouteView(false);
     resetRoutes();
     setPickingOrigin(false);
@@ -382,7 +349,7 @@ function MapsApp() {
     cancelLocationRequest();
     Keyboard.dismiss();
     setTab("saved");
-    setStop(null);
+    changeStop(null);
     setPrivacy(false);
     setPickingOrigin(false);
     setOrigin(journey.query.from);
@@ -400,7 +367,7 @@ function MapsApp() {
     restoreRoute(journey);
   }
   async function saveSelectedJourney() {
-    if (!route || !selected || journeyBusy) return;
+    if (!route || !selected || journeyBusy || retainedSelection) return;
     setJourneyBusy(true);
     try {
       await savedTravel.saveJourney({
@@ -427,7 +394,7 @@ function MapsApp() {
     setRouteView(false);
     resetRoutes();
     setPickingOrigin(false);
-    setStop(current);
+    changeStop(current);
     setCenter(current.coordinate);
     setListOnly(false);
   }
@@ -436,7 +403,7 @@ function MapsApp() {
     setSearchCenter(viewport.current);
     setAreaChanged(false);
     setSelected(null);
-    setStop(null);
+    changeStop(null);
     setRouteView(false);
     resetRoutes();
   }
@@ -579,7 +546,7 @@ function MapsApp() {
                 setQuery(value);
                 setTab("explore");
                 setSelected(null);
-                setStop(null);
+                changeStop(null);
                 setRouteView(false);
                 resetRoutes();
                 setPrivacy(false);
@@ -601,7 +568,7 @@ function MapsApp() {
             icon="options-outline"
             label="Privacy e fonti"
             active={privacy}
-            onPress={() => { Keyboard.dismiss(); setPrivacy((value) => !value); }}
+            onPress={() => { Keyboard.dismiss(); if (!privacy) suspendTransitWork(); setPrivacy((value) => !value); }}
           />
           {!wide ? null : (
             <Text className="ml-3 text-sm text-[#59667A]">
@@ -696,7 +663,7 @@ function MapsApp() {
                 if (tab === "transit") {
                   const next = stops.find((item) => item.id === id);
                   if (next) {
-                    setStop(next);
+                    changeStop(next);
                     setCenter(next.coordinate);
                   }
                 } else {
@@ -796,7 +763,7 @@ function MapsApp() {
                         if (selected?.id === "saved-journey-destination") setSelected(null);
                       } else {
                         setSelected(null);
-                        setStop(null);
+                        changeStop(null);
                         setPrivacy(false);
                       }
                     }}
@@ -886,6 +853,7 @@ function MapsApp() {
                       icon="map-outline"
                       onPress={() => {
                         cancelLocationRequest();
+                        suspendRoutes();
                         setPickingOrigin(true);
                         setListOnly(false);
                       }}
@@ -900,7 +868,7 @@ function MapsApp() {
                       key={mode.id}
                       accessibilityRole="button"
                       accessibilityState={{ selected: routeMode === mode.id }}
-                      onPress={() => setRouteMode(mode.id)}
+                      onPress={() => { if (routeMode !== mode.id) suspendRoutes(); setRouteMode(mode.id); }}
                       className={`min-h-16 flex-1 items-center justify-center gap-1 rounded-xl ${routeMode === mode.id ? "bg-white" : ""}`}
                     >
                       <Icon
@@ -922,7 +890,10 @@ function MapsApp() {
                     key={JSON.stringify(transitTime)}
                     value={transitTime}
                     disabled={routing || originPending || pickingOrigin}
-                    onSubmit={(value) => { setTransitTime(value); refreshRoutes(); }}
+                    onSubmit={(value) => {
+                      if (JSON.stringify(value) === JSON.stringify(transitTime)) refreshRoutes();
+                      else { suspendRoutes(); setTransitTime(value); }
+                    }}
                   />
                 ) : null}
                 {pickingOrigin ? (
@@ -938,6 +909,7 @@ function MapsApp() {
                     now={now}
                     query={transitTime}
                     saved={savedJourneyVisible}
+                    retained={retainedSelection}
                   />
                 ) : (routing && !route) || originPending ? (
                   <Loading label="Calcolo del percorso…" />
@@ -951,7 +923,7 @@ function MapsApp() {
                 ) : route ? (
                   <>
                     <Text className="text-xs leading-5 text-[#59667A]">Consultato il {journeyDate(route.fetchedAt)} alle {journeyTime(route.fetchedAt)}. {savedJourneyVisible ? "Da aggiornare." : ""}</Text>
-                    {routeError ? <Notice danger text={`Aggiornamento non riuscito. ${routeError} Il percorso precedente resta visibile.`} /> : null}
+                    {routeError ? <Notice danger text={`Aggiornamento non riuscito. ${routeError} Il percorso precedente resta visibile. Il prossimo tentativo può richiedere qualche minuto.`} /> : null}
                     <Button secondary icon="refresh-outline" loading={routing} onPress={refreshRoutes}>Ricalcola percorso</Button>
                     <View className="flex-row items-baseline gap-3">
                       <Text className="text-3xl font-bold text-[#2359D7]">
@@ -998,6 +970,8 @@ function MapsApp() {
                       contributors.
                     </Text>
                   </>
+                ) : !originPending ? (
+                  <Button secondary icon="refresh-outline" onPress={refreshRoutes}>Calcola percorso</Button>
                 ) : null}
                 {route && !pickingOrigin && !originPending ? (
                   <View className="gap-3 border-t border-[#E2E8F0] pt-4">
@@ -1006,7 +980,7 @@ function MapsApp() {
                     {savedJourneyVisible ? (
                       <Button secondary icon="trash-outline" loading={journeyBusy} onPress={clearSavedJourney}>Rimuovi viaggio salvato</Button>
                     ) : (
-                      <Button icon="bookmark-outline" loading={journeyBusy} disabled={routing || travel.journeyStatus === "loading"} onPress={saveSelectedJourney}>
+                      <Button icon="bookmark-outline" loading={journeyBusy} disabled={routing || retainedSelection || travel.journeyStatus === "loading"} onPress={saveSelectedJourney}>
                         {travel.journey || travel.journeyStatus === "unavailable" ? "Sostituisci viaggio salvato" : "Salva viaggio selezionato"}
                       </Button>
                     )}
@@ -1093,100 +1067,16 @@ function MapsApp() {
                   loading={stopsBusy} disabled={travel.stopsStatus === "loading"}
                   onPress={() => mutateSavedStops(() => stopSaved ? savedTravel.removeStop(stop.id) : savedTravel.saveStop(stop.id))}
                 >{stopSaved ? "Rimuovi fermata salvata" : "Salva fermata"}</Button>
-                <View className="flex-row items-center justify-between">
-                  <Text className="flex-1 text-sm text-[#59667A]">
-                    Fermata {stop.code}
-                    {stop.distanceMeters
-                      ? ` · ${distance(stop.distanceMeters)}`
-                      : ""}
-                  </Text>
-                  <IconButton
-                    icon="refresh-outline"
-                    label="Aggiorna arrivi"
-                    disabled={transitLoading}
-                    onPress={() => setRefreshBoard((value) => value + 1)}
-                  />
-                </View>
-                {transitLoading ? (
-                  <Loading label="Cerco i prossimi arrivi…" />
-                ) : transitError ? (
-                  <Notice
-                    danger
-                    text={transitError}
-                    action="Riprova"
-                    onAction={() => setRefreshBoard((value) => value + 1)}
-                  />
-                ) : board ? (
-                  <>
-                    <View className="flex-row items-center gap-2">
-                      <View
-                        className={`h-2 w-2 rounded-full ${now - board.fetchedAt < 120000 ? "bg-[#167469]" : "bg-[#9A5800]"}`}
-                      />
-                      <Text className="text-xs text-[#59667A]">
-                        Consultato alle {time(board.fetchedAt)} · {board.source}
-                      </Text>
-                    </View>
-                    {board.warnings.map((warning, index) => (
-                      <Notice key={index} text={warning} />
-                    ))}
-                    {board.departures.length ? (
-                      board.departures.map((departure) => (
-                        <DepartureRow
-                          key={departure.id}
-                          departure={departure}
-                          now={now}
-                          feedUpdatedAt={board.sourceUpdatedAt}
-                        />
-                      ))
-                    ) : (
-                      <EmptyState
-                        icon="time-outline"
-                        title="Nessun arrivo disponibile"
-                        description="La fonte non riporta partenze per questa fermata. Riprova tra poco o scegli una fermata vicina."
-                      />
-                    )}
-                  </>
-                ) : null}
-                {alertsError ? <Notice text={alertsError} /> : null}
-                {alerts.map((alert) => (
-                  <View key={alert.id} className="rounded-2xl bg-[#FFF5DE] p-4">
-                    <Text className="font-semibold text-[#17243C]">
-                      {alert.title}
-                    </Text>
-                    <Text className="mt-2 text-sm leading-5 text-[#59667A]">
-                      {alert.description}
-                    </Text>
-                    {alert.url ? (
-                      <Pressable
-                        accessibilityRole="link"
-                        className="min-h-11 justify-center"
-                        onPress={() => openLink(alert.url!)}
-                      >
-                        <Text className="font-semibold text-[#2359D7]">
-                          Dettagli avviso
-                        </Text>
-                      </Pressable>
-                    ) : null}
-                  </View>
-                ))}
-                <Button
-                  secondary
-                  icon="walk-outline"
-                  onPress={() => {
+                <StopBoardPanel stop={stop} state={stopBoard} now={now} onLink={openLink}
+                  onDirections={() => {
                     const next: Place = {
-                      id: `stop:${stop.id}`,
-                      name: `Fermata ${stop.name}`,
-                      coordinate: stop.coordinate,
-                      category: "Fermata GTT",
-                      source: "GTT",
-                      attributions: ["Dati GTT"],
+                      id: `stop:${stop.id}`, name: `Fermata ${stop.name}`, coordinate: stop.coordinate,
+                      category: "Fermata GTT", source: "GTT", attributions: ["Dati GTT"],
                     };
                     setRouteMode("walk");
                     beginRoute(next);
                   }}
-                >
-                  Raggiungi la fermata
-                </Button>
+                />
               </View>
             ) : tab === "transit" ? (
               <>
@@ -1199,7 +1089,7 @@ function MapsApp() {
                       accessibilityRole="button"
                       key={item.id}
                       onPress={() => {
-                        setStop(item);
+                        changeStop(item);
                         setCenter(item.coordinate);
                         setListOnly(false);
                       }}
@@ -1438,53 +1328,6 @@ function ActionRow({
       </View>
       <Icon name="open-outline" size={17} color={colors.muted} />
     </Pressable>
-  );
-}
-function DepartureRow({
-  departure,
-  now,
-  feedUpdatedAt,
-}: {
-  departure: Departure;
-  now: number;
-  feedUpdatedAt?: number;
-}) {
-  const at = departure.expectedAt ?? departure.scheduledAt;
-  const status = displayedDepartureStatus(departure, feedUpdatedAt, now);
-  const labels = {
-    live: "Tempo reale",
-    scheduled: "Da orario",
-    stale: "Dato non aggiornato",
-    cancelled: "Corsa cancellata",
-    unknown: "Orario non disponibile",
-  };
-  return (
-    <View className="flex-row items-center gap-3 border-b border-[#E2E8F0] py-3">
-      <View className="min-w-12 items-center rounded-xl bg-[#17243C] px-2 py-3">
-        <Text className="font-bold text-white">{departure.line}</Text>
-      </View>
-      <View className="flex-1">
-        <Text className="font-semibold leading-5 text-[#17243C]">
-          {departure.headsign || "Direzione non indicata"}
-        </Text>
-        <Text
-          className={`mt-1 text-xs ${status === "live" ? "text-[#167469]" : "text-[#59667A]"}`}
-        >
-          {labels[status]}
-        </Text>
-      </View>
-      <Text
-        className={`text-lg font-bold ${status === "live" ? "text-[#167469]" : "text-[#59667A]"}`}
-      >
-        {status === "cancelled"
-          ? "—"
-          : at
-            ? status === "live" && at >= now
-              ? `${Math.max(0, Math.ceil((at - now) / 60000))} min`
-              : time(at)
-            : "—"}
-      </Text>
-    </View>
   );
 }
 function PrivacyContent({ onLink }: { onLink: (url: string) => void }) {

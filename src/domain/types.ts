@@ -49,3 +49,4 @@ export interface SearchResult {
   coverage: PlaceCoverage; resultLimit: number; truncated: boolean;
 }
 export interface TransitAlert { id: string; title: string; description: string; url?: string; source: string }
+export interface TransitAlertSnapshot { alerts: TransitAlert[]; fetchedAt: number; sourceUpdatedAt?: number; source: string; warnings: string[] }

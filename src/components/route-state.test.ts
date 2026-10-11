@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { RoutePlan } from '../domain/types';
-import { emptyRouteState, routeQueryKey, routeReducer, visibleRouteState } from './route-state';
+import { emptyRouteState, routeQueryKey, routeReducer, selectedRoute, visibleRouteState } from './route-state';
 
 function plan(id: string, fetchedAt = 1000): RoutePlan {
   return {
@@ -27,14 +27,24 @@ test('failed refresh retains selected itinerary and its original retrieval times
   assert.equal(state.plans[1]!.fetchedAt, 1000);
 });
 
-test('refresh follows stable itinerary identity when alternatives reorder, then falls back if removed', () => {
+test('refresh follows stable itinerary identity and retains its original preview when removed', () => {
   let state = routeReducer(loaded(), { type: 'select', id: 'two' });
   state = routeReducer(state, { type: 'start', queryKey: 'A', request: 2 });
   state = routeReducer(state, { type: 'success', queryKey: 'A', request: 2, plans: [plan('two', 2000), plan('one', 2000)] });
   assert.equal(state.selectedId, 'two');
   state = routeReducer(state, { type: 'start', queryKey: 'A', request: 3 });
   state = routeReducer(state, { type: 'success', queryKey: 'A', request: 3, plans: [plan('one', 3000)] });
+  assert.equal(state.selectedId, 'two');
+  assert.equal(selectedRoute(state)?.id, 'two');
+  assert.equal(selectedRoute(state)?.fetchedAt, 2000);
+  assert.deepEqual(state.plans.map(plan => plan.id), ['one']);
+  assert.equal(state.retainedSelection?.id, 'two');
+  state = routeReducer(state, { type: 'select', id: 'unknown' });
+  assert.equal(state.retainedSelection?.id, 'two');
+  state = routeReducer(state, { type: 'select', id: 'one' });
   assert.equal(state.selectedId, 'one');
+  assert.equal(state.retainedSelection, null);
+  assert.equal(selectedRoute(state)?.fetchedAt, 3000);
 });
 
 test('endpoint or submitted-time change hides previous data before the request effect runs', () => {
@@ -93,6 +103,10 @@ test('failed explicit refresh keeps a restored copy; successful refresh changes 
   assert.equal(state.plans[0]!.fetchedAt, 500);
   state = routeReducer(state, { type: 'start', queryKey: 'A', request: 3 });
   state = routeReducer(state, { type: 'success', queryKey: 'A', request: 3, plans: [plan('fresh', 900)] });
+  assert.equal(state.saved, true);
+  assert.equal(state.selectedId, 'saved');
+  assert.equal(state.retainedSelection, saved);
+  state = routeReducer(state, { type: 'select', id: 'fresh' });
   assert.equal(state.saved, false);
   assert.equal(state.selectedId, 'fresh');
   assert.equal(saved.fetchedAt, 500);
@@ -110,7 +124,8 @@ test('restored view identity survives refresh success before delayed deletion, t
   state = routeReducer(state, { type: 'start', queryKey: 'A', request: 11 });
   // Deletion is pending while this same-query refresh completes successfully.
   state = routeReducer(state, { type: 'success', queryKey: 'A', request: 11, plans: [plan('fresh', 900)] });
-  assert.equal(state.saved, false);
+  assert.equal(state.saved, true);
+  assert.equal(state.retainedSelection?.id, 'saved');
   assert.equal(state.restoredViewId, restoredViewId);
   // A successful removal can still identify and dismiss this restored view.
   state = routeReducer(state, { type: 'reset' });
@@ -134,4 +149,35 @@ test('leaving a restored view before delayed deletion cannot dismiss an unrelate
   state = routeReducer(state, { type: 'reset' });
   state = routeReducer(state, { type: 'start', queryKey: 'A', request: 4 });
   assert.equal(state.restoredViewId, null, 'a new ordinary route to the same endpoints is not a restored view');
+});
+
+
+test('retained route survives further missing results and errors, then reappears with the same stable identity', () => {
+  let state = routeReducer(loaded(), { type: 'select', id: 'two' });
+  const original = selectedRoute(state);
+  state = routeReducer(state, { type: 'start', queryKey: 'A', request: 2 });
+  state = routeReducer(state, { type: 'success', queryKey: 'A', request: 2, plans: [plan('three', 2000)] });
+  assert.equal(selectedRoute(state), original);
+  state = routeReducer(state, { type: 'start', queryKey: 'A', request: 3 });
+  state = routeReducer(state, { type: 'success', queryKey: 'A', request: 3, plans: [] });
+  assert.equal(selectedRoute(state), original);
+  state = routeReducer(state, { type: 'start', queryKey: 'A', request: 4 });
+  state = routeReducer(state, { type: 'failure', queryKey: 'A', request: 4, error: 'Offline' });
+  assert.equal(selectedRoute(state), original);
+  state = routeReducer(state, { type: 'start', queryKey: 'A', request: 5 });
+  const reappeared = plan('two', 5000);
+  state = routeReducer(state, { type: 'success', queryKey: 'A', request: 5, plans: [plan('one', 5000), reappeared] });
+  assert.equal(selectedRoute(state), reappeared);
+  assert.equal(state.retainedSelection, null);
+  assert.equal(original?.fetchedAt, 1000);
+});
+
+test('activity suspension settles loading without hiding matching data or accepting old completions', () => {
+  let state = routeReducer(loaded(), { type: 'start', queryKey: 'A', request: 2 });
+  const original = selectedRoute(state);
+  state = routeReducer(state, { type: 'settled', queryKey: 'A', request: 2 });
+  assert.equal(state.loading, false);
+  assert.equal(selectedRoute(visibleRouteState(state, 'A')), original);
+  state = routeReducer(state, { type: 'start', queryKey: 'A', request: 3 });
+  assert.equal(routeReducer(state, { type: 'settled', queryKey: 'A', request: 2 }), state);
 });
