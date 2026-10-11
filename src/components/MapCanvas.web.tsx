@@ -20,6 +20,9 @@ export default function MapCanvas(props: MapCanvasProps) {
     const instance = new maplibregl.Map({ container: container.current, style: 'https://tiles.openfreemap.org/styles/liberty', ...initialView.current, attributionControl: { compact: true } });
     map.current = instance;
     instance.on('load', () => {
+      instance.addSource('local-coverage', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+      instance.addLayer({ id: 'local-coverage-fill', type: 'fill', source: 'local-coverage', paint: { 'fill-color': '#167469', 'fill-opacity': 0.035 } });
+      instance.addLayer({ id: 'local-coverage-line', type: 'line', source: 'local-coverage', paint: { 'line-color': '#167469', 'line-width': 2, 'line-dasharray': [3, 2] } });
       instance.addSource('journey', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
       instance.addLayer({ id: 'journey-casing', type: 'line', source: 'journey', paint: { 'line-width': 9, 'line-color': '#ffffff' }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
       instance.addLayer({ id: 'journey-line', type: 'line', source: 'journey', paint: { 'line-width': 5, 'line-color': '#185CE5' }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
@@ -42,6 +45,12 @@ export default function MapCanvas(props: MapCanvasProps) {
     return () => { observer.disconnect(); instance.remove(); map.current = null; };
   }, []);
   useEffect(() => { if (loaded) map.current?.easeTo({ center: [longitude, latitude], zoom, duration: 450 }); }, [loaded, longitude, latitude, zoom]);
+  useEffect(() => {
+    if (!loaded || !map.current) return;
+    const bounds = props.coverageBounds;
+    const [west, south, east, north] = bounds ?? [0, 0, 0, 0];
+    (map.current.getSource('local-coverage') as GeoJSONSource)?.setData({ type: 'FeatureCollection', features: bounds ? [{ type: 'Feature', geometry: { type: 'Polygon', coordinates: [[[west, south], [east, south], [east, north], [west, north], [west, south]]] }, properties: {} }] : [] });
+  }, [loaded, props.coverageBounds]);
   useEffect(() => {
     if (!loaded || !map.current) return;
     (map.current.getSource('places') as GeoJSONSource)?.setData({ type: 'FeatureCollection', features: (props.markers ?? []).map(marker => ({ type: 'Feature', id: marker.id, geometry: { type: 'Point', coordinates: marker.coordinate }, properties: { id: marker.id, kind: marker.kind, label: marker.label ?? '', selected: marker.id === props.selectedMarkerId } })) });

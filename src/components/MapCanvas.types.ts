@@ -12,6 +12,7 @@ export interface MapCanvasProps {
   markers?: MapMarker[];
   selectedMarkerId?: string;
   route?: LineString | null;
+  coverageBounds?: [west: number, south: number, east: number, north: number];
   userLocation?: MapCoordinate | null;
   onPressMarker?: (id: string) => void;
   onMapPress?: (coordinate: MapCoordinate) => void;

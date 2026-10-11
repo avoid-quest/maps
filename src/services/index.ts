@@ -1,5 +1,6 @@
 export * from '../domain/types';
-export { searchPlaces, searchLocalPlaces, SEARCH_CATEGORIES, categoryLabel } from './search';
+export { searchPlaces, searchLocalPlaces, searchLocalResult, SEARCH_CATEGORIES, categoryLabel } from './search';
+export { PLACE_BOUNDS, LOCAL_SEARCH_RADIUS_METERS, getPlaceCoverage } from './place-coverage';
 export { planRoute, planRoutes, romeDateTime, resolveTransitTime, type PlanRouteOptions } from './routing';
 export { getNearbyStops, getStop, getDepartures, getTransitAlerts } from './transit';
 export { loadSavedPlaces, savePlace, removeSavedPlace } from './favorites';
