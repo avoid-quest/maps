@@ -255,6 +255,51 @@ class PlacePackageTests(unittest.TestCase):
             self.assertEqual(manifest["sourceDates"]["latest"], "2025-01-03T00:00:00.000")
             self.assertEqual(manifest["retrievedAt"], "2026-10-11")
 
+    def test_config_dates_require_canonical_format_and_calendar_order(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = fixture(pathlib.Path(directory))
+            validate_config(config)
+            for field in ("retrievedAt", "preparedAt"):
+                for value in ("20260922", "20260924", "2026-W39-2", "2026-9-24", "2026-02-30",
+                              "2026-13-01", "2026-10-11T00:00:00Z", None, 20261011):
+                    with self.subTest(field=field, value=value), self.assertRaises(ValidationError):
+                        validate_config({**config, field: value})
+            with self.assertRaisesRegex(ValidationError, "retrieval predates release"):
+                validate_config({**config, "retrievedAt": "2026-09-22"})
+            with self.assertRaisesRegex(ValidationError, "preparation predates retrieval"):
+                validate_config({**config, "retrievedAt": "2026-09-25", "preparedAt": "2026-09-24"})
+            with self.assertRaisesRegex(ValidationError, "YYYY-MM-DD"):
+                validate_config({**config, "retrievedAt": "20260922", "preparedAt": "20261011"})
+            validate_config({**config, "retrievedAt": "2026-09-24", "preparedAt": "2026-09-25"})
+            validate_config({**config, "retrievedAt": "2026-12-31", "preparedAt": "2027-01-01"})
+
+    def test_cli_rejects_compact_iso_dates_before_changing_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder = pathlib.Path(directory)
+            output = folder / "output"; output.mkdir()
+            sentinel = output / "places.compact.json"
+            sentinel.write_bytes(b"unchanged existing package\n")
+            for field, value in (("retrievedAt", "20260922"), ("preparedAt", "20261012")):
+                with self.subTest(field=field):
+                    config = fixture(folder)
+                    config[field] = value
+                    if field == "retrievedAt":
+                        config["preparedAt"] = "20261011"
+                    (folder / "source.json").write_bytes(encoded(config))
+                    result = self.cli(folder, "--places", str(folder / "raw.json"), "--output", str(output))
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("YYYY-MM-DD", result.stderr)
+                    self.assertEqual(sentinel.read_bytes(), b"unchanged existing package\n")
+                    self.assertEqual(list(output.iterdir()), [sentinel])
+
+    def test_raw_inspection_fields_do_not_replace_consumed_taxonomy(self):
+        row = raw_place()
+        expected = normalize_raw([row], BOUNDS)
+        row.update(version=12, basic_category="restaurant")
+        self.assertEqual(normalize_raw([row], BOUNDS), expected)
+        row.update(version=13, basic_category="generic_business")
+        self.assertEqual(normalize_raw([row], BOUNDS), expected)
+
     def test_pins_reject_bad_dates_schema_transform_counts_hashes_and_supplement(self):
         cases = [("release", "latest"), ("release", "2026-13-45.1"), ("bounds", [7.8, 45, 7.6, 45.14]),
                  ("inputSchema", "legacy"), ("schemaVersion", 99), ("transformVersion", "2"),

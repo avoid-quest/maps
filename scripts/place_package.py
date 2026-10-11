@@ -2,6 +2,8 @@
 
 This normalizes the existing application fields, not every raw Overture property.
 Source objects retain every property, including explicit nulls and absent fields.
+The pinned input schema covers consumed fields. Raw version and basic_category
+remain extraction inspection fields; application categories come from taxonomy.
 No network access or transit-data writes occur in this module.
 """
 
@@ -92,14 +94,17 @@ def validate_config(config):
     release = config.get("release")
     require(isinstance(release, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}\.\d+", release),
             "release must be an explicit dated Overture release")
+    for field in ("retrievedAt", "preparedAt"):
+        require(isinstance(config.get(field), str) and re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", config[field]),
+                f"{field} must use YYYY-MM-DD")
     try:
-        datetime.date.fromisoformat(release.split(".")[0])
-        for field in ("retrievedAt", "preparedAt"):
-            datetime.date.fromisoformat(config[field])
+        release_date = datetime.date.fromisoformat(release.split(".")[0])
+        retrieved_date = datetime.date.fromisoformat(config["retrievedAt"])
+        prepared_date = datetime.date.fromisoformat(config["preparedAt"])
     except (ValueError, KeyError, TypeError) as error:
         raise ValidationError("invalid release/retrievedAt/preparedAt date") from error
-    require(config["retrievedAt"] >= release.split(".")[0], "retrieval predates release")
-    require(config["preparedAt"] >= config["retrievedAt"], "preparation predates retrieval")
+    require(retrieved_date >= release_date, "retrieval predates release")
+    require(prepared_date >= retrieved_date, "preparation predates retrieval")
     validate_bounds(config.get("bounds"))
     require(config.get("mainCategories") == MAIN_CATEGORIES, "unsupported main category filter")
     for field in ("rawCount", "mainCount", "count"):
