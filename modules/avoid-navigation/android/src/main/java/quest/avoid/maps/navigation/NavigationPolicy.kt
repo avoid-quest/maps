@@ -28,8 +28,8 @@ class RerouteBudget {
 
 object FixPolicy {
   fun problem(ageMs: Long, accuracyMeters: Double, hasAccuracy: Boolean): String? = when {
-    ageMs < 0 || ageMs > 10_000 -> "location-stale"
-    !hasAccuracy || !accuracyMeters.isFinite() || accuracyMeters <= 0 || accuracyMeters > 35 -> "location-inaccurate"
+    ageMs < 0 || ageMs > RoadGuidancePolicy.maximumFixAgeMillis -> "location-stale"
+    !hasAccuracy || !accuracyMeters.isFinite() || accuracyMeters <= 0 || accuracyMeters > RoadGuidancePolicy.maximumHorizontalAccuracyMeters.toDouble() -> "location-inaccurate"
     else -> null
   }
 }

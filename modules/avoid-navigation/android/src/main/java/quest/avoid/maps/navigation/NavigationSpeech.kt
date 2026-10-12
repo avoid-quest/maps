@@ -34,7 +34,8 @@ internal class NavigationSpeech(context: Context, private val changed: (String) 
         if (closed) return@post
         val engine = tts
         val voice = if (status == TextToSpeech.SUCCESS) runCatching {
-          engine?.voices?.filter { it.locale.language == Locale.ITALIAN.language && !it.isNetworkConnectionRequired }
+          engine?.voices?.filter { it.locale.language == Locale.ITALIAN.language && !it.isNetworkConnectionRequired &&
+              it.features?.contains(TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED) != true }
             ?.sortedByDescending { it.quality }?.firstOrNull()
         }.getOrNull() else null
         ready = voice != null && runCatching { engine?.setVoice(voice) == TextToSpeech.SUCCESS }.getOrDefault(false)

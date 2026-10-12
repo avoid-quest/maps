@@ -10,6 +10,8 @@ export interface NavigationSnapshot {
   destination?: Coordinate;
   voice: 'initializing' | 'ready' | 'muted' | 'unavailable';
   notificationGranted: boolean;
+  /** Independent of retained route/admission errors: only a current accepted fix is usable. */
+  locationUsable?: boolean;
   location?: Coordinate & { accuracyMeters: number; bearing?: number; timestamp: number };
   instruction?: string;
   nextInstruction?: string;
@@ -49,7 +51,7 @@ export interface NavigationPlatform {
 }
 export const idleNavigation: NavigationSnapshot = {
   revision: 0, sessionId: null, status: 'idle', mode: null,
-  voice: 'unavailable', notificationGranted: false, canRetry: false,
+  voice: 'unavailable', notificationGranted: false, locationUsable: false, canRetry: false,
 };
 export function navigationVisible(snapshot: NavigationSnapshot): boolean {
   return snapshot.status !== 'idle' && snapshot.status !== 'stopped';
@@ -57,11 +59,11 @@ export function navigationVisible(snapshot: NavigationSnapshot): boolean {
 /** A retained dot is not a usable origin after the native session reports a lost or poor fix. */
 export function navigationLocationForReplan(snapshot: NavigationSnapshot, now = Date.now()): Coordinate | null {
   const location = snapshot.location;
-  if (!location || snapshot.status === 'location-degraded'
+  if (!location || snapshot.locationUsable !== true || snapshot.status === 'location-degraded'
     || (snapshot.problem && snapshot.problem !== 'transit-replan-needed')) return null;
   const age = now - location.timestamp;
   if (!Number.isFinite(age) || age < 0 || age > 10_000
-    || !Number.isFinite(location.accuracyMeters) || location.accuracyMeters <= 0 || location.accuracyMeters > 35
+    || !Number.isFinite(location.accuracyMeters) || location.accuracyMeters <= 0 || location.accuracyMeters > 20
     || !Number.isFinite(location.latitude) || Math.abs(location.latitude) > 90
     || !Number.isFinite(location.longitude) || Math.abs(location.longitude) > 180) return null;
   return { latitude: location.latitude, longitude: location.longitude };

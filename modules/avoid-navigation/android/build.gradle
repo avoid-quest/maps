@@ -12,6 +12,7 @@ android {
     minSdkVersion 25
     versionCode 1
     versionName '0.1.0'
+    buildConfigField 'String', 'ROAD_GUIDANCE_POLICY', groovy.json.JsonOutput.toJson(file('src/main/assets/road-guidance-policy.json').text)
   }
   compileOptions { coreLibraryDesugaringEnabled true }
 }

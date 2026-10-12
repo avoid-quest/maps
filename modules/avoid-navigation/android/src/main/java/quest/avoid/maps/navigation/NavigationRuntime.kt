@@ -58,7 +58,7 @@ internal class NavigationRuntime private constructor(private val context: Contex
     fields["sessionId"] = it["sessionId"]; fields["mode"] = it["mode"]; fields["destination"] = it["destination"]
     fields["status"] = "interrupted"; fields["canRetry"] = true
   } }
-  fun snapshot(): Map<String, Any?> = fields.filter { (key, value) -> value != null || key == "sessionId" || key == "mode" } + mapOf("revision" to revision, "notificationGranted" to notificationsGranted())
+  fun snapshot(): Map<String, Any?> = fields.filter { (key, value) -> value != null || key == "sessionId" || key == "mode" } + mapOf("revision" to revision, "notificationGranted" to notificationsGranted(), "locationUsable" to currentFixConfident)
   fun observe(listener: (Map<String, Any?>) -> Unit) { listeners.add(listener); listener(snapshot()) }
   fun unobserve(listener: (Map<String, Any?>) -> Unit) { listeners.remove(listener) }
   private fun publish() {
@@ -124,7 +124,7 @@ internal class NavigationRuntime private constructor(private val context: Contex
         delay(2_000)
         if (!fineLocation()) { degraded("location-permission"); source?.stop(); continue }
         val fix = latestFix
-        if (fix != null && fixAge(fix) > 10_000) degraded("location-stale")
+        if (fix != null && fixAge(fix) > RoadGuidancePolicy.maximumFixAgeMillis) degraded("location-stale")
         else if (fix == null && SystemClock.elapsedRealtime() - locationWaitStartedAt >= 30_000 && fields["status"] == "waiting-for-fix") {
           fields["status"] = "location-degraded"
           if (fields["problem"] !in setOf("location-disabled", "location-permission")) fields["problem"] = "location-stale"
@@ -242,7 +242,7 @@ internal class NavigationRuntime private constructor(private val context: Contex
         val destination = engine?.route?.geometry?.lastOrNull() ?: return
         val result = FloatArray(1)
         Location.distanceBetween(fix.latitude, fix.longitude, destination.lat, destination.lng, result)
-        if (fix.accuracy <= 20 && result[0] <= 20) arrivalFixes++ else arrivalFixes = 0
+        if (fix.accuracy <= RoadGuidancePolicy.maximumHorizontalAccuracyMeters.toFloat() && result[0] <= RoadGuidancePolicy.arrivalRadiusMeters.toFloat()) arrivalFixes++ else arrivalFixes = 0
         if (arrivalFixes >= 2) {
           val destinationDistance = target?.let { selected ->
             FloatArray(1).also { Location.distanceBetween(destination.lat, destination.lng, selected.latitude, selected.longitude, it) }[0].toDouble()

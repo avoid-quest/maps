@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createNavigationController } from './navigation-controller';
-import { idleNavigation, type NavigationPlatform, type NavigationSnapshot } from '../domain/navigation';
+import { idleNavigation, navigationLocationForReplan, type NavigationPlatform, type NavigationSnapshot } from '../domain/navigation';
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -161,4 +161,25 @@ test('explicit transit confirmations remain usable without GPS, and Stop rejects
   await confirming;
   assert.ok(calls.includes('alight'));
   assert.equal(controller.getSnapshot().snapshot.status, 'stopped');
+});
+
+test('mounted subscribers receive lost and recovered confidence while the transit admission error stays latched', async () => {
+  const { controller, emit, calls } = fixture();
+  await Promise.resolve();
+  const now = Date.UTC(2026, 9, 12, 12);
+  const rejected: NavigationSnapshot = { ...snapshot(10, 'error'), mode: 'transit', problem: 'transit-replan-needed',
+    locationUsable: true, location: { ...options.destination, accuracyMeters: 8, timestamp: now } };
+  const origins: ReturnType<typeof navigationLocationForReplan>[] = [];
+  const problems: NavigationSnapshot['problem'][] = [];
+  controller.subscribe(() => {
+    const current = controller.getSnapshot().snapshot;
+    origins.push(navigationLocationForReplan(current, now));
+    problems.push(current.problem);
+  });
+  emit(rejected);
+  emit({ ...rejected, revision: 11, locationUsable: false });
+  emit({ ...rejected, revision: 12, locationUsable: true });
+  assert.deepEqual(origins, [options.destination, null, options.destination]);
+  assert.deepEqual(problems, Array(3).fill('transit-replan-needed'));
+  assert.deepEqual(calls, ['read']); // Recovery events never retry admission or start a route request.
 });

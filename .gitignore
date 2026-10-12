@@ -18,3 +18,5 @@ public/vendor/
 
 /modules/*/android/build/
 /modules/*/android/.gradle/
+
+/tests/navigation-core/target/

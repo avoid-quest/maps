@@ -1,0 +1,10 @@
+[package]
+name = "avoid-navigation-core-replay"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88.0"
+publish = false
+
+[dependencies]
+ferrostar = { git = "https://github.com/stadiamaps/ferrostar", rev = "4e2d7f647952c0a4060efd584e6edfc6148092b9", default-features = false, features = ["std"] }
+serde_json = "=1.0.150"

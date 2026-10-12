@@ -1,0 +1,9 @@
+{
+  "maximumFixAgeMillis": 10000,
+  "maximumHorizontalAccuracyMeters": 20,
+  "arrivalRadiusMeters": 20,
+  "maximumRouteDeviationMeters": 45,
+  "walk": { "strategy": "entry-snapped-exit", "entryRadiusMeters": 20, "exitDistanceMeters": 3 },
+  "bicycle": { "strategy": "entry-snapped-exit", "entryRadiusMeters": 30, "exitDistanceMeters": 5 },
+  "car": { "strategy": "entry-snapped-exit", "entryRadiusMeters": 30, "exitDistanceMeters": 5 }
+}

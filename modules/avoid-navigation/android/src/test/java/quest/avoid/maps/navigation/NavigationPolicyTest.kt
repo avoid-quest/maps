@@ -5,11 +5,11 @@ import org.junit.Test
 
 class NavigationPolicyTest {
   @Test fun freshnessAndAccuracyBoundariesAreExplicit() {
-    assertNull(FixPolicy.problem(10_000, 35.0, true))
+    assertNull(FixPolicy.problem(10_000, 20.0, true))
     assertNull(FixPolicy.problem(0, 1.0, true))
     assertEquals("location-stale", FixPolicy.problem(-1, 1.0, true))
     assertEquals("location-stale", FixPolicy.problem(10_001, 1.0, true))
-    listOf(0.0, -1.0, 35.01, Double.NaN, Double.POSITIVE_INFINITY).forEach {
+    listOf(0.0, -1.0, 20.01, 21.0, 35.0, Double.NaN, Double.POSITIVE_INFINITY).forEach {
       assertEquals("location-inaccurate", FixPolicy.problem(0, it, true))
     }
     assertEquals("location-inaccurate", FixPolicy.problem(0, 1.0, false))
