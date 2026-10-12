@@ -11,6 +11,11 @@ export interface MapCanvasProps {
   zoom?: number;
   /** Forces an explicit recenter even when the last commanded coordinate is unchanged. */
   cameraRevision?: number;
+  /** A user-requested planning frame; refreshed geometry with the same key never moves the camera. */
+  routeFitKey?: string;
+  attributionTop?: number;
+  attributionLeft?: number;
+  cameraPadding?: { top: number; right: number; bottom: number; left: number };
   markers?: MapMarker[];
   selectedMarkerId?: string;
   route?: LineString | null;

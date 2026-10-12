@@ -16,7 +16,8 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
-import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { mapCameraPadding } from "./src/components/map-presentation";
 import MapCanvas from "./src/components/MapCanvas";
 import type { MapMarker } from "./src/components/MapCanvas.types";
 import {
@@ -25,6 +26,7 @@ import {
   Icon,
   IconButton,
   Notice,
+  Disclosure,
   type IconName,
 } from "./src/components/Controls";
 import { colors } from "./src/theme/tokens";
@@ -101,7 +103,15 @@ const modes: { id: TravelMode; label: string; icon: IconName }[] = [
 ];
 
 function MapsApp() {
-  const { width, height } = useWindowDimensions();
+  const { width, height, fontScale } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  // Android resizes the window for the keyboard; the geographic viewport stays put.
+  const mapWindow = useRef({ width, height });
+  if (width !== mapWindow.current.width || height > mapWindow.current.height) mapWindow.current = { width, height };
+  const mapHeight = mapWindow.current.height - insets.top - insets.bottom;
+  const availableHeight = height - insets.top - insets.bottom;
+  const [following, setFollowing] = useState(true);
+  const [frameRevision, setFrameRevision] = useState(0);
   const wide = width >= 850;
   const [tab, setTab] = useState<"explore" | "transit" | "saved">("explore");
   const [query, setQuery] = useState("");
@@ -115,7 +125,7 @@ function MapsApp() {
   const hasSearch = searchTerm.length >= 2;
   const [center, setCenterState] = useState(INITIAL_MAP);
   const viewport = useRef(INITIAL_MAP);
-  const setCenter = useCallback((next: Coordinate) => { viewport.current = next; setCenterState(next); }, []);
+  const setCenter = useCallback((next: Coordinate) => { viewport.current = next; setCenterState(next); setCameraRevision(value => value + 1); }, []);
   const locationRequest = useRef(0);
   const [searchCenter, setSearchCenter] = useState(INITIAL_MAP);
   const [areaChanged, setAreaChanged] = useState(false);
@@ -192,6 +202,7 @@ function MapsApp() {
     : stop ? `stop:${stop.id}` : selected ? `place:${selected.id}` : `list:${tab}`;
   useEffect(() => {
     detailScroll.current?.scrollTo({ y: 0, animated: false });
+    setListOnly(false);
   }, [detailKey]);
   const stops = useMemo(
     () => getNearbyStops(searchCenter, { limit: 15, radiusMeters: 1800 }),
@@ -372,7 +383,6 @@ function MapsApp() {
       setLocation(next);
       setCenter(next);
       setZoom(15);
-      setCameraRevision(value => value + 1);
       viewport.current = next;
       setSearchCenter(next);
       setAreaChanged(false);
@@ -616,7 +626,7 @@ function MapsApp() {
     [route],
   );
   const mapMarkers = useMemo(() => {
-    const markers: MapMarker[] =
+    const markers: MapMarker[] = selected || boardStop ? [] :
       tab === "transit"
         ? stops.map((item) => ({
             id: item.id,
@@ -644,25 +654,126 @@ function MapsApp() {
     return markers;
   }, [tab, stops, shownPlaces, selected, boardStop]);
 
-  if (navigation.visible) return <NavigationPanel {...navigation} fallbackCenter={center}
+  const navigationOverlay = <NavigationPanel {...navigation} following={following} onRecenter={() => { setFollowing(true); setCameraRevision(value => value + 1); }}
     onStop={() => { void navigation.stop(); }} onRetry={() => { void navigation.retry(); }} onMute={() => { void navigation.toggleMuted(); }}
     onConfirmTransit={action => { void navigation.confirmTransit(action); }} onReplan={() => { void replanTransitNavigation(); }} />;
 
+  const navGeometry = navigation.snapshot.route?.geometry;
+  const navRoute = useMemo<LineString | null>(() => navGeometry && navGeometry.length > 1
+    ? { type: "LineString", coordinates: navGeometry.map(tuple) } : null, [navGeometry]);
+  const navCenter = navigation.snapshot.location ?? navigation.snapshot.destination ?? center;
+  const sheetHeight = wide ? availableHeight - 144 : Math.min(availableHeight - 192, listOnly ? availableHeight - 192 : Math.max(300, Math.min(420, mapHeight * 0.46)));
+  const mapPadding = mapCameraPadding({ width, height: mapHeight, sheetHeight, panelVisible, navigating: navigation.visible, fontScale });
+  const fitKey = routeView && selected && originReady ? `${routeQueryKey({ from: origin, to: selected.coordinate, mode: routeMode, transitTime })}:${frameRevision}` : undefined;
+  function closePanel() { changeTab("explore"); searchInput.current?.blur(); }
+  function backPanel() {
+    if (privacy) setPrivacy(false);
+    else if (journeyStop) closeJourneyStop();
+    else if (routeView) {
+      cancelLocationRequest(); setRouteView(false); resetRoutes(); setPickingOrigin(false);
+      if (selected?.id === "saved-journey-destination") setSelected(null);
+    } else if (selected || stop) { setSelected(null); changeStop(null); }
+    else closePanel();
+  }
   return (
     <SafeAreaView className="flex-1 bg-white" edges={["top", "bottom"]}>
       <StatusBar barStyle="dark-content" backgroundColor="white" />
-      <View className="bg-white px-3 py-2">
-        <View className="flex-row items-center gap-3">
-          {wide ? (
-            <View className="mr-3 flex-row items-center gap-2">
-              <View className="h-10 w-10 items-center justify-center rounded-xl bg-[#2359D7]">
-                <Icon name="navigate" color="white" />
+      <View className="flex-1">
+        <View testID="map-viewport" style={{ position: "absolute", top: 0, left: 0, right: 0, height: mapHeight, backgroundColor: "#DFE8EB" }}>
+            <MapCanvas
+              center={tuple(navigation.visible ? navCenter : center)}
+              markers={navigation.visible ? [] : mapMarkers}
+              selectedMarkerId={journeyStop?.id ?? selected?.id ?? stop?.id}
+              userLocation={navigation.visible ? navigation.snapshot.location ? tuple(navigation.snapshot.location) : null : location ? tuple(location) : null}
+              route={navigation.visible ? navRoute : routeGeometry}
+              routeFitKey={navigation.visible ? undefined : fitKey}
+              cameraPadding={mapPadding}
+              attributionLeft={wide && panelVisible && !navigation.visible ? 430 : 8}
+              attributionTop={navigation.visible ? Math.min(height * 0.3, 156 * Math.min(fontScale, 1.5)) + 8 : 68}
+              followLocation={navigation.visible ? following : undefined}
+              coverageBounds={!navigation.visible && tab === "explore" && hasSearch && !routeView && !selected ? searchResult.coverage.bounds : undefined}
+              zoom={navigation.visible ? 17 : zoom}
+              cameraRevision={cameraRevision}
+              onMapPress={navigation.visible ? undefined : onMapPress}
+              onRegionChanged={(coordinate) => {
+                if (navigation.visible) { setFollowing(false); return; }
+                cameraTouched.current = true;
+                cancelLocationRequest();
+                if (routeView && !originReady) setPickingOrigin(true);
+                viewport.current = point(coordinate);
+                if (
+                  Math.abs(coordinate[0] - searchCenter.longitude) +
+                    Math.abs(coordinate[1] - searchCenter.latitude) >
+                  0.004
+                )
+                  setAreaChanged(true);
+              }}
+              onPressMarker={(id) => {
+                if (navigation.visible) return;
+                if (pickingOrigin) {
+                  const marker = mapMarkers.find((item) => item.id === id);
+                  if (marker) onMapPress(marker.coordinate);
+                  return;
+                }
+                if (tab === "transit") {
+                  const next = stops.find((item) => item.id === id);
+                  if (next) openSavedStop(next);
+                } else {
+                  const next = shownPlaces.find((item) => item.id === id);
+                  if (next) openPlace(next);
+                }
+              }}
+            />
+        </View>
+        {navigation.visible ? navigationOverlay : <>
+            <View
+              pointerEvents="box-none"
+              className="absolute left-3 right-3 top-20 flex-row items-start justify-between"
+            >
+              <View className="flex-1" pointerEvents="none">
+                {locating ? <Text accessibilityLiveRegion="polite" className="self-start rounded-lg bg-white px-3 py-2 text-sm text-[#59667A]">Ricerca della posizione…</Text> : null}
               </View>
-              <Text className="text-xl font-bold text-[#17243C]">Maps</Text>
+              <View
+                style={{
+                  elevation: 3,
+                  boxShadow: "0 2px 8px #17243c18",
+                  borderRadius: 24,
+                }}
+              >
+                {locating ? (
+                  <View className="h-12 w-12 items-center justify-center rounded-full bg-white">
+                    <ActivityIndicator color={colors.blue} />
+                  </View>
+                ) : (
+                  <IconButton
+                    icon="locate-outline"
+                    label="Usa la mia posizione"
+                    onPress={locate}
+                  />
+                )}
+              </View>
             </View>
-          ) : null}
-          <View className="min-h-12 min-w-0 flex-1 flex-row items-center rounded-2xl bg-[#F3F6FA] pl-4 pr-1">
-            {searchOpen || hasSearch ? <IconButton icon="arrow-back" label="Chiudi ricerca" onPress={() => { changeTab("explore"); searchInput.current?.blur(); }} /> : <Icon name="search-outline" color={colors.muted} size={21} />}
+            {feedback && !pickingOrigin ? <View style={{ bottom: !wide && panelVisible ? sheetHeight + 80 : 88, left: wide && panelVisible ? 442 : 16, right: 16 }} className="absolute left-4 right-4"><Notice text={feedback} action="Chiudi" onAction={dismissFeedback} /></View> : null}
+            {pickingOrigin ? (
+              <View style={{ bottom: !wide && panelVisible ? sheetHeight + 80 : 88, left: wide && panelVisible ? 442 : 16, right: 16 }} className="absolute left-4 right-4">
+                <Notice
+                  text={feedback ? `${feedback} Tocca la mappa per scegliere la partenza.` : "Tocca la mappa per scegliere il punto di partenza."}
+                  action="Annulla"
+                  onAction={() => { if (!originReady) { setRouteView(false); resetRoutes(); } setPickingOrigin(false); }}
+                />
+              </View>
+            ) : areaChanged && (hasSearch || tab === "transit") && !selected && !stop ? (
+              <View style={{ bottom: !wide && panelVisible ? sheetHeight + 80 : 88, left: wide && panelVisible ? 442 : 16, right: 16 }} className="absolute max-w-[95%] self-center rounded-2xl bg-white">
+                <Button icon="search-outline" secondary onPress={searchArea}>
+                  Cerca in quest’area
+                </Button>
+                <Text className="px-3 pb-2 text-center text-xs text-[#59667A]">{tab === "transit" ? "Fermate intorno al centro" : searchResult.coverage.radiusMeters !== null ? `Raggio ${distance(searchResult.coverage.radiusMeters)} dal centro` : searchPolicy === "local-only" ? "Nomi nell’intero pacchetto locale" : "Nomi nel pacchetto; area come riferimento online"}</Text>
+              </View>
+            ) : null}
+      <View className="absolute left-0 right-0 top-0 px-3 py-2">
+        <View className="flex-row items-center gap-2">
+          <View className="min-h-12 min-w-0 flex-1 flex-row items-center rounded-2xl bg-white pl-1 pr-1 border border-[#E2E8F0]">
+            {searchOpen || hasSearch ? <IconButton icon="arrow-back" label="Chiudi ricerca" onPress={() => { changeTab("explore"); searchInput.current?.blur(); }} /> : <View className="h-12 w-12 items-center justify-center"><Icon name="search-outline" color={colors.muted} size={21} /></View>}
             <TextInput
               ref={searchInput}
               onFocus={() => { cameraTouched.current = true; cancelLocationRequest(); setSearchCenter(viewport.current); setAreaChanged(false); setSearchOpen(true); setPrivacy(false); setSelected(null); changeStop(null); setRouteView(false); setPickingOrigin(false); resetRoutes(); setTab("explore"); }}
@@ -708,245 +819,41 @@ function MapsApp() {
             active={privacy}
             onPress={() => { Keyboard.dismiss(); if (!privacy) suspendTransitWork(); setPrivacy((value) => !value); }}
           />
-          {!wide ? null : (
-            <Text className="ml-3 text-sm text-[#59667A]">
-              Esplora la mappa
-            </Text>
-          )}
         </View>
 
       </View>
 
-      <View style={{ flex: 1, flexDirection: wide ? "row-reverse" : "column" }}>
-        {!listOnly || wide ? (
-          <View
-            style={{
-              flex: wide || !panelVisible ? 1 : undefined,
-              height: wide || !panelVisible
-                ? undefined
-                : Math.max(
-                    180,
-                    Math.min(
-                      height *
-                        (selected || stop || routeView || privacy
-                          ? 0.38
-                          : 0.48),
-                      380,
-                    ),
-                  ),
-              backgroundColor: "#DFE8EB",
-            }}
-          >
-            <MapCanvas
-              center={tuple(center)}
-              markers={mapMarkers}
-              selectedMarkerId={journeyStop?.id ?? selected?.id ?? stop?.id}
-              userLocation={location ? tuple(location) : null}
-              route={routeGeometry}
-              coverageBounds={tab === "explore" && hasSearch && !routeView && !selected ? searchResult.coverage.bounds : undefined}
-              zoom={zoom}
-              cameraRevision={cameraRevision}
-              onMapPress={onMapPress}
-              onRegionChanged={(coordinate) => {
-                cameraTouched.current = true;
-                cancelLocationRequest();
-                if (routeView && !originReady) setPickingOrigin(true);
-                viewport.current = point(coordinate);
-                if (
-                  Math.abs(coordinate[0] - searchCenter.longitude) +
-                    Math.abs(coordinate[1] - searchCenter.latitude) >
-                  0.004
-                )
-                  setAreaChanged(true);
-              }}
-              onPressMarker={(id) => {
-                if (pickingOrigin) {
-                  const marker = mapMarkers.find((item) => item.id === id);
-                  if (marker) onMapPress(marker.coordinate);
-                  return;
-                }
-                if (tab === "transit") {
-                  const next = stops.find((item) => item.id === id);
-                  if (next) openSavedStop(next);
-                } else {
-                  const next = shownPlaces.find((item) => item.id === id);
-                  if (next) openPlace(next);
-                }
-              }}
-            />
-            <View
-              pointerEvents="box-none"
-              className="absolute left-3 right-3 top-3 flex-row items-start justify-between"
-            >
-              <View className="flex-1" pointerEvents="none">
-                {locating ? <Text accessibilityLiveRegion="polite" className="self-start rounded-lg bg-white px-3 py-2 text-sm text-[#59667A]">Ricerca della posizione…</Text> : null}
-              </View>
-              <View
-                style={{
-                  elevation: 3,
-                  boxShadow: "0 2px 8px #17243c18",
-                  borderRadius: 24,
-                }}
-              >
-                {locating ? (
-                  <View className="h-12 w-12 items-center justify-center rounded-full bg-white">
-                    <ActivityIndicator color={colors.blue} />
-                  </View>
-                ) : (
-                  <IconButton
-                    icon="locate-outline"
-                    label="Usa la mia posizione"
-                    onPress={locate}
-                  />
-                )}
-              </View>
-            </View>
-            {feedback && !panelVisible ? <View className="absolute bottom-10 left-4 right-4"><Notice text={feedback} action="Chiudi" onAction={dismissFeedback} /></View> : null}
-            {pickingOrigin ? (
-              <View className="absolute bottom-10 left-4 right-4">
-                <Notice
-                  text="Tocca la mappa per scegliere il punto di partenza."
-                  action="Annulla"
-                  onAction={() => { if (!originReady) { setRouteView(false); resetRoutes(); } setPickingOrigin(false); }}
-                />
-              </View>
-            ) : areaChanged && (hasSearch || tab === "transit") && !selected && !stop ? (
-              <View className="absolute bottom-10 max-w-[95%] self-center rounded-2xl bg-white">
-                <Button icon="search-outline" secondary onPress={searchArea}>
-                  Cerca in quest’area
-                </Button>
-                <Text className="px-3 pb-2 text-center text-xs text-[#59667A]">{tab === "transit" ? "Fermate intorno al centro" : searchResult.coverage.radiusMeters !== null ? `Raggio ${distance(searchResult.coverage.radiusMeters)} dal centro` : searchPolicy === "local-only" ? "Nomi nell’intero pacchetto locale" : "Nomi nel pacchetto; area come riferimento online"}</Text>
-              </View>
-            ) : null}
+        {panelVisible ? <View testID="map-sheet" style={{ position: "absolute", left: wide ? 12 : 0, right: wide ? undefined : 0, bottom: 64, width: wide ? 410 : undefined, height: sheetHeight, borderColor: colors.line, borderWidth: 1, borderTopLeftRadius: 24, borderTopRightRadius: 24, overflow: "hidden" }} className="bg-white">
+          <View className="h-3 items-center justify-center"><View className="h-1 w-8 rounded-full bg-[#E2E8F0]" /></View>
+          <View style={{ height: Math.max(56, 48 * fontScale) }} className="flex-row items-center border-b border-[#E2E8F0] px-2">
+            <IconButton icon="arrow-back" label="Indietro" onPress={backPanel} />
+            <Text accessibilityRole="header" numberOfLines={2} className="min-w-0 flex-1 text-base leading-5 font-semibold text-[#17243C]">{title}</Text>
+            {!wide ? <IconButton icon={listOnly ? "chevron-down" : "chevron-up"} label={listOnly ? "Riduci scheda" : "Espandi scheda"} onPress={() => { Keyboard.dismiss(); setListOnly(value => !value); }} /> : null}
+            <IconButton icon="close" label="Chiudi scheda" onPress={closePanel} />
           </View>
-        ) : null}
-
-        {panelVisible ? <View
-          style={{
-            flex: wide ? undefined : 1,
-            width: wide ? 410 : undefined,
-            borderRightWidth: wide ? 1 : 0,
-            borderColor: colors.line,
-          }}
-          className="bg-white"
-        >
-          <View className="border-b border-[#E2E8F0] px-5 pb-3 pt-4">
-            <View className="flex-row items-start justify-between gap-2">
-              <View className="flex-1">
-                {selected || stop || privacy ? (
-                  <Pressable
-                    accessibilityRole="button"
-                    onPress={() => {
-                      if (privacy) {
-                        setPrivacy(false);
-                      } else if (journeyStop) {
-                        closeJourneyStop();
-                      } else if (routeView) {
-                        cancelLocationRequest();
-                        setRouteView(false);
-                        resetRoutes();
-                        setPickingOrigin(false);
-                        if (selected?.id === "saved-journey-destination") setSelected(null);
-                      } else {
-                        setSelected(null);
-                        changeStop(null);
-                        setPrivacy(false);
-                      }
-                    }}
-                    className="mb-1 min-h-9 flex-row items-center gap-1"
-                  >
-                    <Icon name="arrow-back" size={17} color={colors.blue} />
-                    <Text className="text-sm font-semibold text-[#2359D7]">
-                      {journeyStop ? privacy ? "Fermata" : "Percorso" : privacy && routeView ? "Percorso" : routeView && selected?.id === "saved-journey-destination" ? "Salvati" : routeView || (privacy && selected) ? "Luogo" : privacy && stop ? "Fermata" : tab === "saved" ? "Salvati" : tab === "transit" ? "Trasporti" : "Esplora"}
-                    </Text>
-                  </Pressable>
-                ) : null}
-                <Text
-                  className="text-xl font-semibold leading-6 text-[#17243C]"
-                  numberOfLines={2}
-                >
-                  {title}
-                </Text>
-                {!selected && !stop && !privacy && (tab !== "explore" || hasSearch) ? (
-                  <Text className="mt-1 text-sm text-[#59667A]">
-                    {tab === "saved"
-                      ? "Sempre qui, solo sul tuo dispositivo"
-                      : tab === "transit"
-                        ? "Fermate nell’area della mappa"
-                        : `${shownPlaces.length} ${shownPlaces.length === 1 ? "risultato" : "risultati"}${searchResult.truncated ? ` · primi ${searchResult.resultLimit}` : ""}${searchPolicy === "local-only" ? " · solo locali" : ""}`}
-                  </Text>
-                ) : null}
-                {!selected && !stop && !privacy && tab === "explore" && hasSearch ? <Text className="mt-1 text-xs leading-4 text-[#59667A]">
-                  {searchResult.coverage.radiusMeters !== null
-                    ? `Raggio ${distance(searchResult.coverage.radiusMeters)} · ${searchResult.coverage.extent === "outside" ? "fuori dal pacchetto locale" : searchResult.coverage.extent === "partial" ? "copertura locale parziale" : "nel pacchetto locale"}`
-                    : `Nomi nel pacchetto locale${searchResult.coverage.centerInside ? "" : " · centro fuori copertura"}${searchPolicy === "local-and-online" ? "; Photon online" : ""}`}
-                </Text> : null}
-              </View>
-              {!wide && !selected && !stop && !privacy && (tab !== "explore" || hasSearch) ? (
-                <IconButton
-                  icon={listOnly ? "map-outline" : "list-outline"}
-                  label={listOnly ? "Mostra mappa" : "Espandi elenco"}
-                  active={listOnly}
-                  onPress={() => setListOnly((value) => !value)}
-                />
-              ) : null}
-            </View>
-          </View>
-
           <ScrollView
             ref={detailScroll}
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={{ paddingBottom: 24 }}
           >
-            {feedback ? (
-              <View className="mx-5 mt-3">
-                <Notice
-                  text={feedback}
-                  action="Chiudi"
-                  onAction={dismissFeedback}
-                />
-              </View>
-            ) : null}
+            {!privacy && !selected && !stop && tab === "explore" && hasSearch ? <View className="h-9 flex-row items-center gap-2 px-4">
+              <View className="w-4">{searching ? <ActivityIndicator size="small" color={colors.blue} /> : null}</View>
+              <Text numberOfLines={1} accessibilityLiveRegion="polite" className="flex-1 text-xs text-[#59667A]">{searching ? "Aggiorno i risultati…" : `${shownPlaces.length} risultati${searchResult.truncated ? ` · primi ${searchResult.resultLimit}` : ""}${searchPolicy === "local-only" ? " · solo locali" : ""}`}</Text>
+            </View> : null}
             {privacy ? (
               <PrivacyContent onLink={openLink} />
             ) : routeView && selected && !journeyStop ? (
-              <View className="gap-4 p-5">
+              <View className="gap-3 p-4">
                 {savedJourneyVisible ? <Notice text="Viaggio salvato · da aggiornare" /> : null}
-                <View className="rounded-2xl bg-[#F3F6FA] p-4">
-                  <Text className="text-xs text-[#59667A]">Da</Text>
-                  <Text className="mt-1 font-semibold text-[#17243C]">
-                    {originLabel}
-                  </Text>
-                  <Text className="mt-3 text-xs text-[#59667A]">A</Text>
-                  <Text className="mt-1 font-semibold text-[#17243C]">
-                    {selected.name}
-                  </Text>
-                </View>
-                <View className="flex-row gap-2">
+                {retainedSelection ? <Notice text="Scegli un’alternativa aggiornata: il viaggio selezionato non compare più nei risultati recenti." /> : null}
+                {navigation.error ? <Notice danger text={navigation.error} action="Impostazioni app" onAction={() => { void Linking.openSettings(); }} /> : null}
+                <View className="flex-row items-center gap-2 border-b border-[#E2E8F0] pb-2">
                   <View className="flex-1">
-                    <Button
-                      secondary
-                      icon="locate-outline"
-                      loading={locating}
-                      onPress={locate}
-                    >
-                      Posizione
-                    </Button>
+                    <Text numberOfLines={1} className="text-sm text-[#59667A]">Da: {originLabel}</Text>
+                    <Text numberOfLines={1} className="mt-1 text-sm font-semibold text-[#17243C]">A: {selected.name}</Text>
                   </View>
-                  <View className="flex-1">
-                    <Button
-                      secondary
-                      icon="map-outline"
-                      onPress={() => {
-                        cancelLocationRequest();
-                        suspendRoutes();
-                        setPickingOrigin(true);
-                        setListOnly(false);
-                      }}
-                    >
-                      Scegli
-                    </Button>
-                  </View>
+                  <IconButton icon="locate-outline" label="Parti dalla mia posizione" disabled={locating} onPress={locate} />
+                  <IconButton icon="map-outline" label="Scegli la partenza sulla mappa" onPress={() => { cancelLocationRequest(); suspendRoutes(); setPickingOrigin(true); setListOnly(false); }} />
                 </View>
                 <View className="flex-row rounded-2xl bg-[#F3F6FA] p-1">
                   {modes.map((mode) => (
@@ -955,7 +862,7 @@ function MapsApp() {
                       accessibilityRole="button"
                       accessibilityState={{ selected: routeMode === mode.id }}
                       onPress={() => { if (routeMode !== mode.id) suspendRoutes(); setRouteMode(mode.id); }}
-                      className={`min-h-16 flex-1 items-center justify-center gap-1 rounded-xl ${routeMode === mode.id ? "bg-white" : ""}`}
+                      className={`min-h-12 flex-1 items-center justify-center gap-1 rounded-xl ${routeMode === mode.id ? "bg-white" : ""}`}
                     >
                       <Icon
                         name={mode.icon}
@@ -982,29 +889,13 @@ function MapsApp() {
                     }}
                   />
                 ) : null}
-                {route && !pickingOrigin && !originPending ? <View className="gap-3">
-                  {navigation.supported ? <>
-                    <Text className="text-sm leading-6 text-[#59667A]">{routeMode === "transit"
-                      ? "Avvia il viaggio selezionato dalla tua posizione precisa. Confermerai salita e discesa; se la partenza è distante o i dati sono da aggiornare, dovrai scegliere un nuovo percorso."
-                      : "Avvia dalla tua posizione precisa attuale. Verrà calcolato un nuovo percorso: la partenza scelta per l’anteprima non viene usata."} Android chiederà posizione e notifiche per la guida anche a schermo spento.</Text>
-                    {retainedSelection ? <Notice text="Scegli un’alternativa aggiornata prima di avviare: il viaggio selezionato non compare più nei risultati recenti." /> : null}
-                    <Button icon="navigate-outline" disabled={!navigation.ready || routing || retainedSelection} onPress={() => {
-                      if (retainedSelection) return;
-                      cancelLocationRequest();
-                      suspendTransitWork();
-                      if (routeMode === "transit") void navigation.startTransit({ plan: route, origin, destination: selected.coordinate });
-                      else void navigation.start({ destination: selected.coordinate, mode: routeMode });
-                    }}>{routeMode === "transit" ? "Avvia viaggio" : "Avvia navigazione"}</Button>
-                  </> : <Notice text="Per avviare la navigazione usa la versione Android con il modulo di navigazione. Qui puoi consultare l’anteprima." />}
-                  {navigation.error ? <Notice danger text={navigation.error} action="Impostazioni app" onAction={() => { void Linking.openSettings(); }} /> : null}
-                </View> : null}
                 {pickingOrigin ? (
                   <Notice text="Scegli la partenza sulla mappa per calcolare il percorso." />
                 ) : routeMode === "transit" && route ? (
                   <JourneyResults
                     plans={routePlans}
                     selected={route}
-                    onSelect={selectRoute}
+                    onSelect={id => { selectRoute(id); setFrameRevision(value => value + 1); }}
                     onRefresh={refreshRoutes}
                     loading={routing}
                     error={routeError}
@@ -1024,18 +915,10 @@ function MapsApp() {
                     onAction={refreshRoutes}
                   />
                 ) : route ? (
-                  <>
+                  <Disclosure title="Indicazioni e fonti del percorso">
                     <Text className="text-xs leading-5 text-[#59667A]">Consultato il {journeyDate(route.fetchedAt)} alle {journeyTime(route.fetchedAt)}. {savedJourneyVisible ? "Da aggiornare." : ""}</Text>
                     {routeError ? <Notice danger text={`Aggiornamento non riuscito. ${routeError} Il percorso precedente resta visibile. Il prossimo tentativo può richiedere qualche minuto.`} /> : null}
                     <Button secondary icon="refresh-outline" loading={routing} onPress={refreshRoutes}>Ricalcola percorso</Button>
-                    <View className="flex-row items-baseline gap-3">
-                      <Text className="text-3xl font-bold text-[#2359D7]">
-                        {duration(route.durationSeconds)}
-                      </Text>
-                      <Text className="text-base text-[#59667A]">
-                        {distance(route.distanceMeters)}
-                      </Text>
-                    </View>
                     {route.warnings.map((warning, index) => (
                       <Notice key={index} text={warning} />
                     ))}
@@ -1072,18 +955,21 @@ function MapsApp() {
                       Anteprima del percorso. Per le indicazioni durante il viaggio usa Avvia navigazione su Android. Percorso: {route.source}. Dati © OpenStreetMap
                       contributors.
                     </Text>
-                  </>
+                  </Disclosure>
                 ) : !originPending ? (
                   <Button secondary icon="refresh-outline" onPress={refreshRoutes}>Calcola percorso</Button>
                 ) : null}
+                <Disclosure title="Come funziona la navigazione">
+                  <Text className="text-sm leading-5 text-[#59667A]">L’anteprima serve a pianificare. Avvia navigazione su Android richiede una posizione precisa attuale; per i percorsi stradali viene calcolata una nuova partenza. Android può chiedere posizione e notifiche. Con i mezzi confermi salita e discesa; un viaggio non aggiornato o distante va ricalcolato.</Text>
+                </Disclosure>
                 {route && !pickingOrigin && !originPending ? (
                   <View className="gap-3 border-t border-[#E2E8F0] pt-4">
-                    <Text className="text-sm leading-6 text-[#59667A]">Una copia locale del percorso selezionato, con le tratte e gli orari consultati. Aggiornare i percorsi non sostituisce la copia salvata.</Text>
+                    <Text className="text-xs leading-5 text-[#59667A]">Copia locale con gli orari consultati, da aggiornare prima del viaggio.</Text>
                     {journeySaveError ? <Notice danger text={journeySaveError} /> : null}
                     {savedJourneyVisible ? (
                       <Button secondary icon="trash-outline" loading={journeyBusy} onPress={clearSavedJourney}>Rimuovi viaggio salvato</Button>
                     ) : (
-                      <Button icon="bookmark-outline" loading={journeyBusy} disabled={routing || retainedSelection || travel.journeyStatus === "loading"} onPress={saveSelectedJourney}>
+                      <Button secondary icon="bookmark-outline" loading={journeyBusy} disabled={routing || retainedSelection || travel.journeyStatus === "loading"} onPress={saveSelectedJourney}>
                         {travel.journey || travel.journeyStatus === "unavailable" ? "Sostituisci viaggio salvato" : "Salva viaggio selezionato"}
                       </Button>
                     )}
@@ -1091,7 +977,7 @@ function MapsApp() {
                 ) : null}
               </View>
             ) : selected && !journeyStop ? (
-              <View className="gap-4 p-5">
+              <View className="gap-3 p-4">
                 <View>
                   <Text className="text-base text-[#59667A]">
                     {categoryLabel(selected.category)}
@@ -1100,7 +986,7 @@ function MapsApp() {
                       : ""}
                   </Text>
                   {selected.address ? (
-                    <Text className="mt-2 text-base leading-6 text-[#17243C]">
+                    <Text className="mt-2 text-sm leading-5 text-[#17243C]">
                       {selected.address}
                     </Text>
                   ) : null}
@@ -1138,7 +1024,8 @@ function MapsApp() {
                     onPress={() => openLink(`tel:${selected.phone}`)}
                   />
                 ) : null}
-                <Notice text="Orari di apertura non disponibili." />
+                <Text className="text-xs text-[#59667A]">Orari non disponibili</Text>
+                <Disclosure title="Fonti e aggiornamento">
                 <Text className="text-xs leading-5 text-[#59667A]">
                   Fonte: {selected.source}
                   {selected.dataUpdatedAt
@@ -1148,6 +1035,7 @@ function MapsApp() {
                     ? `\n${selected.attributions.join("\n")}`
                     : ""}
                 </Text>
+                </Disclosure>
                 <Pressable
                   accessibilityRole="link"
                   className="min-h-12 justify-center"
@@ -1163,7 +1051,7 @@ function MapsApp() {
                 </Pressable>
               </View>
             ) : boardStop ? (
-              <View className="gap-4 p-5">
+              <View className="gap-3 p-4">
                 {stopSaveError ? <Notice danger text={stopSaveError} /> : null}
                 <Button
                   secondary icon={stopSaved ? "bookmark" : "bookmark-outline"}
@@ -1198,7 +1086,7 @@ function MapsApp() {
                         setCenter(item.coordinate);
                         setListOnly(false);
                       }}
-                      className="mx-5 min-h-20 flex-row items-center gap-3 border-b border-[#E2E8F0] py-4"
+                      className="mx-5 min-h-20 flex-row items-center gap-3 border-b border-[#E2E8F0] py-3"
                     >
                       <View className="h-11 w-11 items-center justify-center rounded-xl bg-[#FFF5DE]">
                         <Icon name="bus-outline" color={colors.amber} />
@@ -1251,14 +1139,6 @@ function MapsApp() {
                   onRemoveStop={id => mutateSavedStops(() => savedTravel.removeStop(id))}
                   onClearStops={() => mutateSavedStops(() => savedTravel.clearStops())}
                 /> : null}
-                {searching && tab === "explore" ? (
-                  <View className="flex-row items-center gap-2 px-5 pt-3">
-                    <ActivityIndicator size="small" color={colors.blue} />
-                    <Text className="text-xs text-[#59667A]">
-                      Aggiorno i risultati…
-                    </Text>
-                  </View>
-                ) : null}
                 {searching && !shownPlaces.length && tab === "explore" ? (
                   <Loading label="Cerco nell’area…" />
                 ) : searchError && tab === "explore" ? (
@@ -1300,26 +1180,33 @@ function MapsApp() {
                     }
                   />
                 )}
-                {!searching && tab === "explore" && searchWarnings.length ? (
-                  <View className="mx-5 mt-4 gap-2">
-                    {searchWarnings.map((warning, index) => (
-                      <Notice key={index} text={warning} />
-                    ))}
-                  </View>
-                ) : null}
-                {tab === "explore" && !searching ? (
-                  <Text className="px-5 pt-4 text-xs leading-5 text-[#59667A]">
-                    Luoghi da OpenStreetMap e Overture. Le informazioni possono
-                    essere incomplete.
-                  </Text>
-                ) : null}
+                {tab === "explore" ? <View className="px-4"><Disclosure title="Copertura e fonti">
+                  <Text className="text-xs leading-5 text-[#59667A]">{searchResult.coverage.radiusMeters !== null
+                    ? `Raggio ${distance(searchResult.coverage.radiusMeters)} · ${searchResult.coverage.extent === "outside" ? "fuori dal pacchetto locale" : searchResult.coverage.extent === "partial" ? "copertura locale parziale" : "nel pacchetto locale"}`
+                    : `Nomi nel pacchetto locale${searchResult.coverage.centerInside ? "" : " · centro fuori copertura"}${searchPolicy === "local-and-online" ? "; Photon online" : ""}`}</Text>
+                  {searchWarnings.map((warning, index) => <Notice key={index} text={warning} />)}
+                  <Text className="text-xs leading-5 text-[#59667A]">Luoghi da OpenStreetMap e Overture. Le informazioni possono essere incomplete.</Text>
+                </Disclosure></View> : null}
               </>
             )}
           </ScrollView>
+          {routeView && selected && !journeyStop && !privacy ? <View testID="route-actions" className="border-t border-[#E2E8F0] px-4 pb-3 pt-2">
+            <View className="h-12 flex-row items-center gap-2">
+              <View className="flex-1">
+                <Text numberOfLines={1} accessibilityLiveRegion="polite" className="text-lg font-semibold text-[#17243C]">{originPending || (routing && !route) ? "Calcolo del percorso…" : pickingOrigin ? "Scegli la partenza" : route ? `${duration(route.durationSeconds)} · ${distance(route.distanceMeters)}` : routeError ? "Percorso non disponibile" : "Anteprima del percorso"}</Text>
+                <Text numberOfLines={1} className="text-xs text-[#59667A]">{routing && route ? "Aggiornamento…" : routeError && route ? "Aggiornamento non riuscito · percorso precedente" : savedJourneyVisible ? "Viaggio salvato · da aggiornare" : retainedSelection ? "Selezione da aggiornare" : "Pianificazione · senza traffico in tempo reale"}</Text>
+              </View>
+              <IconButton icon="scan-outline" label="Mostra tutto il percorso" disabled={!route || pickingOrigin} onPress={() => setFrameRevision(value => value + 1)} />
+            </View>
+            {navigation.supported ? <Button icon="navigate-outline" disabled={!route || !navigation.ready || routing || retainedSelection || pickingOrigin || originPending} onPress={() => {
+              if (!route || retainedSelection) return;
+              cancelLocationRequest(); suspendTransitWork(); setFollowing(true);
+              if (routeMode === "transit") void navigation.startTransit({ plan: route, origin, destination: selected.coordinate });
+              else void navigation.start({ destination: selected.coordinate, mode: routeMode });
+            }}>{routeMode === "transit" ? "Avvia viaggio" : "Avvia navigazione"}</Button> : <Text className="h-6 text-xs leading-6 text-[#59667A]">Guida disponibile nell’app Android.</Text>}
+          </View> : null}
         </View> : null}
-      </View>
-
-      <View className="min-h-16 flex-row border-t border-[#E2E8F0] bg-white px-4">
+      <View className="absolute bottom-0 left-0 right-0 h-16 flex-row border-t border-[#E2E8F0] bg-white px-4">
         {(
           [
             { id: "explore", label: "Mappa", icon: "map-outline" },
@@ -1332,10 +1219,10 @@ function MapsApp() {
             accessibilityRole="tab"
             accessibilityState={{ selected: tab === item.id }}
             onPress={() => changeTab(item.id)}
-            className="min-h-16 flex-1 items-center justify-center gap-1 py-2"
+            className="h-16 flex-1 items-center justify-center gap-1 py-2"
           >
             <View
-              className={`w-16 items-center rounded-full py-1 ${tab === item.id ? "bg-[#ECF2FF]" : ""}`}
+              className={`w-16 items-center rounded-full ${tab === item.id ? "bg-[#ECF2FF]" : ""}`}
             >
               <Icon
                 name={item.icon}
@@ -1350,6 +1237,8 @@ function MapsApp() {
             </Text>
           </Pressable>
         ))}
+      </View>
+        </>}
       </View>
     </SafeAreaView>
   );
@@ -1386,9 +1275,9 @@ function PlaceRow({
     <Pressable
       accessibilityRole="button"
       onPress={onPress}
-      className="mx-5 min-h-24 flex-row items-center gap-3 border-b border-[#E2E8F0] py-4"
+      className="mx-4 min-h-20 flex-row items-center gap-3 border-b border-[#E2E8F0] py-3"
     >
-      <View className="h-12 w-12 items-center justify-center rounded-2xl bg-[#F0F4FB]">
+      <View className="h-10 w-10 items-center justify-center rounded-full bg-[#F3F6FA]">
         <Icon name={icon} color={colors.blue} />
       </View>
       <View className="flex-1">
@@ -1458,7 +1347,7 @@ function PrivacyContent({ onLink }: { onLink: (url: string) => void }) {
     "train-outline",
   ];
   return (
-    <View className="gap-4 p-5">
+    <View className="gap-3 p-4">
       <Text className="text-base leading-6 text-[#17243C]">
         Nessun account o telemetria. Viaggi, fermate e luoghi salvati restano sul dispositivo.
         Se già autorizzata, la posizione viene aggiornata all’apertura della mappa. Il pulsante posizione permette di richiederla e ricentrare.

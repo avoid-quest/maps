@@ -1,16 +1,12 @@
-import { useEffect, useMemo, useState, type ComponentProps } from 'react';
+import { useEffect, useState, type ComponentProps } from 'react';
 import { ActivityIndicator, Linking, Modal, Pressable, ScrollView, Text, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import type { LineString } from 'geojson';
-import type { Coordinate } from '../domain/types';
 import type { NavigationSnapshot, TransitConfirmation } from '../domain/navigation';
 import { navigationLocationForReplan } from '../domain/navigation';
-import MapCanvas from './MapCanvas';
 import { Button, Icon, IconButton, Notice } from './Controls';
 import type { NavigationState } from './navigation-controller';
 import { journeyDuration } from './journey-presentation';
 
-const tuple = (point: Coordinate): [number, number] => [point.longitude, point.latitude];
 const distance = (meters: number) => meters < 1000 ? `${Math.round(meters)} m` : `${(meters / 1000).toFixed(1).replace('.', ',')} km`;
 const statuses: Record<NavigationSnapshot['status'], string> = {
   idle: 'Preparazione', 'waiting-for-fix': 'Ricerca della posizione precisa', routing: 'Calcolo dalla tua posizione',
@@ -39,24 +35,18 @@ function NavigationButton({ children, icon, onPress, secondary = false, disabled
   </Pressable>;
 }
 
-export function NavigationPanel({ snapshot, busy, error, fallbackCenter, onStop, onRetry, onMute, onConfirmTransit, onReplan }: NavigationState & {
-  fallbackCenter: Coordinate; onStop: () => void; onRetry: () => void; onMute: () => void;
+export function NavigationPanel({ snapshot, busy, error, following, onRecenter, onStop, onRetry, onMute, onConfirmTransit, onReplan }: NavigationState & {
+  following: boolean; onRecenter: () => void; onStop: () => void; onRetry: () => void; onMute: () => void;
   onConfirmTransit: (action: TransitConfirmation) => void; onReplan: () => void;
 }) {
-  const { width, fontScale } = useWindowDimensions();
-  const stackActions = width / fontScale < 300;
-  const showActionIcons = width / fontScale >= 360;
-  const [following, setFollowing] = useState(true);
+  const { width, height, fontScale } = useWindowDimensions();
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [now, setNow] = useState(Date.now());
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 15_000); return () => clearInterval(timer); }, []);
-  const geometry = snapshot.route?.geometry;
-  const route = useMemo<LineString | null>(() => geometry && geometry.length > 1 ? { type: 'LineString', coordinates: geometry.map(tuple) } : null, [geometry]);
   const terminal = snapshot.status === 'arrived' || snapshot.status === 'interrupted' || snapshot.status === 'error';
-  const guiding = snapshot.status === 'navigating';
+  const guiding = snapshot.status === 'navigating' && snapshot.locationUsable !== false;
   const waiting = busy === 'start' || snapshot.status === 'waiting-for-fix' || snapshot.status === 'routing' || snapshot.status === 'rerouting';
-  const center = snapshot.location ?? snapshot.destination ?? fallbackCenter;
-  const remainingSeconds = guiding && snapshot.mode !== 'transit' ? snapshot.durationRemainingSeconds : undefined;
+  const remainingSeconds = snapshot.mode !== 'transit' ? snapshot.durationRemainingSeconds : undefined;
   const arrival = remainingSeconds != null && snapshot.location ? new Date(snapshot.location.timestamp + remainingSeconds * 1000).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }) : null;
   const transit = snapshot.transit;
   const time = (value: number) => new Date(value).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
@@ -64,31 +54,35 @@ export function NavigationPanel({ snapshot, busy, error, fallbackCenter, onStop,
   const replanLocation = navigationLocationForReplan(snapshot);
   const voiceLabel = snapshot.voice === 'ready' ? 'Voce attiva' : snapshot.voice === 'muted' ? 'Voce disattivata' : snapshot.voice === 'initializing' ? 'Preparazione voce' : 'Voce non disponibile';
   const source = snapshot.route?.source ?? (snapshot.mode === 'transit' ? 'MATO / 5T' : 'FOSSGIS / OpenStreetMap');
-  return <SafeAreaView className="flex-1 bg-white" edges={['top', 'bottom']}>
-    <View className="bg-[#17243C] px-4 py-3">
-      <View className="flex-row items-center gap-2">
-        {waiting ? <ActivityIndicator color="white" /> : <Icon name={snapshot.status === 'arrived' ? 'flag-outline' : 'navigate-outline'} color="white" />}
-        <Text accessibilityRole="header" className="flex-1 text-base font-semibold text-white">{busy === 'start' && snapshot.status === 'idle' ? 'Preparazione della navigazione' : snapshot.status === 'location-degraded' && !snapshot.location ? 'In attesa della posizione' : statuses[snapshot.status]}</Text>
-      </View>
-      {guiding && snapshot.instruction ? <Text accessibilityLiveRegion="polite" className="mt-3 text-2xl font-bold leading-8 text-white">{!transit && snapshot.distanceToManeuverMeters != null ? `Tra ${distance(snapshot.distanceToManeuverMeters)}: ` : ''}{snapshot.instruction}</Text> : null}
-      {guiding && snapshot.nextInstruction ? <Text className="mt-2 text-base leading-6 text-[#D8E5FF]">Poi: {snapshot.nextInstruction}</Text> : null}
+  const paused = !guiding && !terminal;
+  const landscape = width >= 650 && height < 500;
+  const panelHeight = Math.min(height * 0.46, Math.max(264, 264 * Math.min(fontScale, 1.5)));
+  return <View pointerEvents="box-none" className="flex-1">
+    <View testID="navigation-instruction" style={{ height: Math.min(height * 0.3, 156 * Math.min(fontScale, 1.5)), ...(landscape ? { position: "absolute", top: 0, left: 0, right: 320 } as const : {}) }} className="bg-[#17243C] px-4 py-3">
+      <ScrollView>
+        <View className="flex-row items-center gap-2">
+          <View className="w-6">{waiting ? <ActivityIndicator color="white" /> : <Icon name={snapshot.status === 'arrived' ? 'flag-outline' : 'navigate-outline'} color="white" />}</View>
+          <Text accessibilityRole="header" accessibilityLiveRegion="polite" className="flex-1 text-sm font-semibold text-white">{paused && snapshot.location ? 'Indicazioni sospese' : statuses[snapshot.status]}</Text>
+        </View>
+        <Text className="mt-2 text-xl font-semibold leading-7 text-white">{terminal ? statuses[snapshot.status] : snapshot.instruction ?? (waiting ? 'Attendi la posizione precisa' : 'In attesa di indicazioni')}</Text>
+        <Text className="mt-1 text-sm leading-5 text-[#D8E5FF]">{paused && snapshot.instruction ? 'Ultima indicazione · guida in pausa' : guiding && snapshot.distanceToManeuverMeters != null ? `Tra ${distance(snapshot.distanceToManeuverMeters)}${snapshot.nextInstruction ? ` · Poi: ${snapshot.nextInstruction}` : ''}` : ' '}</Text>
+      </ScrollView>
     </View>
-    <View className="min-h-32 flex-1 bg-[#DFE8EB]">
-      <MapCanvas center={tuple(center)} userLocation={snapshot.location ? tuple(snapshot.location) : null} route={route}
-        zoom={17} followLocation={following} onRegionChanged={() => setFollowing(false)} />
-      <View className="absolute bottom-10 right-4">
-        <IconButton icon="locate-outline" label="Ricentra sulla mia posizione" active={following} disabled={!snapshot.location} onPress={() => setFollowing(true)} />
+    <View pointerEvents="box-none" className="flex-1">
+      <View style={{ position: "absolute", right: landscape ? 332 : 12, top: landscape ? Math.min(height * 0.3, 156 * Math.min(fontScale, 1.5)) + 48 : 48 }}>
+        <IconButton icon="locate-outline" label="Ricentra sulla mia posizione" active={following} disabled={!snapshot.location} onPress={onRecenter} />
       </View>
     </View>
-    <ScrollView className="max-h-[36%] grow-0 shrink" contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 12, gap: 10 }}>
-      {snapshot.problem ? <Notice danger text={snapshot.problem === 'location-stale' && !snapshot.location ? 'Nessuna posizione precisa ricevuta. Riprova vicino a una finestra o all’aperto.' : problems[snapshot.problem]} action={snapshot.problem === 'location-permission' ? 'Apri impostazioni' : undefined} onAction={() => { void Linking.openSettings(); }} /> : null}
-      {error ? <Notice danger text={error} /> : null}
-      {snapshot.location && !guiding && !terminal ? <Text className="text-xs leading-5 text-[#59667A]">Ultima posizione rilevata alle {time(snapshot.location.timestamp)}. Precisione circa {distance(snapshot.location.accuracyMeters)}.</Text> : null}
-      {guiding && !transit && snapshot.distanceRemainingMeters != null ? <View className="flex-row flex-wrap items-baseline gap-x-4 gap-y-1">
-        {remainingSeconds != null ? <Text className="text-2xl font-bold text-[#2359D7]">{journeyDuration(remainingSeconds)}</Text> : null}
-        <Text className="text-lg text-[#17243C]">{distance(snapshot.distanceRemainingMeters)}</Text>
-        {arrival ? <Text className="text-base text-[#59667A]">Arrivo stimato {arrival}</Text> : null}
-      </View> : null}
+    <View testID="navigation-sheet" style={landscape ? { position: "absolute", right: 0, top: 0, bottom: 0, width: 320 } : { height: panelHeight }} className="rounded-t-3xl border-t border-[#E2E8F0] bg-white">
+      <View className="flex-row items-center gap-3 px-4 pt-2" style={{ height: 52 }}>
+        <Text className="flex-1 text-lg font-semibold text-[#17243C]" numberOfLines={1}>{!transit && snapshot.distanceRemainingMeters != null ? `${remainingSeconds != null ? journeyDuration(remainingSeconds) + ' · ' : ''}${distance(snapshot.distanceRemainingMeters)}` : transit ? `Tratta ${transit.legIndex + 1} di ${transit.legCount}` : 'Il tuo viaggio'}</Text>
+        <Pressable accessibilityRole="button" accessibilityLabel="Apri dettagli della navigazione" onPress={() => setDetailsOpen(true)} className="min-h-12 justify-center px-2"><Text className="text-sm font-semibold text-[#2359D7]">Dettagli</Text></Pressable>
+      </View>
+      <ScrollView className="flex-1" contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 8, gap: 8 }}>
+        <Text testID="navigation-quality" accessibilityLiveRegion="polite" className="text-sm leading-5 text-[#59667A]">{snapshot.problem ? problems[snapshot.problem] : guiding ? `Posizione valida${arrival ? ` · arrivo stimato ${arrival}` : ''}` : statuses[snapshot.status]}</Text>
+        {snapshot.location ? <Text className="text-xs leading-4 text-[#59667A]">Ultima posizione accettata: {time(snapshot.location.timestamp)}, ±{distance(snapshot.location.accuracyMeters)}.{paused ? ' Punto e stime conservati, guida in pausa.' : ''}</Text> : null}
+        {snapshot.problem === 'location-permission' ? <NavigationButton secondary onPress={() => { void Linking.openSettings(); }}>Apri impostazioni</NavigationButton> : null}
+        {error ? <Notice danger text={error} /> : null}
       {transit ? <View className="gap-2">
         <Text className="text-base font-semibold text-[#17243C]">{transit.sourceLegIndices && transit.sourceLegIndices.length > 1 ? `Tratte ${transit.sourceLegIndices[0]! + 1}–${transit.sourceLegIndices.at(-1)! + 1}` : `Tratta ${transit.legIndex + 1}`} di {transit.legCount}{transit.line ? ` · ${transit.line}` : ''}{transit.headsign ? ` verso ${transit.headsign}` : ''}</Text>
         {transit.from || transit.to ? <Text className="text-sm leading-5 text-[#59667A]">{transit.from ?? 'Partenza'} → {transit.to ?? 'Destinazione'}</Text> : null}
@@ -102,26 +96,18 @@ export function NavigationPanel({ snapshot, busy, error, fallbackCenter, onStop,
         {!terminal && transit.canConfirmBoarding ? <NavigationButton disabled={!!busy} icon="bus-outline" onPress={() => onConfirmTransit('board')}>Sono a bordo{transit.line ? ` · ${transit.line}` : ''}</NavigationButton> : null}
         {!terminal && transit.canConfirmAlighting ? <NavigationButton disabled={!!busy} icon="walk-outline" onPress={() => onConfirmTransit('alight')}>Sono sceso{transit.to ? ` a ${transit.to}` : ''}</NavigationButton> : null}
       </View> : null}
+      {snapshot.mode === 'transit' && (snapshot.problem === 'transit-replan-needed' || transitAge >= 2) ? <NavigationButton secondary icon="refresh-outline" disabled={!!busy} onPress={onReplan}>{replanLocation ? 'Ricalcola dalla mia posizione' : 'Scegli la partenza'}</NavigationButton> : null}
       {snapshot.status === 'interrupted' ? <Notice text="La sessione precedente si è interrotta. Riprendi per calcolare un nuovo percorso dalla tua posizione attuale." /> : null}
       {snapshot.status === 'arrived' ? <Text className="text-base leading-6 text-[#17243C]">Hai raggiunto la fine del percorso. L’ingresso della destinazione può trovarsi in un punto diverso. Posizione continua e guida vocale sono terminate.</Text> : null}
       {snapshot.status === 'arrived' && snapshot.destinationDistanceMeters != null && snapshot.destinationDistanceMeters > 30 ? <Text className="text-sm leading-5 text-[#59667A]">Il punto selezionato dista ancora circa {distance(snapshot.destinationDistanceMeters)} in linea d’aria dalla fine del percorso. Verifica l’accesso sul posto.</Text> : null}
       {waiting ? <Text className="text-sm leading-5 text-[#59667A]">{snapshot.mode === 'transit' ? 'Controllo della tua posizione rispetto alla partenza del viaggio selezionato.' : 'La navigazione parte dalla posizione attuale, anche quando l’anteprima aveva una partenza diversa.'}</Text> : null}
-    </ScrollView>
-    <View className="gap-2 border-t border-[#E2E8F0] bg-white px-4 pb-3 pt-2">
-      <View className="flex-row items-center justify-between gap-2">
-        {!terminal && snapshot.sessionId ? <View className="flex-1 flex-row items-center gap-2">
-          <Icon name={snapshot.voice === 'ready' ? 'volume-high-outline' : 'volume-mute-outline'} size={16} color="#59667A" />
-          <Text className="flex-1 text-xs text-[#59667A]">{voiceLabel}</Text>
-        </View> : <Text className="flex-1 text-xs text-[#59667A]" numberOfLines={2}>{source}</Text>}
-        <Pressable accessibilityRole="button" accessibilityLabel="Apri dettagli della navigazione" onPress={() => setDetailsOpen(true)} className="min-h-11 flex-row items-center gap-1 px-2">
-          <Text className="text-sm font-semibold text-[#2359D7]">Dettagli</Text>
-          <Icon name="information-circle-outline" size={18} color="#2359D7" />
-        </Pressable>
-      </View>
-      {snapshot.mode === 'transit' && (snapshot.problem === 'transit-replan-needed' || transitAge >= 2) ? <NavigationButton secondary icon="refresh-outline" disabled={!!busy} onPress={onReplan}>{replanLocation ? 'Ricalcola dalla mia posizione' : 'Scegli la partenza'}</NavigationButton> : null}
-      <View className={stackActions ? 'gap-2' : 'flex-row gap-2'}>
-        {snapshot.canRetry ? <View className={stackActions ? '' : 'min-w-0 flex-1'}><NavigationButton icon={showActionIcons ? 'refresh-outline' : undefined} loading={busy === 'retry'} disabled={!!busy} onPress={onRetry}>{snapshot.status === 'interrupted' ? 'Riprendi' : 'Riprova'}</NavigationButton></View> : null}
-        <View className={stackActions ? '' : 'min-w-0 flex-1'}><NavigationButton secondary icon={showActionIcons ? terminal ? 'close-outline' : 'stop-circle-outline' : undefined} loading={busy === 'stop'} onPress={onStop}>{terminal ? 'Chiudi' : 'Interrompi'}</NavigationButton></View>
+      </ScrollView>
+      <View className="border-t border-[#E2E8F0] px-4 pb-3 pt-2">
+        <Text numberOfLines={1} className="mb-2 text-xs text-[#59667A]">{voiceLabel}</Text>
+        <View className="flex-row gap-2">
+          <View className="min-w-0 flex-1"><NavigationButton secondary icon="refresh-outline" loading={busy === 'retry'} disabled={!!busy || !snapshot.canRetry} onPress={onRetry}>{snapshot.status === 'interrupted' ? 'Riprendi' : 'Riprova'}</NavigationButton></View>
+          <View className="min-w-0 flex-1"><NavigationButton icon={terminal ? 'close-outline' : 'stop-circle-outline'} loading={busy === 'stop'} onPress={onStop}>{terminal ? 'Chiudi' : 'Interrompi'}</NavigationButton></View>
+        </View>
       </View>
     </View>
     <Modal visible={detailsOpen} transparent animationType="slide" onRequestClose={() => setDetailsOpen(false)}>
@@ -132,7 +118,7 @@ export function NavigationPanel({ snapshot, busy, error, fallbackCenter, onStop,
             <IconButton icon="close-outline" label="Chiudi dettagli" onPress={() => setDetailsOpen(false)} />
           </View>
           <ScrollView contentContainerStyle={{ padding: 20, gap: 14 }}>
-            {snapshot.location ? <Text className="text-sm leading-5 text-[#59667A]">{guiding ? 'Precisione della posizione' : 'Ultima posizione'}: circa {distance(snapshot.location.accuracyMeters)}{guiding || terminal ? '' : '. Indicazioni in attesa di un segnale valido.'}</Text> : null}
+            {snapshot.location ? <Text className="text-sm leading-5 text-[#59667A]">Ultima posizione accettata: circa {distance(snapshot.location.accuracyMeters)}{guiding || terminal ? '' : '. Indicazioni in attesa di un segnale valido.'}</Text> : null}
             {!terminal && snapshot.sessionId ? <>
               <Text className="text-sm leading-5 text-[#59667A]">{snapshot.voice === 'ready' ? 'Voce italiana disponibile sul dispositivo.' : snapshot.voice === 'muted' ? 'Voce disattivata.' : snapshot.voice === 'initializing' ? 'Preparazione della voce…' : 'Per la guida vocale serve una voce italiana offline installata sul dispositivo. Puoi seguire le indicazioni sullo schermo.'}</Text>
               {(snapshot.voice === 'ready' || snapshot.voice === 'muted') ? <NavigationButton secondary icon={snapshot.voice === 'muted' ? 'volume-high-outline' : 'volume-mute-outline'} disabled={!!busy} onPress={onMute}>{snapshot.voice === 'muted' ? 'Attiva voce' : 'Disattiva voce'}</NavigationButton> : null}
@@ -145,5 +131,5 @@ export function NavigationPanel({ snapshot, busy, error, fallbackCenter, onStop,
         </SafeAreaView>
       </View>
     </Modal>
-  </SafeAreaView>;
+  </View>;
 }

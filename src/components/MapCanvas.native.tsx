@@ -3,9 +3,12 @@ import { StyleSheet, Text, View } from 'react-native';
 import { Map, Camera, GeoJSONSource, Layer, type CameraRef } from '@maplibre/maplibre-react-native';
 import type { FeatureCollection, Point } from 'geojson';
 import type { MapCanvasProps } from './MapCanvas.types';
+import { createRouteFraming } from './map-presentation';
 import { diagnostics } from '../services/diagnostics';
 
-export default function MapCanvas({ center, zoom = 14.5, cameraRevision, markers = [], selectedMarkerId, route, coverageBounds, userLocation, followLocation, onPressMarker, onMapPress, onRegionChanged }: MapCanvasProps) {
+export default function MapCanvas({ center, zoom = 14.5, cameraRevision, routeFitKey, cameraPadding, attributionTop = 68, attributionLeft = 8, markers = [], selectedMarkerId, route, coverageBounds, userLocation, followLocation, onPressMarker, onMapPress, onRegionChanged }: MapCanvasProps) {
+  const framing = useRef(createRouteFraming());
+  const padding = useRef(cameraPadding); padding.current = cameraPadding;
   const camera = useRef<CameraRef>(null);
   const [mapError, setMapError] = useState(false);
   const [longitude, latitude] = center;
@@ -15,16 +18,16 @@ export default function MapCanvas({ center, zoom = 14.5, cameraRevision, markers
     return { type: 'Feature' as const, geometry: { type: 'Polygon' as const, coordinates: [[[west, south], [east, south], [east, north], [west, north], [west, south]]] }, properties: {} };
   }, [coverageBounds]);
   const data = useMemo<FeatureCollection<Point>>(() => ({ type: 'FeatureCollection', features: markers.map(marker => ({ type: 'Feature', id: marker.id, geometry: { type: 'Point', coordinates: marker.coordinate }, properties: { id: marker.id, kind: marker.kind, selected: marker.id === selectedMarkerId, label: marker.label ?? '' } })) }), [markers, selectedMarkerId]);
-  useEffect(() => { if (followLocation !== false) camera.current?.easeTo({ center: [longitude, latitude], zoom, duration: 450 }); }, [longitude, latitude, zoom, followLocation, cameraRevision]);
+  useEffect(() => { if (followLocation !== false) camera.current?.easeTo({ center: [longitude, latitude], zoom, padding: padding.current, duration: 450 }); }, [longitude, latitude, zoom, followLocation, cameraRevision]);
   useEffect(() => {
-    if (!route?.coordinates.length || followLocation !== undefined) return;
+    if (followLocation !== undefined || !framing.current.claim(routeFitKey, !!route?.coordinates.length) || !route) return;
     const xs = route.coordinates.map(p => p[0]!); const ys = route.coordinates.map(p => p[1]!);
-    camera.current?.fitBounds([Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)], { padding: { top: 50, right: 50, bottom: 50, left: 50 }, duration: 500 });
-  }, [route, followLocation]);
+    camera.current?.fitBounds([Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)], { padding: padding.current ?? { top: 50, right: 50, bottom: 50, left: 50 }, duration: 500 });
+  }, [route, routeFitKey, followLocation]);
   return <View style={styles.container}>
-    <Map style={styles.container} mapStyle="https://tiles.openfreemap.org/styles/liberty" logo={false} attribution attributionPosition={{ bottom: 8, right: 8 }}
+    <Map style={styles.container} mapStyle="https://tiles.openfreemap.org/styles/liberty" logo={false} attribution attributionPosition={{ top: attributionTop, left: attributionLeft }}
       onPress={event => onMapPress?.(event.nativeEvent.lngLat)}
-      onRegionDidChange={event => { if (event.nativeEvent.userInteraction) onRegionChanged?.(event.nativeEvent.center); }}
+      onRegionDidChange={event => { if (event.nativeEvent.userInteraction) { framing.current.userMoved(routeFitKey); onRegionChanged?.(event.nativeEvent.center); } }}
       onDidFailLoadingMap={() => { setMapError(true); diagnostics.record({ type: 'map', state: 'failed' }); }} onDidFinishLoadingMap={() => { setMapError(false); diagnostics.record({ type: 'map', state: 'loaded' }); }}>
       <Camera ref={camera} initialViewState={{ center, zoom }} />
       {coverage && <GeoJSONSource id="local-coverage" data={coverage}>
@@ -38,7 +41,7 @@ export default function MapCanvas({ center, zoom = 14.5, cameraRevision, markers
       </GeoJSONSource>
       {userLocation && <GeoJSONSource id="position" data={{ type: 'Feature', geometry: { type: 'Point', coordinates: userLocation }, properties: {} }}><Layer id="position-dot" type="circle" paint={{ 'circle-radius': 8, 'circle-color': '#185CE5', 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 4 }} /></GeoJSONSource>}
     </Map>
-    {mapError && <Text style={styles.error}>Mappa non disponibile · riprova con una connessione</Text>}
+    {mapError && <Text style={[styles.error, { top: attributionTop + 52 }]}>Mappa non disponibile · riprova con una connessione</Text>}
   </View>;
 }
 const styles = StyleSheet.create({ container: { flex: 1 }, error: { position: 'absolute', top: 8, alignSelf: 'center', backgroundColor: '#fff9e8', color: '#725015', padding: 8, borderRadius: 8, fontSize: 12 } });
