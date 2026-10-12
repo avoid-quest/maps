@@ -5,7 +5,7 @@ const config: ExpoConfig = {
   name: isDevelopment ? 'Avoid Maps Dev' : 'Avoid Maps',
   ...(isDevelopment ? { scheme: 'avoid-maps-dev' } : {}),
   slug: 'avoid-maps',
-  version: '0.1.9-preview.1',
+  version: '0.1.9',
   icon: './assets/icon.png',
   orientation: 'portrait',
   userInterfaceStyle: 'light',
@@ -14,7 +14,7 @@ const config: ExpoConfig = {
   android: {
     package: isDevelopment ? 'quest.avoid.maps.dev' : 'quest.avoid.maps',
     adaptiveIcon: { foregroundImage: './assets/icon.png', backgroundColor: '#185CE5' },
-    versionCode: 10,
+    versionCode: 11,
     allowBackup: false,
     permissions: ['ACCESS_COARSE_LOCATION', 'ACCESS_FINE_LOCATION'],
     blockedPermissions: ['android.permission.RECORD_AUDIO', 'android.permission.SYSTEM_ALERT_WINDOW', 'android.permission.READ_EXTERNAL_STORAGE', 'android.permission.WRITE_EXTERNAL_STORAGE', 'android.permission.VIBRATE'],
