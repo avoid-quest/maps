@@ -159,6 +159,66 @@ test('Stop targets a new session event while Start is pending, otherwise cancels
   }
 });
 
+test('Stop cancels submitted interrupted Resume before its replacement session event arrives', async () => {
+  const resumed = deferred<NavigationSnapshot>();
+  let native = snapshot(1, 'interrupted');
+  const targets: (string | null)[] = [];
+  const { controller } = fixture({
+    getSnapshot: async () => native,
+    retryNavigation: async () => {
+      native = { ...snapshot(2, 'waiting-for-fix'), sessionId: 'resumed' };
+      return resumed.promise;
+    },
+    stopNavigation: async id => {
+      targets.push(id);
+      if (id === null || id === native.sessionId) native = { ...native, revision: 3, status: 'stopped' };
+      return native;
+    },
+  });
+  await Promise.resolve();
+  const resume = controller.retry();
+  await Promise.resolve();
+  assert.equal(native.sessionId, 'resumed');
+  assert.equal(await controller.stop(), true);
+  assert.deepEqual(targets, [null]);
+  resumed.resolve({ ...snapshot(2, 'waiting-for-fix'), sessionId: 'resumed' });
+  await resume;
+  assert.equal(controller.getSnapshot().snapshot.status, 'stopped');
+});
+
+test('Resume permission cancellation and known resumed or same-session retries stay fenced by ID', async () => {
+  const permission = deferred<void>();
+  const permissionTargets: (string | null)[] = [];
+  const pending = fixture({ getSnapshot: async () => snapshot(1, 'interrupted'), prepareStart: () => permission.promise,
+    stopNavigation: async id => { permissionTargets.push(id); return snapshot(4, 'stopped'); } });
+  await Promise.resolve();
+  const preparing = pending.controller.retry();
+  await pending.controller.stop();
+  permission.resolve();
+  await preparing;
+  assert.deepEqual(pending.calls, []);
+  assert.deepEqual(permissionTargets, ['session']);
+  assert.equal(pending.controller.getSnapshot().snapshot.status, 'stopped');
+
+  for (const interrupted of [false, true]) {
+    const response = deferred<NavigationSnapshot>();
+    const targets: (string | null)[] = [];
+    const { controller, emit } = fixture({
+      getSnapshot: async () => ({ ...snapshot(1, interrupted ? 'interrupted' : 'error'), canRetry: true }),
+      retryNavigation: () => response.promise,
+      stopNavigation: async id => { targets.push(id); return snapshot(4, 'stopped'); },
+    });
+    await Promise.resolve();
+    const retry = controller.retry();
+    await Promise.resolve();
+    if (interrupted) emit({ ...snapshot(2, 'waiting-for-fix'), sessionId: 'resumed' });
+    await controller.stop();
+    response.resolve(snapshot(3, 'waiting-for-fix'));
+    await retry;
+    assert.deepEqual(targets, [interrupted ? 'resumed' : 'session']);
+  }
+});
+
 test('Back confirms active guidance and a late confirmation cannot stop a replacement session', async () => {
   const targets: (string | null)[] = [];
   const { controller, emit } = fixture({ stopNavigation: async id => { targets.push(id); return snapshot(20, 'stopped'); } });

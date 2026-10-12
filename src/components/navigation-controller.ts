@@ -72,27 +72,31 @@ export function createNavigationController(platform: NavigationPlatform, record:
     }
     finally { if (operation === id) publish({ ...state, busy: null }); }
   };
-  const start = (action: () => Promise<NavigationSnapshot>) => {
-    if (!state.ready || state.busy || navigationVisible(state.snapshot)) return Promise.resolve();
-    record('start-requested');
-    const pending = { submitted: false, previousSessionId: state.snapshot.sessionId };
-    pendingStart = pending;
-    return command('start', async current => {
+  const prepareSessionCommand = (kind: 'start' | 'retry', action: () => Promise<NavigationSnapshot>, replacesSession: boolean) => {
+    const pending = replacesSession ? { submitted: false, previousSessionId: state.snapshot.sessionId } : null;
+    if (pending) pendingStart = pending;
+    return command(kind, async current => {
       try {
         await platform.prepareStart();
         if (!current()) return undefined;
-        pending.submitted = true;
+        if (pending) pending.submitted = true;
         return await action();
       } finally { if (pendingStart === pending) pendingStart = null; }
     });
   };
+  const start = (action: () => Promise<NavigationSnapshot>) => {
+    if (!state.ready || state.busy || navigationVisible(state.snapshot)) return Promise.resolve();
+    record('start-requested');
+    return prepareSessionCommand('start', action, true);
+  };
   const stop = async () => {
-    const permissionOnly = pendingStart?.submitted === false;
+    const permissionOnly = pendingStart?.submitted === false && !navigationVisible(state.snapshot);
     const submittedWithoutSession = pendingStart?.submitted && state.snapshot.sessionId === pendingStart.previousSessionId;
     const sessionId = permissionOnly || submittedWithoutSession ? null : state.snapshot.sessionId;
     pendingStart = null;
-    // Permission-only cancellation needs no native command. A wildcard is reserved for an
-    // already submitted Start whose first session event/response has not reached JS yet.
+    // Permission-only Start cancellation needs no native command; cancelling Resume still
+    // closes its interrupted checkpoint by ID. Only a submitted Start/Resume lacking its
+    // new session event/response needs a wildcard.
     await command('stop', () => sessionId !== null || submittedWithoutSession ? platform.stopNavigation(sessionId) : Promise.resolve(undefined));
     return state.snapshot.status === 'stopped' || state.snapshot.status === 'idle';
   };
@@ -130,10 +134,7 @@ export function createNavigationController(platform: NavigationPlatform, record:
     retry() {
       const sessionId = state.snapshot.sessionId;
       if (!sessionId || !state.snapshot.canRetry || state.busy) return Promise.resolve();
-      return command('retry', async current => {
-        await platform.prepareStart();
-        return current() ? platform.retryNavigation(sessionId) : undefined;
-      });
+      return prepareSessionCommand('retry', () => platform.retryNavigation(sessionId), state.snapshot.status === 'interrupted');
     },
     toggleMuted() {
       const { sessionId, voice } = state.snapshot;
