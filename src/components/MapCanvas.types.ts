@@ -14,6 +14,8 @@ export interface MapCanvasProps {
   route?: LineString | null;
   coverageBounds?: [west: number, south: number, east: number, north: number];
   userLocation?: MapCoordinate | null;
+  /** Undefined fits planning routes; false leaves an active journey camera under user control. */
+  followLocation?: boolean;
   onPressMarker?: (id: string) => void;
   onMapPress?: (coordinate: MapCoordinate) => void;
   onRegionChanged?: (center: MapCoordinate) => void;

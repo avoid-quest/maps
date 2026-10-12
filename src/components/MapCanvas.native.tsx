@@ -5,7 +5,7 @@ import type { FeatureCollection, Point } from 'geojson';
 import type { MapCanvasProps } from './MapCanvas.types';
 import { diagnostics } from '../services/diagnostics';
 
-export default function MapCanvas({ center, zoom = 14.5, markers = [], selectedMarkerId, route, coverageBounds, userLocation, onPressMarker, onMapPress, onRegionChanged }: MapCanvasProps) {
+export default function MapCanvas({ center, zoom = 14.5, markers = [], selectedMarkerId, route, coverageBounds, userLocation, followLocation, onPressMarker, onMapPress, onRegionChanged }: MapCanvasProps) {
   const camera = useRef<CameraRef>(null);
   const [mapError, setMapError] = useState(false);
   const [longitude, latitude] = center;
@@ -15,12 +15,12 @@ export default function MapCanvas({ center, zoom = 14.5, markers = [], selectedM
     return { type: 'Feature' as const, geometry: { type: 'Polygon' as const, coordinates: [[[west, south], [east, south], [east, north], [west, north], [west, south]]] }, properties: {} };
   }, [coverageBounds]);
   const data = useMemo<FeatureCollection<Point>>(() => ({ type: 'FeatureCollection', features: markers.map(marker => ({ type: 'Feature', id: marker.id, geometry: { type: 'Point', coordinates: marker.coordinate }, properties: { id: marker.id, kind: marker.kind, selected: marker.id === selectedMarkerId, label: marker.label ?? '' } })) }), [markers, selectedMarkerId]);
-  useEffect(() => { camera.current?.easeTo({ center: [longitude, latitude], zoom, duration: 450 }); }, [longitude, latitude, zoom]);
+  useEffect(() => { if (followLocation !== false) camera.current?.easeTo({ center: [longitude, latitude], zoom, duration: 450 }); }, [longitude, latitude, zoom, followLocation]);
   useEffect(() => {
-    if (!route?.coordinates.length) return;
+    if (!route?.coordinates.length || followLocation !== undefined) return;
     const xs = route.coordinates.map(p => p[0]!); const ys = route.coordinates.map(p => p[1]!);
     camera.current?.fitBounds([Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)], { padding: { top: 50, right: 50, bottom: 50, left: 50 }, duration: 500 });
-  }, [route]);
+  }, [route, followLocation]);
   return <View style={styles.container}>
     <Map style={styles.container} mapStyle="https://tiles.openfreemap.org/styles/liberty" logo={false} attribution attributionPosition={{ bottom: 8, right: 8 }}
       onPress={event => onMapPress?.(event.nativeEvent.lngLat)}

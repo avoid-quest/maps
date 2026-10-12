@@ -1,16 +1,47 @@
 import type { Coordinate, RouteLeg, RoutePlan, RouteStep, RouteStop, TransitTime, TravelMode } from '../domain/types';
+import { nativeRoadRouting } from '../platform/road-routing';
+import type { RoadMode, RoadRouteResponse, RoadRoutingTransport } from '../platform/road-routing.types';
+import { diagnostics, type DiagnosticInput } from './diagnostics';
 import { decodePolyline, validCoordinate } from './geo';
-import { fetchJSON, parseServiceData, requestQueue, ServiceError } from './network';
+import { checkAbort, fetchJSON, parseServiceData, requestQueue, ServiceError } from './network';
 import { resolveTransitTime } from './transit-time';
 export { resolveTransitTime, romeDateTime } from './transit-time';
-const roadRequest = requestQueue(1100); const transitRequest = requestQueue(2000);
+const transitRequest = requestQueue(2000);
 export const ROAD_PROFILES = { walk: 'routed-foot', bicycle: 'routed-bike', car: 'routed-car' } as const;
 export const MATO_ENDPOINT = 'https://mapi.5t.torino.it/routing/v1/routers/mat/index/graphql';
 export function roadRouteURL(from: Coordinate, to: Coordinate, mode: Exclude<TravelMode, 'transit'>): string {
   return `https://routing.openstreetmap.de/${ROAD_PROFILES[mode]}/route/v1/driving/${from.longitude},${from.latitude};${to.longitude},${to.latitude}?steps=true&overview=full&geometries=geojson&alternatives=false`;
 }
-interface OSRMStep { name: string; distance: number; maneuver: { type: string; modifier?: string; location: [number, number] } }
-interface OSRMResponse { code: string; routes?: { distance: number; duration: number; geometry: { coordinates: [number, number][] }; legs: { steps: OSRMStep[] }[] }[] }
+interface OSRMStep { name: string; distance: number; maneuver: { type: string; modifier?: string; location: [number, number]; exit?: number } }
+interface OSRMResponse { code: string; routes?: { distance: number; duration: number; geometry: string | { coordinates: [number, number][] }; legs: { steps: OSRMStep[] }[] }[] }
+function invalidRoadData(): never { throw new ServiceError('Il servizio ha restituito dati di percorso non validi. Riprova.', 'invalid'); }
+function roadCoordinate(value: unknown): Coordinate {
+  if (!Array.isArray(value) || value.length !== 2) invalidRoadData();
+  const coordinate = { longitude: value[0], latitude: value[1] };
+  if (!validCoordinate(coordinate)) invalidRoadData();
+  return coordinate;
+}
+/** OSRM's native navigation response uses six decimal places; transit keeps polyline5. */
+function decodeRoadPolyline(encoded: string): Coordinate[] {
+  const result: Coordinate[] = []; let index = 0; let latitude = 0; let longitude = 0;
+  const component = () => {
+    let value = 0; let shift = 0; let byte: number;
+    do {
+      if (index >= encoded.length || shift > 30) invalidRoadData();
+      byte = encoded.charCodeAt(index++) - 63;
+      if (byte < 0 || byte > 63) invalidRoadData();
+      value += (byte & 31) * 2 ** shift; shift += 5;
+    } while (byte >= 32);
+    return value % 2 ? -(value + 1) / 2 : value / 2;
+  };
+  while (index < encoded.length) {
+    latitude += component(); longitude += component();
+    const coordinate = { latitude: latitude / 1e6, longitude: longitude / 1e6 };
+    if (!validCoordinate(coordinate)) invalidRoadData();
+    result.push(coordinate);
+  }
+  return result;
+}
 function maneuverInstruction(step: OSRMStep): string {
   const modifier: Record<string, string> = { left: 'a sinistra', right: 'a destra', 'slight left': 'leggermente a sinistra', 'slight right': 'leggermente a destra', 'sharp left': 'nettamente a sinistra', 'sharp right': 'nettamente a destra', straight: 'dritto', uturn: 'fai inversione' };
   const direction = modifier[step.maneuver.modifier ?? ''] ?? '';
@@ -18,21 +49,111 @@ function maneuverInstruction(step: OSRMStep): string {
   switch (step.maneuver.type) {
     case 'depart': return `Parti${road}`;
     case 'arrive': return 'Arrivo a destinazione';
-    case 'roundabout': case 'rotary': return `Alla rotatoria prosegui${road}`;
+    case 'roundabout': case 'rotary': return step.maneuver.exit ? `Alla rotatoria prendi l’uscita ${step.maneuver.exit}${road}` : `Alla rotatoria prosegui${road}`;
     case 'turn': return `Svolta ${direction}${road}`.trim();
     default: return `Prosegui ${direction}${road}`.trim();
   }
 }
-export function parseRoadRoute(data: OSRMResponse, mode: Exclude<TravelMode, 'transit'>): RoutePlan {
+export function parseRoadRoute(data: OSRMResponse, mode: Exclude<TravelMode, 'transit'>, fetchedAt = Date.now()): RoutePlan {
+  if (!data || typeof data.code !== 'string') invalidRoadData();
+  if (data.code !== 'Ok') throw new ServiceError('Nessun percorso trovato per questo mezzo.', 'unavailable');
   const route = data.routes?.[0];
-  if (data.code !== 'Ok' || !route || !route.geometry?.coordinates?.length) throw new ServiceError('Nessun percorso trovato per questo mezzo.', 'unavailable');
-  const geometry = route.geometry.coordinates.map(([longitude, latitude]) => ({ latitude, longitude }));
-  const steps: RouteStep[] = route.legs.flatMap(l => l.steps).map(s => ({ instruction: maneuverInstruction(s), distanceMeters: s.distance, coordinate: { longitude: s.maneuver.location[0], latitude: s.maneuver.location[1] } }));
-  return { id: `road:${mode}:${JSON.stringify(route.geometry.coordinates)}`, mode, distanceMeters: route.distance, durationSeconds: route.duration, geometry,
+  if (!route || !nonnegative(route.distance) || !nonnegative(route.duration) || !timestamp(fetchedAt)
+    || !Array.isArray(route.legs) || !route.legs.length) invalidRoadData();
+  const geometry = typeof route.geometry === 'string' ? decodeRoadPolyline(route.geometry)
+    : Array.isArray(route.geometry?.coordinates) ? route.geometry.coordinates.map(roadCoordinate) : invalidRoadData();
+  if (geometry.length < 2) invalidRoadData();
+  const steps: RouteStep[] = route.legs.flatMap(leg => {
+    if (!leg || !Array.isArray(leg.steps)) invalidRoadData();
+    return leg.steps.map(step => {
+      if (!step || typeof step.name !== 'string' || !nonnegative(step.distance) || !step.maneuver
+        || typeof step.maneuver.type !== 'string' || !step.maneuver.type
+        || (step.maneuver.modifier !== undefined && typeof step.maneuver.modifier !== 'string')
+        || (step.maneuver.exit !== undefined && (!Number.isInteger(step.maneuver.exit) || step.maneuver.exit <= 0))) invalidRoadData();
+      return { instruction: maneuverInstruction(step), distanceMeters: step.distance, coordinate: roadCoordinate(step.maneuver.location) };
+    });
+  });
+  // The same decoded geometry retains the existing saved-preview identity for either encoding.
+  const id = `road:${mode}:${JSON.stringify(geometry.map(({ longitude, latitude }) => [longitude, latitude]))}`;
+  return { id, mode, distanceMeters: route.distance, durationSeconds: route.duration, geometry,
     walkingDurationSeconds: mode === 'walk' ? route.duration : 0, walkingDistanceMeters: mode === 'walk' ? route.distance : 0, waitingDurationSeconds: 0, transferCount: 0,
-    legs: [{ id: `road:${mode}:${JSON.stringify(route.geometry.coordinates)}`, transitLeg: false, interlineWithPreviousLeg: false, timingStatus: 'unknown', mode, from: 'Partenza', to: 'Destinazione', durationSeconds: route.duration, distanceMeters: route.distance, realTime: false, geometry, steps }],
-    source: 'FOSSGIS / OpenStreetMap', warnings: ['Percorso senza traffico in tempo reale. Anteprima e indicazioni: guida vocale e navigazione in background non incluse.'], fetchedAt: Date.now() };
+    legs: [{ id, transitLeg: false, interlineWithPreviousLeg: false, timingStatus: 'unknown', mode, from: 'Partenza', to: 'Destinazione', durationSeconds: route.duration, distanceMeters: route.distance, realTime: false, geometry, steps }],
+    source: 'FOSSGIS / OpenStreetMap', warnings: ['Percorso senza traffico in tempo reale. Questa è un’anteprima: avvia la navigazione per seguire il viaggio dalla tua posizione.'], fetchedAt };
 }
+
+type RoadRouteOptions = { from: Coordinate; to: Coordinate; mode: RoadMode; signal?: AbortSignal };
+const roadRequestGeneration = Math.random().toString(36).slice(2);
+let roadRequestSequence = 0;
+function abortRoadRequest(): Error { return Object.assign(new Error('Request cancelled'), { name: 'AbortError' }); }
+function nativeRoadError(error: unknown): { error: ServiceError | Error; state: Extract<DiagnosticInput, { type: 'request' }>['state'] } {
+  // Native exceptions may contain provider URLs or coordinates. Read only the fixed code.
+  const code = typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
+  switch (code) {
+    case 'cancelled': return { error: abortRoadRequest(), state: 'cancelled' };
+    case 'rate-limit': return { error: new ServiceError('Il servizio ha limitato le richieste. Riprova tra un minuto.', 'rate-limit'), state: 'rate-limit' };
+    case 'timeout': return { error: new ServiceError('Il servizio non ha risposto in tempo. Riprova.'), state: 'timeout' };
+    case 'network': return { error: new ServiceError('Connessione non disponibile. Controlla la rete e riprova.'), state: 'network' };
+    case 'invalid': return { error: new ServiceError('Il servizio ha restituito dati di percorso non validi. Riprova.', 'invalid'), state: 'invalid' };
+    default: return { error: new ServiceError('Servizio di percorsi temporaneamente non disponibile. Riprova.', 'unavailable'), state: 'unavailable' };
+  }
+}
+async function requestNativeRoadRoute(options: RoadRouteOptions, transport: RoadRoutingTransport): Promise<RoadRouteResponse> {
+  const { from, to, mode, signal } = options;
+  checkAbort(signal);
+  const requestId = `preview-${roadRequestGeneration}-${++roadRequestSequence}`;
+  const started = Date.now();
+  let state: Extract<DiagnosticInput, { type: 'request' }>['state'] = 'ok';
+  try {
+    return await new Promise<RoadRouteResponse>((resolve, reject) => {
+      let settled = false;
+      const complete = (value?: RoadRouteResponse, error?: unknown) => {
+        if (settled) return;
+        settled = true; signal?.removeEventListener('abort', cancel);
+        if (error !== undefined) reject(error);
+        else if (value) resolve(value);
+        else reject({ code: 'invalid' });
+      };
+      const cancel = () => {
+        if (settled) return;
+        // Settle even if the native call or bridge cancellation stalls.
+        complete(undefined, abortRoadRequest());
+        try { void Promise.resolve(transport.cancelRoadRoute(requestId)).catch(() => undefined); } catch { /* Cancellation is best effort; obsolete work cannot settle the caller. */ }
+      };
+      signal?.addEventListener('abort', cancel, { once: true });
+      if (signal?.aborted) { cancel(); return; }
+      try { void transport.requestRoadRoute(requestId, from, to, mode).then(value => complete(value), error => complete(undefined, error)); }
+      catch (error) { complete(undefined, error); }
+    });
+  } catch (error) {
+    if (signal?.aborted) { state = 'cancelled'; throw abortRoadRequest(); }
+    const translated = nativeRoadError(error); state = translated.state; throw translated.error;
+  } finally {
+    diagnostics.record({ type: 'request', provider: 'fossgis', state, durationMs: Date.now() - started });
+  }
+}
+/** The Android adapter is the sole queue; web retains the established JavaScript queue. */
+export function createRoadRoutePlanner(transport: RoadRoutingTransport | null) {
+  const webRequest = transport === null ? requestQueue(1100) : null;
+  return async (options: RoadRouteOptions): Promise<RoutePlan> => {
+    const { from, to, mode, signal } = options;
+    if (!validCoordinate(from) || !validCoordinate(to) || !Object.hasOwn(ROAD_PROFILES, mode)) throw new ServiceError('Posizione o mezzo non valido.', 'invalid');
+    checkAbort(signal);
+    if (!transport) {
+      const response = await webRequest!(() => fetchJSON<OSRMResponse>(roadRouteURL(from, to, mode), { signal }, 'fossgis'), signal);
+      checkAbort(signal);
+      return parseServiceData('fossgis', () => parseRoadRoute(response, mode));
+    }
+    const response = await requestNativeRoadRoute(options, transport);
+    checkAbort(signal);
+    return parseServiceData('fossgis', () => {
+      if (!response || typeof response.responseJson !== 'string' || !timestamp(response.fetchedAt)) invalidRoadData();
+      let data: OSRMResponse;
+      try { data = JSON.parse(response.responseJson) as OSRMResponse; } catch { invalidRoadData(); }
+      return parseRoadRoute(data, mode, response.fetchedAt);
+    });
+  };
+}
+const planRoadRoute = createRoadRoutePlanner(nativeRoadRouting);
 interface MatoStop { gtfsId?: string | null; name?: string | null; code?: string | null; platformCode?: string | null; lat?: number | null; lon?: number | null }
 interface MatoPoint { name: string; lat?: number | null; lon?: number | null; stop?: MatoStop | null }
 export interface MatoLeg {
@@ -170,8 +291,7 @@ export async function planRoutes(options: PlanRouteOptions): Promise<RoutePlan[]
   const { from, to, mode, signal } = options;
   if (!validCoordinate(from) || !validCoordinate(to)) throw new ServiceError('Posizione non valida.', 'invalid');
   if (mode !== 'transit') {
-    const response = await roadRequest(() => fetchJSON<OSRMResponse>(roadRouteURL(from, to, mode), { signal }, 'fossgis'), signal);
-    return [parseServiceData('fossgis', () => parseRoadRoute(response, mode))];
+    return [await planRoadRoute({ from, to, mode, signal })];
   }
   const { date, time, arriveBy } = resolveTransitTime(options.transitTime);
   const query = `query { plan(from:{lat:${from.latitude},lon:${from.longitude}},to:{lat:${to.latitude},lon:${to.longitude}},date:"${date}",time:"${time}",arriveBy:${arriveBy},numItineraries:2) { itineraries { duration startTime endTime walkTime walkDistance waitingTime legs { mode transitLeg duration distance realTime realtimeState interlineWithPreviousLeg startTime endTime serviceDate route { shortName longName } trip { gtfsId tripHeadsign } from { name lat lon stop { gtfsId name code platformCode } } to { name lat lon stop { gtfsId name code platformCode } } legGeometry { points } } } } }`;

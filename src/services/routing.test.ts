@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { Coordinate } from '../domain/types';
-import { parseRoadRoute, parseTransitRoute, parseTransitRoutes, planRoute, planRoutes, type MatoItinerary, type MatoLeg, type MatoResponse } from './routing';
+import { createRoadRoutePlanner, parseRoadRoute, parseTransitRoute, parseTransitRoutes, planRoute, planRoutes, roadRouteURL, type MatoItinerary, type MatoLeg, type MatoResponse } from './routing';
+import type { RoadRouteResponse, RoadRoutingTransport } from '../platform/road-routing.types';
+import { diagnostics } from './diagnostics';
 import { ServiceError } from './network';
 import { emptyRouteState, routeReducer } from '../components/route-state';
 import { matchJourneyStop } from './transit-stop-matching';
@@ -255,6 +257,110 @@ test('road wrappers retain one route with explicit walking totals and stable geo
   assert.equal(walk.walkingDistanceMeters, 100); assert.equal(walk.walkingDurationSeconds, 80);
   assert.equal(car.walkingDistanceMeters, 0); assert.equal(car.transferCount, 0); assert.equal(car.waitingDurationSeconds, 0);
   assert.equal(parseRoadRoute(data, 'walk').id, walk.id); assert.notEqual(walk.id, car.id);
+});
+
+const roadCoordinates: [number, number][] = [[7.68, 45.07], [7.680456, 45.070123], [7.69, 45.08]];
+function roadResponse(geometry: string | { coordinates: [number, number][] } = { coordinates: roadCoordinates }) {
+  return { code: 'Ok', routes: [{ distance: 1300, duration: 720, geometry, legs: [{ steps: [
+    { name: 'Via di esempio', distance: 600, maneuver: { type: 'depart', location: roadCoordinates[0]! } },
+    { name: 'Corso di esempio', distance: 700, maneuver: { type: 'turn', modifier: 'right', location: roadCoordinates[1]! } },
+    { name: '', distance: 0, maneuver: { type: 'arrive', location: roadCoordinates[2]! } },
+  ] }] }] };
+}
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
+  return { promise, resolve, reject };
+}
+test('polyline6 road responses preserve full maneuvers, retrieval time and GeoJSON saved identity', () => {
+  const native = parseRoadRoute(roadResponse('_jz}tA__wsMuFo[ihRosQ'), 'car', fetchedAt);
+  const web = parseRoadRoute(roadResponse(), 'car', fetchedAt);
+  assert.deepEqual(native, web);
+  assert.equal(native.fetchedAt, fetchedAt);
+  assert.equal(native.legs[0]!.steps.length, 3);
+  assert.equal(native.legs[0]!.steps[1]!.instruction, 'Svolta a destra su Corso di esempio');
+  assert.deepEqual(native.legs[0]!.steps[1]!.coordinate, { latitude: 45.070123, longitude: 7.680456 });
+  assert.equal(native.id, `road:car:${JSON.stringify(roadCoordinates)}`);
+});
+test('malformed road geometry, totals, maneuvers and timestamps fail with bounded errors', () => {
+  const corruptions: ((value: ReturnType<typeof roadResponse>) => void)[] = [
+    value => { value.routes[0]!.geometry = '_'; },
+    value => { value.routes[0]!.geometry = '!'; },
+    value => { value.routes[0]!.geometry = ''; },
+    value => { value.routes[0]!.geometry = { coordinates: [[7, 91], [7, 45]] }; },
+    value => { value.routes[0]!.distance = -1; },
+    value => { value.routes[0]!.duration = Infinity; },
+    value => { value.routes[0]!.legs = []; },
+    value => { value.routes[0]!.legs[0]!.steps[1]!.distance = Number.NaN; },
+    value => { value.routes[0]!.legs[0]!.steps[1]!.maneuver.location = [181, 45]; },
+  ];
+  for (const corrupt of corruptions) {
+    const value = roadResponse(); corrupt(value);
+    assert.throws(() => parseRoadRoute(value, 'walk', fetchedAt), (error: unknown) => error instanceof ServiceError && error.kind === 'invalid');
+  }
+  assert.throws(() => parseRoadRoute(roadResponse(), 'walk', Number.NaN), (error: unknown) => error instanceof ServiceError && error.kind === 'invalid');
+});
+test('native previews use only the native transport with independent IDs and immediate signal cancellation', async () => {
+  const first = deferred<RoadRouteResponse>(); const second = deferred<RoadRouteResponse>();
+  const requests: { id: string; from: Coordinate; to: Coordinate; mode: string }[] = []; const cancelled: string[] = [];
+  const transport: RoadRoutingTransport = {
+    requestRoadRoute: (id, origin, destination, mode) => {
+      requests.push({ id, from: origin, to: destination, mode });
+      return requests.length === 1 ? first.promise : second.promise;
+    },
+    cancelRoadRoute: id => { cancelled.push(id); return Promise.reject(new Error('cancel failure')); },
+  };
+  const planner = createRoadRoutePlanner(transport); const controller = new AbortController();
+  const original = global.fetch;
+  try {
+    global.fetch = async () => { throw new Error('native must not use fetch'); };
+    const obsolete = planner({ from, to, mode: 'walk', signal: controller.signal });
+    const current = planner({ from, to, mode: 'car' });
+    assert.equal(requests.length, 2, 'native owns provider spacing without a second JavaScript queue');
+    assert.notEqual(requests[0]!.id, requests[1]!.id);
+    assert.deepEqual(requests[0]!.from, from); assert.deepEqual(requests[0]!.to, to);
+    controller.abort();
+    await assert.rejects(obsolete, { name: 'AbortError' });
+    assert.deepEqual(cancelled, [requests[0]!.id]);
+    first.resolve({ responseJson: JSON.stringify(roadResponse()), fetchedAt });
+    second.resolve({ responseJson: JSON.stringify(roadResponse('_jz}tA__wsMuFo[ihRosQ')), fetchedAt });
+    assert.equal((await current).mode, 'car');
+    const alreadyAborted = new AbortController(); alreadyAborted.abort();
+    await assert.rejects(planner({ from, to, mode: 'walk', signal: alreadyAborted.signal }), { name: 'AbortError' });
+    assert.equal(requests.length, 2);
+  } finally { global.fetch = original; }
+});
+test('native provider errors and JSON failures cannot expose raw errors in UI or diagnostics', async () => {
+  const privateDetail = 'synthetic-private-url-and-coordinate';
+  for (const [code, kind, state] of [
+    ['rate-limit', 'rate-limit', 'rate-limit'], ['network', 'network', 'network'], ['timeout', 'network', 'timeout'],
+    ['invalid', 'invalid', 'invalid'], ['unavailable', 'unavailable', 'unavailable'], ['unexpected', 'unavailable', 'unavailable'],
+  ] as const) {
+    const planner = createRoadRoutePlanner({ requestRoadRoute: async () => { throw { code, message: privateDetail }; }, cancelRoadRoute: () => {} });
+    await assert.rejects(planner({ from, to, mode: 'walk' }), (error: unknown) => error instanceof ServiceError && error.kind === kind && !error.message.includes(privateDetail));
+    assert.equal(diagnostics.getSnapshot().events.at(-1)?.state, state);
+  }
+  for (const result of [
+    { responseJson: privateDetail, fetchedAt },
+    { responseJson: JSON.stringify(roadResponse()), fetchedAt: Number.NaN },
+  ]) {
+    const planner = createRoadRoutePlanner({ requestRoadRoute: async () => result, cancelRoadRoute: () => {} });
+    await assert.rejects(planner({ from, to, mode: 'walk' }), (error: unknown) => error instanceof ServiceError && error.kind === 'invalid' && !error.message.includes(privateDetail));
+  }
+  assert.equal(JSON.stringify(diagnostics.getSnapshot()).includes(privateDetail), false);
+});
+test('web road requests retain profile URLs, identifying headers and preflight cancellation', async () => {
+  const original = global.fetch; const calls: { url: string; init?: RequestInit }[] = [];
+  try {
+    global.fetch = async (url, init) => { calls.push({ url: String(url), init }); return Response.json(roadResponse()); };
+    const planner = createRoadRoutePlanner(null); const controller = new AbortController(); controller.abort();
+    await assert.rejects(planner({ from, to, mode: 'bicycle', signal: controller.signal }), { name: 'AbortError' });
+    assert.equal(calls.length, 0);
+    assert.equal((await planner({ from, to, mode: 'bicycle' })).mode, 'bicycle');
+    assert.equal(calls[0]!.url, roadRouteURL(from, to, 'bicycle'));
+    assert.match(new Headers(calls[0]!.init?.headers).get('User-Agent')!, /^AvoidMaps\//);
+  } finally { global.fetch = original; }
 });
 
 test('route requests send validated depart/arrive time and reject invalid or aborted work before fetch', async () => {

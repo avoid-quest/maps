@@ -89,6 +89,26 @@ test('saved-travel failure codes persist and export without saved values or raw 
   assert.match(report(restored.getSnapshot()), /saved-travel\.read-failed[\s\S]*saved-travel\.remove-failed[\s\S]*saved-travel\.invalid/);
 });
 
+test('navigation diagnostics strip session, route and provider data and honor recording off and clear', async () => {
+  const injected = { at: NOW, type: 'navigation', state: 'engine-unavailable', sessionId: PRIVATE,
+    destination: { latitude: 12.345678, longitude: 67.891234 }, route: { geometry: PRIVATE }, rawError: PRIVATE,
+    provider: 'fossgis', durationMs: 123, httpStatus: 500 };
+  const storage = memoryStorage(JSON.stringify({ version: 1, enabled: true, events: [injected, { ...injected, state: PRIVATE }] }));
+  const store = createDiagnostics(() => NOW);
+  await store.initialize(storage);
+  store.record({ ...injected, state: 'active' } as unknown as DiagnosticInput);
+  await store.setEnabled(false);
+  store.record({ ...injected, state: 'stopped' } as unknown as DiagnosticInput);
+  await store.flush();
+  assert.deepEqual(store.getSnapshot().events, ['engine-unavailable', 'active'].map(state => ({ at: NOW, type: 'navigation', state })));
+  for (const text of [storage.value()!, report(store.getSnapshot())]) {
+    for (const secret of [PRIVATE, '12.345678', '67.891234', 'rawError', 'sessionId', 'geometry', 'provider=', 'httpStatus']) assert.ok(!text.includes(secret), secret);
+  }
+  await store.clear();
+  assert.deepEqual(store.getSnapshot().events, []);
+  assert.equal(store.getSnapshot().enabled, false);
+});
+
 test('clear follows pending writes so deleted events cannot reappear after restart', async () => {
   let release!: () => void;
   const blocked = new Promise<void>(resolve => { release = resolve; });
