@@ -7,7 +7,7 @@ Android maps app with public source and signed releases. Keep signing material a
 - **Services:** read `docs/research/online-services.md` for search/routing policy, `docs/research/turin-transit-data.md` for arrivals, and `docs/research/place-discovery.md` for business data. Preserve attribution, source timestamps, and uncertainty in results.
 - **Tooling:** read `docs/development/tooling.md` when changing dependencies, validation commands, or CI. Use the pinned Bun lockfile and preserve Node for Expo native tooling.
 - **Android:** read `docs/development/android.md` before changing native dependencies, location, signing, or APK delivery. Verify Google-free location and bundled release JavaScript.
-- **UI:** use NativeWind for routine layout and styling, with native map layers for geographic rendering. Keep Italian copy clear and distinguish live, scheduled, stale, and unavailable data.
+- **UI:** read `docs/development/ux.md` when changing launch behavior, map controls, search, sheets, or location feedback. Use NativeWind for routine styling and native map layers for geographic rendering.
 - **Review:** read `docs/development/review.md` before preparing a branch or PR. Deliver changes through reviewable PRs; use a stack when changes require dependent branches.
 
 Before handing off a change, run `bun run verify` and any change-specific checks and inspect affected user flows. Report the commands run, unresolved failures, and device-only checks explicitly. Describe route previews as planning until spoken guidance and background navigation are independently implemented and tested.

@@ -5,7 +5,7 @@ import type { FeatureCollection, Point } from 'geojson';
 import type { MapCanvasProps } from './MapCanvas.types';
 import { diagnostics } from '../services/diagnostics';
 
-export default function MapCanvas({ center, zoom = 14.5, markers = [], selectedMarkerId, route, coverageBounds, userLocation, followLocation, onPressMarker, onMapPress, onRegionChanged }: MapCanvasProps) {
+export default function MapCanvas({ center, zoom = 14.5, cameraRevision, markers = [], selectedMarkerId, route, coverageBounds, userLocation, followLocation, onPressMarker, onMapPress, onRegionChanged }: MapCanvasProps) {
   const camera = useRef<CameraRef>(null);
   const [mapError, setMapError] = useState(false);
   const [longitude, latitude] = center;
@@ -15,7 +15,7 @@ export default function MapCanvas({ center, zoom = 14.5, markers = [], selectedM
     return { type: 'Feature' as const, geometry: { type: 'Polygon' as const, coordinates: [[[west, south], [east, south], [east, north], [west, north], [west, south]]] }, properties: {} };
   }, [coverageBounds]);
   const data = useMemo<FeatureCollection<Point>>(() => ({ type: 'FeatureCollection', features: markers.map(marker => ({ type: 'Feature', id: marker.id, geometry: { type: 'Point', coordinates: marker.coordinate }, properties: { id: marker.id, kind: marker.kind, selected: marker.id === selectedMarkerId, label: marker.label ?? '' } })) }), [markers, selectedMarkerId]);
-  useEffect(() => { if (followLocation !== false) camera.current?.easeTo({ center: [longitude, latitude], zoom, duration: 450 }); }, [longitude, latitude, zoom, followLocation]);
+  useEffect(() => { if (followLocation !== false) camera.current?.easeTo({ center: [longitude, latitude], zoom, duration: 450 }); }, [longitude, latitude, zoom, followLocation, cameraRevision]);
   useEffect(() => {
     if (!route?.coordinates.length || followLocation !== undefined) return;
     const xs = route.coordinates.map(p => p[0]!); const ys = route.coordinates.map(p => p[1]!);

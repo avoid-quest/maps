@@ -1,43 +1,64 @@
+import { requireOptionalNativeModule } from 'expo';
 import { AppState, PermissionsAndroid, Platform } from 'react-native';
-import { LocationManager, type GeolocationPosition } from '@maplibre/maplibre-react-native';
+import { LocationManager } from '@maplibre/maplibre-react-native';
 import { diagnostics } from '../services/diagnostics';
+import { createLocationLookup, LocationError, waitForLocation } from './location-request';
+import { providerDiagnostic, providerLocationError, type LocationProviderStatus } from './location-provider-status';
+export { LocationError, type CurrentLocation } from './location-request';
 
-export class LocationError extends Error {
-  constructor(public code: 'denied' | 'unavailable' | 'timeout', message: string) { super(message); this.name = 'LocationError'; }
+const nativeStatus = Platform.OS === 'android' ? requireOptionalNativeModule<{ getLocationProviderStatus?: () => Promise<LocationProviderStatus> }>('AvoidNavigation') : null;
+async function readProviderStatus(): Promise<LocationProviderStatus | null> {
+  // Older APKs do not expose this read-only diagnostic yet; their acquisition remains usable.
+  try {
+    const status = await nativeStatus?.getLocationProviderStatus?.();
+    if (!status) return null;
+    diagnostics.record({ type: 'location', state: providerDiagnostic(status) });
+    return status;
+  } catch { return null; }
 }
-export interface CurrentLocation { coordinate: [number, number]; accuracy: number | null }
-let pending: Promise<CurrentLocation> | undefined;
-export function getCurrentLocation(): Promise<CurrentLocation> {
-  if (!pending) {
-    diagnostics.record({ type: 'location', state: 'requested' });
-    pending = locate().then(position => {
-      diagnostics.record({ type: 'location', state: 'fix' }); return position;
-    }, error => {
-      diagnostics.record({ type: 'location', state: error instanceof LocationError ? error.code : 'unavailable' }); throw error;
-    }).finally(() => { pending = undefined; });
-  }
-  return pending;
-}
-async function locate(): Promise<CurrentLocation> {
+
+const lookup = createLocationLookup(async request => {
   if (Platform.OS === 'android') {
-    const results = await PermissionsAndroid.requestMultiple([PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION, PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION]);
-    if (results[PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION] !== PermissionsAndroid.RESULTS.GRANTED && results[PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION] !== PermissionsAndroid.RESULTS.GRANTED) throw new LocationError('denied', 'Posizione non autorizzata. Puoi comunque cercare sulla mappa.');
-    diagnostics.record({ type: 'location', state: results[PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION] === PermissionsAndroid.RESULTS.GRANTED ? 'precise' : 'approximate' });
-  } else if (!await LocationManager.requestPermissions()) throw new LocationError('denied', 'Posizione non autorizzata.');
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    const finish = (position?: GeolocationPosition, error?: LocationError) => {
-      if (settled) return;
-      settled = true; clearTimeout(timer); subscription.remove(); LocationManager.removeListener(listener);
-      if (error) reject(error);
-      else if (position) resolve({ coordinate: [position.coords.longitude, position.coords.latitude], accuracy: position.coords.accuracy ?? null });
-    };
-    const listener = (position: GeolocationPosition) => {
-      if (Date.now() - position.timestamp < 60_000 && Number.isFinite(position.coords.longitude) && Number.isFinite(position.coords.latitude)) finish(position);
-    };
-    const timer = setTimeout(() => finish(undefined, new LocationError('timeout', 'Posizione non disponibile. Riprova all’aperto oppure scegli un punto sulla mappa.')), 20_000);
-    const subscription = AppState.addEventListener('change', state => { if (state !== 'active') finish(undefined, new LocationError('unavailable', 'Richiesta posizione interrotta.')); });
-    LocationManager.addListener(listener);
-    LocationManager.getCurrentPosition().then(position => { if (position) listener(position); }).catch(() => {});
-  });
+    const coarse = PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION;
+    const fine = PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION;
+    const [hasCoarse, hasFine] = await Promise.all([PermissionsAndroid.check(coarse), PermissionsAndroid.check(fine)]);
+    if (hasCoarse || hasFine) {
+      diagnostics.record({ type: 'location', state: hasFine ? 'precise' : 'approximate' });
+      return true;
+    }
+    if (!request) return false;
+    const results = await PermissionsAndroid.requestMultiple([coarse, fine]);
+    const precise = results[fine] === PermissionsAndroid.RESULTS.GRANTED;
+    const authorized = precise || results[coarse] === PermissionsAndroid.RESULTS.GRANTED;
+    if (authorized) diagnostics.record({ type: 'location', state: precise ? 'precise' : 'approximate' });
+    return authorized;
+  }
+  // The MapLibre iOS API cannot check permission without potentially prompting.
+  return request && await LocationManager.requestPermissions();
+}, async () => {
+  diagnostics.record({ type: 'location', state: 'requested' });
+  try {
+    const unavailable = providerLocationError(await readProviderStatus(), false);
+    if (unavailable) throw unavailable;
+    const position = await waitForLocation(LocationManager, inactive => {
+      const subscription = AppState.addEventListener('change', state => { if (state !== 'active') inactive(); });
+      if (AppState.currentState === 'background' || AppState.currentState === 'inactive') inactive();
+      return () => subscription.remove();
+    });
+    diagnostics.record({ type: 'location', state: 'fix' });
+    return position;
+  } catch (error) {
+    if (error instanceof LocationError && error.code === 'timeout') error = providerLocationError(await readProviderStatus(), true) ?? error;
+    diagnostics.record({ type: 'location', state: error instanceof LocationError ? error.code : 'unavailable' });
+    throw error;
+  }
+});
+
+export const getAuthorizedLocation = lookup.getAuthorizedLocation;
+export async function getCurrentLocation() {
+  try { return await lookup.getCurrentLocation(); }
+  catch (error) {
+    if (error instanceof LocationError && error.code === 'denied') diagnostics.record({ type: 'location', state: 'denied' });
+    throw error;
+  }
 }

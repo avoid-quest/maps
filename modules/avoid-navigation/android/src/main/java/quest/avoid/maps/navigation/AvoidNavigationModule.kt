@@ -1,5 +1,8 @@
 package quest.avoid.maps.navigation
 
+import android.content.Context
+import android.location.LocationManager
+import android.os.Build
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 
@@ -42,6 +45,15 @@ class AvoidNavigationModule : Module() {
         val owner = runtime
         main.post { owner.unobserve(observer) }
       }
+    }
+    AsyncFunction("getLocationProviderStatus") {
+      val context = requireNotNull(appContext.reactContext)
+      val manager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+      val gps = LocationManager.GPS_PROVIDER in manager.allProviders && manager.isProviderEnabled(LocationManager.GPS_PROVIDER)
+      val network = LocationManager.NETWORK_PROVIDER in manager.allProviders && manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+      val other = manager.getProviders(true).any { it !in setOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER) }
+      mapOf("locationEnabled" to (if (Build.VERSION.SDK_INT >= 28) manager.isLocationEnabled else gps || network || other),
+        "gpsEnabled" to gps, "networkEnabled" to network, "otherEnabled" to other)
     }
     AsyncFunction("getSnapshot") Coroutine { -> withContext(Dispatchers.Main.immediate) { runtime.snapshot() } }
     AsyncFunction("startNavigation") Coroutine { options: Map<String, Any?> ->

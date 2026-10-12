@@ -9,6 +9,8 @@ export interface MapMarker {
 export interface MapCanvasProps {
   center: MapCoordinate;
   zoom?: number;
+  /** Forces an explicit recenter even when the last commanded coordinate is unchanged. */
+  cameraRevision?: number;
   markers?: MapMarker[];
   selectedMarkerId?: string;
   route?: LineString | null;

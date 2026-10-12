@@ -13,6 +13,7 @@ export default function MapCanvas(props: MapCanvasProps) {
   const [longitude, latitude] = props.center;
   const zoom = props.zoom ?? 14.5;
   const followLocation = props.followLocation;
+  const cameraRevision = props.cameraRevision;
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
@@ -45,7 +46,7 @@ export default function MapCanvas(props: MapCanvasProps) {
     const observer = new ResizeObserver(() => instance.resize()); observer.observe(container.current);
     return () => { observer.disconnect(); instance.remove(); map.current = null; };
   }, []);
-  useEffect(() => { if (loaded && followLocation !== false) map.current?.easeTo({ center: [longitude, latitude], zoom, duration: 450 }); }, [loaded, longitude, latitude, zoom, followLocation]);
+  useEffect(() => { if (loaded && followLocation !== false) map.current?.easeTo({ center: [longitude, latitude], zoom, duration: 450 }); }, [loaded, longitude, latitude, zoom, followLocation, cameraRevision]);
   useEffect(() => {
     if (!loaded || !map.current) return;
     const bounds = props.coverageBounds;
