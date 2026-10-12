@@ -413,6 +413,7 @@ function MapsApp() {
     setSearchOpen(false);
     setListOnly(false);
     if (next === "explore") { setQuery(""); setCategory(""); }
+    if (next === "transit") { setSearchCenter(viewport.current); setAreaChanged(false); }
     cancelLocationRequest();
     Keyboard.dismiss();
     setTab(next);
@@ -664,7 +665,7 @@ function MapsApp() {
             {searchOpen || hasSearch ? <IconButton icon="arrow-back" label="Chiudi ricerca" onPress={() => { changeTab("explore"); searchInput.current?.blur(); }} /> : <Icon name="search-outline" color={colors.muted} size={21} />}
             <TextInput
               ref={searchInput}
-              onFocus={() => { cameraTouched.current = true; cancelLocationRequest(); setSearchOpen(true); setPrivacy(false); setSelected(null); changeStop(null); setRouteView(false); setPickingOrigin(false); resetRoutes(); setTab("explore"); }}
+              onFocus={() => { cameraTouched.current = true; cancelLocationRequest(); setSearchCenter(viewport.current); setAreaChanged(false); setSearchOpen(true); setPrivacy(false); setSelected(null); changeStop(null); setRouteView(false); setPickingOrigin(false); resetRoutes(); setTab("explore"); }}
               accessibilityLabel="Cerca luoghi, indirizzi o attività"
               className="min-h-12 min-w-0 flex-1 px-3 text-base text-[#17243C]"
               placeholder="Cerca un luogo o indirizzo"
