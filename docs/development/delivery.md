@@ -1,5 +1,15 @@
 # Android build verification
 
+## Current release line: 0.1.9
+
+Version **0.1.9 / Android code 11** combines compact map-first UI, stable task/navigation geometry, foreground location acquisition and read-only provider diagnostics. Navigation still uses its existing GPS source and 20 m / 10 s acceptance policy. The production launcher exclusion keeps Google barcode-scanner dependencies out of the runtime graph while the separate development client remains available.
+
+The signed APK, checksums, matching third-party source archive and exact artifact validation belong to the [0.1.9 release record](https://github.com/avoid-quest/maps/releases/tag/v0.1.9). Source/browser checks do not establish physical navigation, audible voice, screen-off operation, Android keyboard/accessibility or upgrade preservation. Run the acceptance checks in [android.md](android.md) and [navigation.md](navigation.md) for those boundaries.
+
+Version [0.1.8](https://github.com/avoid-quest/maps/releases/tag/v0.1.8) already delivered native navigation and its matching source archive. Earlier observations below describe their named artifacts and are historical; statements that navigation or source publication was pending do not describe current delivery status.
+
+## Historical verification
+
 Application id: `quest.avoid.maps`. Released [version 0.1.7](https://github.com/avoid-quest/maps/releases/tag/v0.1.7) / Android code `8`, from `9411d02cb727e8796ee556285a3b1516b06360ed`, contains active-view transit refresh and strict journey-stop links. Signed arm64 APK: 48,004,992 bytes; SHA-256 `67d246d643fd5b81bddfd3ecc7ad4b51c1acc0e0c424ec6468b639b7b9bb2a5c`. The separate emulator runtime evidence remains tied to 0.1.2. Development 0.1.8 / Android code `9` adds native navigation; no new signed release artifact or integrated Android navigation runtime has been accepted.
 
 ## Released 0.1.7 evidence

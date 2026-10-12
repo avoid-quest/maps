@@ -1,6 +1,6 @@
 # Android builds and installation
 
-The application is an Expo native app. MapLibre requires a compiled native build; Expo Go cannot run it. Android uses MapLibre's `default` platform location engine, with foreground approximate or precise permission. Search and manual map browsing work without location access. Development version 0.1.8 adds an explicit Android navigation session using precise platform GPS, a location foreground service and an installed offline Italian voice. The integrated GPS/voice/service runtime remains unverified; read [navigation implementation and acceptance](navigation.md) before describing screen-off guidance as tested.
+The application is an Expo native app. MapLibre requires a compiled native build; Expo Go cannot run it. Android uses MapLibre's `default` platform location engine, with foreground approximate or precise permission. Search and manual map browsing work without location access. Version 0.1.8 introduced an explicit Android navigation session using precise platform GPS, a location foreground service and an installed offline Italian voice. Complete physical GPS/voice/service acceptance remains outstanding; read [navigation implementation and acceptance](navigation.md) before describing screen-off guidance as tested.
 
 ## Local prerequisites
 
