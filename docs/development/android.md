@@ -39,6 +39,14 @@ Builds with local diagnostics read version/code from the embedded Expo configura
 
 Emulator checks prove Android packaging and runtime behaviour, not physical-device GPS accuracy, lifecycle behaviour, or battery consumption. Record those device checks separately.
 
+## Position availability
+
+Location permission authorizes a request; it does not guarantee a current fix. MapLibre's default Android engine requests platform positioning, including the network provider when available alongside GPS. A Google-free system may have no working Wi-Fi/cell positioning provider, so indoor browsing can time out even with precise permission and location enabled. Navigation separately requires a fresh GPS fix within its accuracy policy; an old cached position cannot start guidance.
+
+Foreground browsing checks existing permission on launch and resume without prompting. Explicit Locate can request permission. Provider status is sampled before acquisition and after timeout: local diagnostics distinguish disabled services, GPS only, network only, both enabled, another active platform provider, and no enabled provider. These fixed codes contain no coordinates or device identifiers. An enabled provider does not establish that it can return a fix. Older native binaries without the status method continue acquisition with generic timeout wording; rebuild the APK to expose provider status.
+
+Indoor timeouts after earlier successful fixes do not establish which platform provider stopped returning results. To diagnose missing fixes, verify a fresh outdoor fix, then compare indoor provider status and timeouts on the rebuilt APK. Browser and JVM checks cannot establish Android GPS reception or indoor positioning availability.
+
 ## Dependency review
 
 The initial SDK 54 lockfile was checked with `npm audit` and compatible fixes applied. The web-only MapLibre renderer was updated to 6.13.0 and protobufjs to 8.8.0 to remove critical advisories; the native MapLibre package remains pinned separately. For the original v0.1.0 lockfile on 2026-10-11, npm reported 44 advisory paths (26 high, 16 moderate, 2 low), mostly inherited build/CLI CSS, image, glob, signing and source-map tooling. `npm audit fix --force` proposes incompatible framework changes, so those changes were not applied mechanically. Treat untrusted build input and development servers accordingly; this is not a claim that the entire dependency graph is vulnerability-free. These historical counts do not describe the later Bun lockfile. Recheck the active lockfile with `bun audit` when updating Expo or its toolchain.

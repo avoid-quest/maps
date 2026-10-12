@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import type { ComponentProps, ReactNode } from "react";
+import { useState, type ComponentProps, type ReactNode } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { colors } from "../theme/tokens";
 
@@ -62,7 +62,7 @@ export function Button({
       accessibilityRole="button"
       disabled={disabled || loading}
       onPress={onPress}
-      className={`min-h-12 flex-row items-center justify-center gap-2 rounded-2xl px-5 py-3 ${secondary ? "bg-[#ECF2FF]" : "bg-[#2359D7]"} ${disabled ? "opacity-40" : ""}`}
+      className={`min-h-12 flex-row items-center justify-center gap-2 rounded-full px-4 py-3 ${secondary ? "bg-[#ECF2FF]" : "bg-[#2359D7]"} ${disabled ? "opacity-40" : ""}`}
     >
       {loading ? (
         <ActivityIndicator color={secondary ? colors.blue : "white"} />
@@ -70,7 +70,7 @@ export function Button({
         <Icon name={icon} size={20} color={secondary ? colors.blue : "white"} />
       ) : null}
       <Text
-        className={`text-base font-semibold ${secondary ? "text-[#2359D7]" : "text-white"}`}
+        className={`shrink text-center text-sm font-semibold ${secondary ? "text-[#2359D7]" : "text-white"}`}
       >
         {children}
       </Text>
@@ -136,4 +136,16 @@ export function EmptyState({
       </Text>
     </View>
   );
+}
+
+/** Secondary explanations expand inside the sheet, without changing its geometry. */
+export function Disclosure({ title, children }: { title: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return <View>
+    <Pressable accessibilityRole="button" accessibilityState={{ expanded: open }} onPress={() => setOpen(value => !value)} className="min-h-12 flex-row items-center gap-2">
+      <Text className="flex-1 text-sm font-semibold text-[#59667A]">{title}</Text>
+      <Icon name={open ? "chevron-up" : "chevron-down"} size={18} color={colors.muted} />
+    </Pressable>
+    {open ? <View className="gap-3 pb-3">{children}</View> : null}
+  </View>;
 }

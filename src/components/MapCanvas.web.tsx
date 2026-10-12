@@ -3,24 +3,34 @@ import * as maplibregl from 'maplibre-gl';
 import type { GeoJSONSource, Map as WebMap } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import type { MapCanvasProps } from './MapCanvas.types';
+import { createRouteFraming } from './map-presentation';
 import { diagnostics } from '../services/diagnostics';
 
 export default function MapCanvas(props: MapCanvasProps) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<WebMap | null>(null);
   const latest = useRef(props); latest.current = props;
+  const framing = useRef(createRouteFraming());
   const initialView = useRef({ center: props.center, zoom: props.zoom ?? 14.5 });
   const [longitude, latitude] = props.center;
   const zoom = props.zoom ?? 14.5;
   const followLocation = props.followLocation;
+  const cameraRevision = props.cameraRevision;
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
     if (!container.current) return;
     maplibregl.setWorkerUrl(new URL('/vendor/maplibre-gl-worker.mjs', window.location.href).href);
-    const instance = new maplibregl.Map({ container: container.current, style: 'https://tiles.openfreemap.org/styles/liberty', ...initialView.current, attributionControl: { compact: true } });
+    const instance = new maplibregl.Map({ container: container.current, style: 'https://tiles.openfreemap.org/styles/liberty', ...initialView.current, attributionControl: false });
     map.current = instance;
+    instance.addControl(new maplibregl.AttributionControl({ compact: true }), 'top-left');
     instance.on('load', () => {
+      // Start the standard attribution control collapsed on phone layouts; its links remain one tap away.
+      const attribution = instance.getContainer().querySelector<HTMLDetailsElement>('details.maplibregl-compact');
+      if (attribution && instance.getCanvasContainer().offsetWidth <= 640) {
+        attribution.open = false;
+        attribution.classList.remove('maplibregl-compact-show');
+      }
       instance.addSource('local-coverage', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
       instance.addLayer({ id: 'local-coverage-fill', type: 'fill', source: 'local-coverage', paint: { 'fill-color': '#167469', 'fill-opacity': 0.035 } });
       instance.addLayer({ id: 'local-coverage-line', type: 'line', source: 'local-coverage', paint: { 'line-color': '#167469', 'line-width': 2, 'line-dasharray': [3, 2] } });
@@ -41,11 +51,11 @@ export default function MapCanvas(props: MapCanvasProps) {
       if (typeof id === 'string') latest.current.onPressMarker?.(id);
       else latest.current.onMapPress?.([event.lngLat.lng, event.lngLat.lat]);
     });
-    instance.on('moveend', event => { if (event.originalEvent) { const center = instance.getCenter(); latest.current.onRegionChanged?.([center.lng, center.lat]); } });
+    instance.on('moveend', event => { if (event.originalEvent) { framing.current.userMoved(latest.current.routeFitKey); const center = instance.getCenter(); latest.current.onRegionChanged?.([center.lng, center.lat]); } });
     const observer = new ResizeObserver(() => instance.resize()); observer.observe(container.current);
     return () => { observer.disconnect(); instance.remove(); map.current = null; };
   }, []);
-  useEffect(() => { if (loaded && followLocation !== false) map.current?.easeTo({ center: [longitude, latitude], zoom, duration: 450 }); }, [loaded, longitude, latitude, zoom, followLocation]);
+  useEffect(() => { if (loaded && followLocation !== false) map.current?.easeTo({ center: [longitude, latitude], zoom, padding: latest.current.cameraPadding, duration: 450 }); }, [loaded, longitude, latitude, zoom, followLocation, cameraRevision]);
   useEffect(() => {
     if (!loaded || !map.current) return;
     const bounds = props.coverageBounds;
@@ -60,10 +70,13 @@ export default function MapCanvas(props: MapCanvasProps) {
   useEffect(() => {
     if (!loaded || !map.current) return;
     (map.current.getSource('journey') as GeoJSONSource)?.setData({ type: 'FeatureCollection', features: props.route ? [{ type: 'Feature', geometry: props.route, properties: {} }] : [] });
-    if (props.route?.coordinates.length && followLocation === undefined) {
+  }, [loaded, props.route]);
+  useEffect(() => {
+    if (!loaded || !map.current) return;
+    if (followLocation === undefined && framing.current.claim(props.routeFitKey, !!props.route?.coordinates.length) && props.route) {
       const bounds = new maplibregl.LngLatBounds(); props.route.coordinates.forEach(p => bounds.extend([p[0]!, p[1]!]));
-      map.current.fitBounds(bounds, { padding: 50, duration: 500 });
+      map.current.fitBounds(bounds, { padding: latest.current.cameraPadding ?? 50, duration: 500 });
     }
-  }, [loaded, props.route, followLocation]);
-  return <div style={{ flex: 1, minHeight: 160, position: 'relative' }}><div ref={container} style={{ position: 'absolute', inset: 0 }} />{failed && <div style={{ position: 'absolute', top: 10, left: 10, background: '#fff9e8', padding: 8, borderRadius: 8 }}>Mappa non disponibile · controlla la connessione</div>}</div>;
+  }, [loaded, props.route, props.routeFitKey, followLocation]);
+  return <div style={{ flex: 1, minHeight: 160, position: 'relative', '--map-attribution-top': `${props.attributionTop ?? 68}px`, '--map-attribution-left': `${props.attributionLeft ?? 8}px` } as React.CSSProperties}><div ref={container} style={{ position: 'absolute', inset: 0 }} />{failed && <div style={{ position: 'absolute', top: (props.attributionTop ?? 68) + 52, left: 10, background: '#fff9e8', padding: 8, borderRadius: 8 }}>Mappa non disponibile · controlla la connessione</div>}</div>;
 }

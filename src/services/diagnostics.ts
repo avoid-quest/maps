@@ -6,7 +6,7 @@ export const MAX_DIAGNOSTIC_BYTES = 32 * 1024;
 const states = {
   app: ['launch', 'active', 'background', 'inactive', 'unknown', 'runtime-error'],
   map: ['loaded', 'failed'],
-  location: ['requested', 'approximate', 'precise', 'granted', 'denied', 'fix', 'timeout', 'unavailable'],
+  location: ['requested', 'approximate', 'precise', 'granted', 'denied', 'fix', 'timeout', 'unavailable', 'services-disabled', 'providers-gps-network', 'providers-gps', 'providers-network', 'providers-other', 'providers-none'],
   navigation: ['start-requested', 'active', 'degraded', 'off-route', 'rerouting', 'arrived', 'stopped', 'interrupted', 'denied', 'engine-unavailable', 'service-unavailable', 'route-unavailable', 'rate-limit', 'reroute-limit', 'transit-replan-needed', 'native-error'],
   favorites: ['read-failed', 'write-failed'],
   'saved-travel': ['read-failed', 'write-failed', 'remove-failed', 'invalid'],

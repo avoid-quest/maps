@@ -1,3 +1,12 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Attribution stays exposed above the task sheet. */
+.maplibregl-map .maplibregl-ctrl-top-left { top: var(--map-attribution-top, 68px); left: var(--map-attribution-left, 8px); }
+
+.maplibregl-map .maplibregl-ctrl-attrib { max-width: calc(100vw - 84px); }
+.maplibregl-map .maplibregl-ctrl-attrib.maplibregl-compact { min-height: 44px; min-width: 44px; }
+.maplibregl-map .maplibregl-ctrl-attrib-button { width: 44px; height: 44px; background-repeat: no-repeat; background-position: center; }
+
+.maplibregl-map .maplibregl-ctrl-attrib.maplibregl-compact:not([open]) { width: 44px; padding: 0; border-radius: 22px; }
