@@ -1,6 +1,6 @@
 # Android builds and installation
 
-The application is an Expo native app. MapLibre requires a compiled native build; Expo Go cannot run it. Android uses MapLibre's `default` platform location engine, with foreground approximate or precise permission. Search and manual map browsing work without location access. No background navigation is implemented yet.
+The application is an Expo native app. MapLibre requires a compiled native build; Expo Go cannot run it. Android uses MapLibre's `default` platform location engine, with foreground approximate or precise permission. Search and manual map browsing work without location access. Development version 0.1.8 adds an explicit Android navigation session using precise platform GPS, a location foreground service and an installed offline Italian voice. The integrated GPS/voice/service runtime remains unverified; read [navigation implementation and acceptance](navigation.md) before describing screen-off guidance as tested.
 
 ## Local prerequisites
 
@@ -8,7 +8,9 @@ Use Node 22, JDK 17, Android SDK platform 36, build-tools 36.0.0, NDK 27.1.12297
 
 Source `scripts/toolchain-env.sh` if using the prepared local Node/Android tools, then run `bun install --frozen-lockfile`. Build commands are in `package.json`.
 
-The release build generates `android/` through Expo prebuild and invokes Gradle locally. It bundles JavaScript and assets into the APK, so installation requires neither Metro nor an Expo account. Generated native directories and build outputs are ignored by Git. Native customizations belong in config plugins.
+The minimum supported Android API is 25 (Android 7.1) for the navigation build. The [navigation dependency boundary](navigation.md#dependency-and-distribution-boundary) records the Kotlin/R8/desugaring pins.
+
+The release build generates `android/` through Expo prebuild and invokes Gradle locally. It bundles JavaScript and assets into the APK, so installation requires neither Metro nor an Expo account. Generated native directories and build outputs are ignored by Git. Native customizations belong in config plugins; the tracked local Expo navigation module owns its Android source, service manifest and third-party notice assets.
 
 The build script supplies a temporary Gradle init script that appends Clang `-ffile-prefix-map` flags for the checkout, Gradle cache and local home prefixes. These paths come from the current build environment and map to relative paths in C/C++ source strings. This removes local compiler-header paths without excluding native sources or packaging metadata. The init script is deleted on exit. Scan the resulting APK for local paths as part of release inspection; JavaScript and prebuilt dependencies require their own content checks.
 
@@ -33,6 +35,7 @@ Builds with local diagnostics read version/code from the embedded Expo configura
 3. Grant approximate location, then precise location outdoors. Confirm the locate button settles or gives a useful timeout and continues to work after background/foreground transitions.
 4. Open transit stops and check live-feed timestamps; disconnect the network and confirm unavailable/stale wording remains honest.
 5. Save a place, close the app, relaunch, and confirm it remains saved. Install a later APK signed with the same key to verify upgrade preservation.
+6. Run the separate [navigation acceptance](navigation.md#android-acceptance) for walking, cycling, driving and transit. Verify current precise positioning, offline Italian speech or visible missing-voice state, bounded rerouting, manual transit confirmations, notification Stop and interrupted-session handling. Inspect foreground-service/location/notification permissions, absence of background-location permission and bundled third-party notices on the final APK.
 
 Emulator checks prove Android packaging and runtime behaviour, not physical-device GPS accuracy, lifecycle behaviour, or battery consumption. Record those device checks separately.
 

@@ -1,6 +1,6 @@
 # Current proposal: Expo maps app with online services and local useful data
 
-Updated 2026-10-11. **The selected architecture uses Expo, online services, local data, and keyless providers where available.** The earlier [fork assessment](offline-fork-assessment.md) is superseded. Its technical evidence remains useful.
+Updated 2026-10-12. **The selected architecture uses Expo, online services, local data, and keyless providers where available.** The earlier [fork assessment](offline-fork-assessment.md) is superseded. Its technical evidence remains useful.
 
 ## Recommendation
 
@@ -26,7 +26,7 @@ Implementation requires prioritization: a strong map/search/transit experience i
 | Turin realtime | Direct GTT GTFS-RT + prepared static lookup data | Verified anonymous feeds; source/entity freshness and identity handling required |
 | Turin door-to-door transit planning | Evaluate direct MATO/5T GraphQL adapter | Actual itinerary response verified; reuse policy and reliable coverage remain a gate |
 | Favourites/preferences/diagnostics | Local AsyncStorage | No login/cloud account required; saved favourites currently retain place snapshots |
-| Active navigation later | Native location service and navigation component via Expo module | Separate proof needed; route drawing does not establish safe reliable guidance |
+| Active navigation | Local Expo Android module, pinned Ferrostar core, platform GPS/service and offline Italian TTS | Source implementation for four modes; native engine/voice/screen-off runtime acceptance remains open |
 
 These are swappable provider choices, not a requirement to install an elaborate plugin framework. A small typed adapter for each API is sufficient. If a public service becomes unsuitable, replace the adapter rather than rebuild the UI.
 
@@ -72,7 +72,9 @@ Online route APIs return geometry and maneuver information. The app still needs 
 
 Ferrostar is a relevant open-source navigation component, but its React Native integration is not a verified stable install-and-use solution: the official maturity page marks it pre-alpha, and the three package names in its current RN guide returned npm 404 during inspection. Native Android components or a pinned source integration may be usable; prove that separately. Do not copy a tutorial assuming a published RN SDK exists. [Detailed evidence](expo-platform.md).
 
-This does not require abandoning the full-featured goal. It prevents a nice route preview from being mistaken for completed driving navigation. Start with route planning and clear directions, then explicitly complete guidance.
+Development version 0.1.8 integrates the published **native** Ferrostar core 0.57.0 through a local Expo Kotlin module. Native compilation and policy/transition tests pass with pinned Kotlin/R8/desugaring changes; this establishes a build path without relying on the unavailable RN packages. Road sessions use current precise platform GPS, bounded FOSSGIS rerouting and offline Italian TTS. Transit follows the selected MATO journey with explicit walking/boarding/alighting confirmations and advisory stop proximity; it supplies neither walking turns nor continuous departure/disruption monitoring.
+
+The integrated Ferrostar/JNA engine, GPS, TTS and foreground service have not run on a usable Android runtime. Mode-specific physical journeys, wrong-turn recovery, voice, screen-off behavior and battery use remain acceptance gates. Route previews remain planning until explicitly started. The [navigation contract and acceptance matrix](../development/navigation.md) records these boundaries.
 
 ## Build sequence
 

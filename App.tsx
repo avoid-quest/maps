@@ -62,6 +62,7 @@ import { journeyDate, journeyTime } from "./src/components/journey-presentation"
 import { savedTravel, type SavedJourney } from "./src/services/saved-travel";
 import { useNavigation } from "./src/components/useNavigation";
 import { NavigationPanel } from "./src/components/NavigationPanel";
+import { NavigationNotices } from "./src/components/NavigationNotices";
 import { navigationLocationForReplan } from "./src/domain/navigation";
 
 const DOCKS: Coordinate = { latitude: 45.0937, longitude: 7.6832 };
@@ -1421,8 +1422,27 @@ function PrivacyContent({ onLink }: { onLink: (url: string) => void }) {
   return (
     <View className="gap-4 p-5">
       <Text className="text-base leading-6 text-[#17243C]">
-        Nessun account. Viaggi, fermate e luoghi salvati restano sul dispositivo. La posizione
-        si attiva quando la richiedi.
+        Nessun account o telemetria. Viaggi, fermate e luoghi salvati restano sul dispositivo.
+        La posizione si attiva quando la richiedi.
+      </Text>
+      <Text accessibilityRole="header" className="text-lg font-semibold text-[#17243C]">
+        Navigazione e posizione
+      </Text>
+      <Text className="text-sm leading-6 text-[#59667A]">
+        Avvia navigazione richiede la posizione precisa e attiva il GPS di Android
+        in modo continuo, anche con lo schermo spento finché Android mantiene il
+        servizio attivo. La posizione e l’avanzamento sono elaborati sul dispositivo.
+        All’avvio e nei ricalcoli stradali, posizione attuale e destinazione vengono
+        inviate a FOSSGIS; i ricalcoli automatici sono limitati. Le anteprime possono
+        usare una partenza scelta sulla mappa.
+      </Text>
+      <Text className="text-sm leading-6 text-[#59667A]">
+        Una copia locale limitata della sessione permette di mostrare un viaggio
+        interrotto e richiede una ripresa esplicita. Interrompi navigazione termina
+        posizione continua, voce e richieste e cancella questa copia. Anche l’arrivo
+        termina la sessione. La guida vocale usa una voce italiana dichiarata offline
+        dal motore del dispositivo; se manca, restano le indicazioni visive.
+        La diagnostica locale conserva solo codici di stato, senza posizione o viaggio.
       </Text>
       <Text className="text-sm leading-6 text-[#59667A]">
         Le mappe online comunicano l’area visualizzata a OpenFreeMap. Le
@@ -1446,6 +1466,7 @@ function PrivacyContent({ onLink }: { onLink: (url: string) => void }) {
         </View>
       ))}
       <Notice text="Mappe online, arrivi in tempo reale e calcolo dei percorsi richiedono una connessione. Puoi riaprire la copia di un viaggio salvato senza connessione; i suoi orari sono da aggiornare. La disponibilità dei servizi pubblici può variare." />
+      <NavigationNotices onLink={onLink} />
       <Text className="mt-2 text-lg font-semibold text-[#17243C]">
         Licenze dei dati
       </Text>
