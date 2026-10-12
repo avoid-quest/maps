@@ -8,7 +8,7 @@ class TransitJourneyEngineTest {
   private val origin = coordinate(45.0)
   private val stop = coordinate(45.005)
   private val destination = coordinate(45.01)
-  private fun coordinate(latitude: Double) = mapOf("latitude" to latitude, "longitude" to 7.0)
+  private fun coordinate(latitude: Double, longitude: Double = 7.0) = mapOf("latitude" to latitude, "longitude" to longitude)
   private fun leg(index: Int, transit: Boolean, from: Map<String, Double> = origin, to: Map<String, Double> = destination): Map<String, Any?> = mapOf(
     "mode" to if (transit) "bus" else "walk", "transitLeg" to transit, "interlineWithPreviousLeg" to false,
     "from" to "Fermata $index", "to" to "Fermata ${index + 1}", "line" to if (transit) "4" else null,
@@ -135,9 +135,86 @@ class TransitJourneyEngineTest {
   }
 
   @Test fun freshlyRetrievedHistoricalItineraryRequiresReplanning() {
-    val expired = leg(0, true) + mapOf("departureAt" to now - 720_001, "arrivalAt" to now - 120_001)
+    // Walking-only itineraries have no boarding deadline, but still need the end-time check.
+    val expired = leg(0, false) + mapOf("departureAt" to now - 720_001, "arrivalAt" to now - 120_001)
     assertThrows(IllegalArgumentException::class.java) { engine(expired) }
     val withinSkew = expired + mapOf("departureAt" to now - 720_000, "arrivalAt" to now - 120_000)
-    assertEquals("board", phase(engine(withinSkew).snapshot()))
+    assertEquals("walk", phase(engine(withinSkew).snapshot()))
+  }
+
+  @Test fun earlierVisitToFinalStopSuppressesCuesEvenWhenBoardingIsFarAway() {
+    val route = leg(0, true) + ("geometry" to listOf(origin, destination, coordinate(45.02), destination))
+    assertAmbiguousEndRemainsManual(engine(route))
+  }
+
+  @Test fun earlierNearPassBetweenGeometryVerticesSuppressesCues() {
+    // The first edge passes about 40 m from the final stop; neither vertex is nearby.
+    val route = leg(0, true) + ("geometry" to listOf(
+      coordinate(45.0, 7.0005), coordinate(45.02, 7.0005), coordinate(45.02, 7.02), destination,
+    ))
+    assertAmbiguousEndRemainsManual(engine(route))
+  }
+
+  @Test fun explicitInterlineChecksGeometryAcrossAllGroupedLegs() {
+    val beyond = coordinate(45.02)
+    val first = leg(0, true, origin, beyond) + ("geometry" to listOf(origin, destination, beyond))
+    val second = leg(1, true, beyond, destination) + ("interlineWithPreviousLeg" to true)
+    val engine = engine(first, second)
+    assertEquals(listOf(0, 1), transit(engine.snapshot())["sourceLegIndices"])
+    assertAmbiguousEndRemainsManual(engine)
+  }
+
+  @Test fun ordinaryGeometryWithSeveralVerticesKeepsNearbyStopCues() {
+    val route = leg(0, true) + ("geometry" to listOf(
+      origin, coordinate(45.004), coordinate(45.008), coordinate(45.009), coordinate(45.0095), destination,
+    ))
+    val engine = engine(route)
+    engine.confirm("board")
+    assertEquals(true, transit(engine.snapshot())["proximityAvailable"])
+    assertTrue(engine.onLocation(45.008, 7.0, 5.0).announcement!!.contains("Preparati"))
+    assertEquals("alight", phase(engine.onLocation(45.01, 7.0, 5.0)))
+  }
+
+  @Test fun freshlyRetrievedDepartedServiceWithFutureArrivalRequiresReplanning() {
+    val departed = leg(0, true) + mapOf(
+      "departureAt" to now - 1_200_000, "arrivalAt" to now + 600_000, "durationSeconds" to 1_800.0,
+    )
+    assertThrows(IllegalArgumentException::class.java) { engine(departed) }
+    assertThrows(IllegalArgumentException::class.java) { engine(departed + ("timingStatus" to "prediction")) }
+  }
+
+  @Test fun firstBoardingAcceptsScheduledAndPredictedFutureTimesWithClockSkew() {
+    val future = leg(0, true) + mapOf("departureAt" to now + 300_000, "arrivalAt" to now + 900_000)
+    for (status in listOf("scheduled", "prediction")) {
+      val snapshot = engine(future + ("timingStatus" to status)).snapshot()
+      assertEquals("board", phase(snapshot))
+      assertEquals(status, transit(snapshot)["timingStatus"])
+      assertEquals(now + 300_000, transit(snapshot)["departureAt"])
+    }
+    val skewBoundary = leg(0, true) + mapOf("departureAt" to now - 120_000, "arrivalAt" to now + 480_000)
+    assertEquals("board", phase(engine(skewBoundary).snapshot()))
+    assertThrows(IllegalArgumentException::class.java) {
+      engine(skewBoundary + mapOf("departureAt" to now - 120_001, "arrivalAt" to now + 479_999))
+    }
+  }
+
+  @Test fun initialWalkingMustFitBeforeFirstBoarding() {
+    val walk = leg(0, false, origin, stop) + mapOf("departureAt" to now - 300_000, "arrivalAt" to now + 300_000)
+    val missedConnection = leg(1, true, stop, destination) + mapOf("departureAt" to now + 300_000, "arrivalAt" to now + 900_000)
+    assertThrows(IllegalArgumentException::class.java) { engine(walk, missedConnection) }
+    assertEquals("walk", phase(engine(leg(0, false, origin, stop), leg(1, true, stop, destination)).snapshot()))
+  }
+
+  private fun assertAmbiguousEndRemainsManual(engine: TransitJourneyEngine) {
+    engine.confirm("board")
+    for (latitude in listOf(45.01, 45.02, 45.01)) {
+      val update = engine.onLocation(latitude, 7.0, 5.0)
+      assertEquals("ride", phase(update))
+      assertNull(update.announcement)
+      assertEquals(false, transit(update)["proximityAvailable"])
+      assertEquals(true, transit(update)["canConfirmAlighting"])
+    }
+    assertEquals("ride", phase(engine.onLocation(Double.NaN, 7.0, 50.0)))
+    assertTrue(engine.confirm("alight").completed)
   }
 }

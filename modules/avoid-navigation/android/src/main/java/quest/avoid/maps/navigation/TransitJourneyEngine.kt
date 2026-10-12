@@ -1,5 +1,11 @@
 package quest.avoid.maps.navigation
 
+import kotlin.math.abs
+import kotlin.math.asin
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.sin
+
 data class TransitUpdate(
   val fields: Map<String, Any?>,
   val announcement: String? = null,
@@ -15,10 +21,10 @@ class TransitJourneyEngine(
   private data class Leg(
     val index: Int, val transit: Boolean, val interline: Boolean,
     val line: String?, val headsign: String?, val from: String, val to: String,
-    val start: Point?, val end: Point?, val distance: Double,
+    val start: Point?, val end: Point?, val geometry: List<Point>, val distance: Double,
     val departure: Long, val arrival: Long, val timing: String,
   )
-  private data class Segment(val legs: List<Leg>) {
+  private data class Segment(val legs: List<Leg>, val ambiguousEnd: Boolean) {
     val first get() = legs.first()
     val last get() = legs.last()
     val transit get() = first.transit
@@ -38,7 +44,8 @@ class TransitJourneyEngine(
 
   init {
     require(plan["mode"] == "transit") { "Invalid transit mode" }
-    val age = nowMs() - fetchedAt
+    val admissionTime = nowMs()
+    val age = admissionTime - fetchedAt
     require(fetchedAt > 0 && age in 0..120_000) { "Transit plan must be refreshed" }
     val rawLegs = plan["legs"] as? List<*> ?: throw IllegalArgumentException("Missing transit legs")
     require(rawLegs.size in 1..64) { "Invalid transit leg count" }
@@ -63,13 +70,22 @@ class TransitJourneyEngine(
         arrival >= departure && kotlin.math.abs((arrival - departure) / 1000.0 - duration) <= 1) { "Invalid transit timing" }
       Leg(index, transit, leg["interlineWithPreviousLeg"] == true,
         optionalText(leg["line"]), optionalText(leg["headsign"]), text(leg["from"]), text(leg["to"]),
-        start, end, distance, departure, arrival, timing)
+        start, end, points, distance, departure, arrival, timing)
     }
     legs.zipWithNext().forEach { (before, after) ->
       require(after.departure >= before.arrival) { "Overlapping transit legs" }
       require(!after.interline || (before.transit && after.transit)) { "Invalid interline connection" }
     }
-    require(legs.last().arrival >= nowMs() - 120_000) { "Transit itinerary has already ended" }
+    require(legs.last().arrival >= admissionTime - 120_000) { "Transit itinerary has already ended" }
+    val firstBoardingIndex = legs.indexOfFirst { it.transit }
+    if (firstBoardingIndex >= 0) {
+      // Starting at the verified origin still requires the full initial walk. Provider departure
+      // timestamps already incorporate any prediction; a fresh download does not make them future.
+      val accessDurationMs = legs.take(firstBoardingIndex).sumOf { it.arrival - it.departure }
+      require(legs[firstBoardingIndex].departure >= admissionTime + accessDurationMs - 120_000) {
+        "Initial transit boarding is no longer feasible"
+      }
+    }
     require(!legs.first().interline) { "Invalid initial interline connection" }
     legCount = legs.size
     val grouped = mutableListOf<MutableList<Leg>>()
@@ -77,7 +93,8 @@ class TransitJourneyEngine(
       // Only the provider's explicit same-vehicle flag permits combining transit legs.
       if (leg.interline) grouped.last().add(leg) else grouped.add(mutableListOf(leg))
     }
-    segments = grouped.map { Segment(it.toList()) }
+    // Inspect the bounded geometry once at admission, rather than on every location callback.
+    segments = grouped.map { Segment(it.toList(), ambiguousEndpoint(it)) }
     phase = startingPhase()
   }
 
@@ -95,7 +112,7 @@ class TransitJourneyEngine(
     val targetDistance = distance(target())
     // Endpoint proximity cannot distinguish completion from an early pass around a loop.
     // Keep manual controls available and omit automatic end cues for this ambiguous case.
-    val canPromptEnd = !ambiguousEndpoint(segment)
+    val canPromptEnd = !segment.ambiguousEnd
     var announcement: String? = null
     if (targetDistance != null) {
       val confidentlyNear = targetDistance + accuracy <= 75
@@ -166,8 +183,8 @@ class TransitJourneyEngine(
     if (segment.legs.size > 1 && phase in setOf("board", "ride", "alight")) {
       return "Il viaggio prosegue sullo stesso mezzo${if (segment.lines.isEmpty()) "" else ": ${segment.lines.joinToString(" → ")}"}. Resta a bordo fino a ${segment.last.to}."
     }
-    if (phase in setOf("ride", "alight") && ambiguousEndpoint(segment)) {
-      return "Le fermate sono vicine: verifica gli annunci del mezzo e conferma dopo essere sceso."
+    if (phase in setOf("ride", "alight") && segment.ambiguousEnd) {
+      return "Il percorso può passare vicino alla fermata prima dell’arrivo: verifica gli annunci del mezzo e conferma dopo essere sceso."
     }
     if (phase == "board") return "Scendi a ${segment.last.to}."
     val next = segments.getOrNull(segmentIndex + 1) ?: return if (phase in setOf("ride", "alight")) "Conferma la discesa per completare il viaggio." else "Conferma l’arrivo per completare il viaggio."
@@ -190,7 +207,7 @@ class TransitJourneyEngine(
       "timingStatus" to segment.timing, "fetchedAt" to fetchedAt, "source" to source,
       "canConfirmBoarding" to boarding, "canConfirmAlighting" to alighting, "canConfirmWalking" to walking,
       "confirmation" to when { boarding -> "board"; alighting -> "alight"; walking -> "walk-complete"; else -> null },
-      "proximityAvailable" to (!complete && target() != null && (boarding || !ambiguousEndpoint(segment))),
+      "proximityAvailable" to (!complete && target() != null && (boarding || !segment.ambiguousEnd)),
     )
     val fields = linkedMapOf<String, Any?>("instruction" to instruction(), "nextInstruction" to nextInstruction(), "transit" to transit)
     // This is direct GPS-to-stop distance, not a turn distance or route-matched progress.
@@ -202,11 +219,52 @@ class TransitJourneyEngine(
     if (phase == "board") it.first.start else it.last.end
   }
   private fun once(key: String, text: String): String? = if (announced.add("$segmentIndex:$key")) text else null
-  private fun ambiguousEndpoint(segment: Segment): Boolean {
-    val start = segment.first.start ?: return false
-    val end = segment.last.end ?: return false
-    val direct = distance(start, end)
-    return direct < 350 && segment.legs.sumOf { it.distance } > maxOf(300.0, direct * 2 + 100)
+  private fun ambiguousEndpoint(legs: List<Leg>): Boolean {
+    val end = legs.last().end ?: return false
+    val start = legs.first().start
+    if (start != null) {
+      val direct = distance(start, end)
+      if (direct < 350 && legs.sumOf { it.distance } > maxOf(300.0, direct * 2 + 100)) return true
+    }
+    var remaining = 0.0
+    for (leg in legs.asReversed()) {
+      for (index in leg.geometry.lastIndex downTo 1) {
+        val from = leg.geometry[index - 1]
+        val to = leg.geometry[index]
+        val length = distance(from, to)
+        val (proximity, alongRemaining) = closestApproach(end, from, to, length)
+        // A previous pass can fall between vertices. If substantially more path remains than
+        // the direct stop distance, proximity cannot identify the final approach. The 75 m
+        // allowance avoids treating small geometry noise as a distinct earlier stop visit.
+        if (proximity <= 300 && remaining + alongRemaining > proximity + 75) return true
+        remaining += length
+      }
+      // Do not invent an edge connecting disjoint or missing provider leg geometries.
+    }
+    return false
+  }
+
+  /** Great-circle distance to a provider geometry edge and path remaining along that edge. */
+  private fun closestApproach(target: Point, from: Point, to: Point, length: Double): Pair<Double, Double> {
+    val fromDistance = distance(from, target)
+    val toDistance = distance(to, target)
+    if (length < 0.001) return toDistance to 0.0
+    val radius = 6_371_000.0
+    val angle = bearing(from, target) - bearing(from, to)
+    val angularDistance = fromDistance / radius
+    val along = atan2(sin(angularDistance) * cos(angle), cos(angularDistance)) * radius
+    if (along <= 0) return fromDistance to length
+    if (along >= length) return toDistance to 0.0
+    val cross = abs(asin((sin(angularDistance) * sin(angle)).coerceIn(-1.0, 1.0))) * radius
+    return cross to (length - along)
+  }
+
+  private fun bearing(from: Point, to: Point): Double {
+    val fromLat = Math.toRadians(from.latitude)
+    val toLat = Math.toRadians(to.latitude)
+    val longitudeDelta = Math.toRadians(to.longitude - from.longitude)
+    return atan2(sin(longitudeDelta) * cos(toLat),
+      cos(fromLat) * sin(toLat) - sin(fromLat) * cos(toLat) * cos(longitudeDelta))
   }
   private fun distance(point: Point?): Double? = point?.let { target -> position?.let { distance(it, target) } }
   private fun distance(from: Point, to: Point) = NavigationGeometry.distance(from.latitude, from.longitude, to.latitude, to.longitude)
