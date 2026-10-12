@@ -15,13 +15,13 @@ The map is the starting point. Search, discovery, transport and saved places are
 - An empty search has no selected category or automatic discovery results. Put category shortcuts inside the search interaction. Category selection, typed search, transport and saved places reveal their own results and pins.
 - Clearing or closing a search returns to the unselected map. Map movement alone does not begin discovery; searching a changed area is explicit.
 - Route planning starts from a fresh position or a deliberately chosen origin. Cancelling origin selection returns to the destination; a fallback viewport never silently becomes the departure point.
-- Give one task the sheet at a time: results, place, stop, route planning or settings. Keep the map usable alongside it and provide a clear return to the map. Sheet titles and actions take precedence over explanatory text.
+- Give one task the sheet at a time: results, place, stop, route planning or settings. Keep the map usable alongside it and provide a clear return to the map. Sheet titles and actions take precedence over explanatory text. Keep transport and saved shortcuts on the neutral map; task cards replace that chrome. Empty search uses a horizontal shortcut row.
 - Show coverage boundaries, result limits and data warnings with the results they explain. Keep mandatory map attribution accessible. Preserve place provenance, source timestamps, and live, scheduled, stale and unavailable distinctions in their relevant detail views.
 - Keep Italian action names stable and direct. Use compact system typography and restrained surfaces; the geographic content supplies the visual detail. Maintain accessible text contrast and touch targets when reducing chrome.
 
 ## Stable geometry and camera intent
 
-Keep one map mounted across browsing, sheet expansion and navigation. Sheets overlay that viewport at a compact height or an explicitly expanded height; keyboard resizing may reduce the sheet's available space while preserving the map. Status, loading and error updates change content inside reserved regions. Anchor route actions outside scrolling details, and keep navigation instruction, trip summary, Retry and Stop geometry independent of position quality.
+Keep one map mounted across browsing, sheet expansion and navigation. Small inset task cards overlay that viewport at a compact height or an explicitly expanded height; keyboard resizing may reduce the sheet's available space while preserving the map. Status, loading and error updates change content inside reserved regions. Anchor route actions outside scrolling details, and keep navigation instruction, trip summary, Retry and Stop geometry independent of position quality.
 
 Frame a planning route once for the requested origin, destination and mode, or when the user selects an alternative or requests the full route. Refreshes update its line without reframing. Panning consumes any pending frame so a late response respects the chosen view. Camera padding must leave visible map space on narrow, expanded and side-sheet layouts. Navigation follows accepted positions until the user pans; Locate deliberately resumes following.
 
@@ -29,7 +29,7 @@ Keep current quality separate from retained coordinates. The native snapshot sup
 
 ## Active guidance
 
-Prioritize the next instruction, map, current problem and Stop action. Present recovery beside the problem. Keep voice availability visible, with longer setup explanations available on demand. Preserve transit confirmation controls and uncertainty when simplifying the layout. Route previews remain planning; native voice, position and background behavior require the separate [navigation acceptance checks](navigation.md).
+Prioritize the next instruction, map, current problem and Stop action. Present recovery beside the problem. Keep voice status and setup in navigation details. Anchor the active transit confirmation beside Stop. Preserve transit confirmation controls and uncertainty when simplifying the layout. Route previews remain planning; native voice, position and background behavior require the separate [navigation acceptance checks](navigation.md).
 
 ## Acceptance
 

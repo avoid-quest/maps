@@ -12,7 +12,7 @@ export function DiscoverySettings() {
   async function choose(policy: SearchPolicy) {
     setBusy(true);
     const saved = await searchPreferences.setPolicy(policy);
-    setFeedback(saved ? 'Preferenza salvata su questo dispositivo.' : 'Scelta attiva solo per questa sessione. Salvataggio non riuscito: al prossimo avvio potrebbe tornare la preferenza precedente.');
+    setFeedback(saved ? 'Salvato.' : 'Salvataggio non riuscito. Scelta attiva solo per questa sessione.');
     setBusy(false);
   }
   return <View className="gap-3 border-y border-[#E2E8F0] py-5">
@@ -23,10 +23,10 @@ export function DiscoverySettings() {
       </View>
       <Switch accessibilityLabel="Solo ricerca locale" value={snapshot.policy === 'local-only'} disabled={!snapshot.ready || busy} onValueChange={local => void choose(local ? 'local-only' : 'local-and-online')} trackColor={{ true: colors.blue }} />
     </View>
-    <Text className="text-sm leading-6 text-[#59667A]">Quando è attiva, nomi e indirizzi vengono cercati solo nel pacchetto sul dispositivo: nessuna ricerca viene inviata a Photon. Il pacchetto è limitato e può non includere il luogo cercato.</Text>
-    <Text className="text-sm leading-6 text-[#59667A]">Questa scelta riguarda solo la ricerca. Mappe, percorsi e arrivi restano servizi online. Quando è disattivata, le ricerche per nome o indirizzo inviano testo e area a Photon; le categorie restano locali.</Text>
+    <Text className="text-sm leading-6 text-[#59667A]">Attiva: cerca nel pacchetto locale, che può essere incompleto. Disattiva: invia nome e area a Photon.</Text>
+    <Text className="text-sm leading-6 text-[#59667A]">Mappe, percorsi e arrivi restano online.</Text>
     {snapshot.ready && !snapshot.preferenceKnown ? <>
-      <Notice danger text="Impossibile leggere la preferenza salvata. La ricerca online resta sospesa e il valore salvato non è stato modificato. Scegli con l’interruttore oppure conferma la ricerca locale." />
+      <Notice danger text="Preferenza non leggibile. Ricerca online sospesa: scegli di nuovo." />
       <Button secondary disabled={busy} onPress={() => void choose('local-only')}>Conferma solo locale</Button>
     </> : null}
     {feedback ? <View accessibilityLiveRegion="polite"><Notice text={feedback} danger={snapshot.storage === 'unavailable'} /></View> : null}

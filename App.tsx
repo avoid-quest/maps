@@ -527,7 +527,7 @@ function MapsApp() {
     resetRoutes();
     setOriginReady(false);
     setOrigin(viewport.current);
-    setOriginLabel("Punto da scegliere sulla mappa");
+    setOriginLabel("Scegli sulla mappa");
     setRouteView(true);
     setPickingOrigin(!location);
     if (!location) return;
@@ -588,7 +588,7 @@ function MapsApp() {
       cancelLocationRequest();
       setOrigin(point(coordinate));
       setOriginReady(true);
-      setOriginLabel("Punto scelto sulla mappa");
+      setOriginLabel("Punto sulla mappa");
       setPickingOrigin(false);
     }
   };
@@ -597,7 +597,7 @@ function MapsApp() {
     : journeyStop
       ? journeyStop.name
       : routeView
-        ? "Il tuo percorso"
+        ? "Percorso"
         : selected
           ? selected.name
           : stop
@@ -605,7 +605,7 @@ function MapsApp() {
             : tab === "transit"
               ? "Trasporti"
               : tab === "saved"
-                ? "I tuoi salvati"
+                ? "Salvati"
                 : query.trim()
                   ? query.trim()
                   : categories.find(item => item.query === category)?.label ?? "Cerca sulla mappa";
@@ -662,7 +662,8 @@ function MapsApp() {
   const navRoute = useMemo<LineString | null>(() => navGeometry && navGeometry.length > 1
     ? { type: "LineString", coordinates: navGeometry.map(tuple) } : null, [navGeometry]);
   const navCenter = navigation.snapshot.location ?? navigation.snapshot.destination ?? center;
-  const sheetHeight = wide ? availableHeight - 144 : Math.min(availableHeight - 192, listOnly ? availableHeight - 192 : Math.max(300, Math.min(420, mapHeight * 0.46)));
+  const compactSheetHeight = routeView ? 300 : searchOpen && !hasSearch && !selected ? 132 : 236;
+  const sheetHeight = Math.min(availableHeight - 136, listOnly ? availableHeight - 136 : compactSheetHeight * Math.min(fontScale, 1.5));
   const mapPadding = mapCameraPadding({ width, height: mapHeight, sheetHeight, panelVisible, navigating: navigation.visible, fontScale });
   const fitKey = routeView && selected && originReady ? `${routeQueryKey({ from: origin, to: selected.coordinate, mode: routeMode, transitTime })}:${frameRevision}` : undefined;
   function closePanel() { changeTab("explore"); searchInput.current?.blur(); }
@@ -689,7 +690,7 @@ function MapsApp() {
               routeFitKey={navigation.visible ? undefined : fitKey}
               cameraPadding={mapPadding}
               attributionLeft={wide && panelVisible && !navigation.visible ? 430 : 8}
-              attributionTop={navigation.visible ? Math.min(height * 0.3, 156 * Math.min(fontScale, 1.5)) + 8 : 68}
+              attributionTop={navigation.visible ? Math.min(height * 0.3, 104 * Math.min(fontScale, 1.5)) + 8 : 68}
               followLocation={navigation.visible ? following : undefined}
               coverageBounds={!navigation.visible && tab === "explore" && hasSearch && !routeView && !selected ? searchResult.coverage.bounds : undefined}
               zoom={navigation.visible ? 17 : zoom}
@@ -753,17 +754,9 @@ function MapsApp() {
                 )}
               </View>
             </View>
-            {feedback && !pickingOrigin ? <View style={{ bottom: !wide && panelVisible ? sheetHeight + 80 : 88, left: wide && panelVisible ? 442 : 16, right: 16 }} className="absolute left-4 right-4"><Notice text={feedback} action="Chiudi" onAction={dismissFeedback} /></View> : null}
-            {pickingOrigin ? (
-              <View style={{ bottom: !wide && panelVisible ? sheetHeight + 80 : 88, left: wide && panelVisible ? 442 : 16, right: 16 }} className="absolute left-4 right-4">
-                <Notice
-                  text={feedback ? `${feedback} Tocca la mappa per scegliere la partenza.` : "Tocca la mappa per scegliere il punto di partenza."}
-                  action="Annulla"
-                  onAction={() => { if (!originReady) { setRouteView(false); resetRoutes(); } setPickingOrigin(false); }}
-                />
-              </View>
-            ) : areaChanged && (hasSearch || tab === "transit") && !selected && !stop ? (
-              <View style={{ bottom: !wide && panelVisible ? sheetHeight + 80 : 88, left: wide && panelVisible ? 442 : 16, right: 16 }} className="absolute max-w-[95%] self-center rounded-2xl bg-white">
+            {feedback ? <View style={{ bottom: !wide && panelVisible ? sheetHeight + 24 : 88, left: wide && panelVisible ? 442 : 16, right: 16 }} className="absolute left-4 right-4"><Notice text={feedback} action="Chiudi" onAction={dismissFeedback} /></View> : null}
+            {!pickingOrigin && areaChanged && (hasSearch || tab === "transit") && !selected && !stop ? (
+              <View style={{ bottom: !wide && panelVisible ? sheetHeight + 24 : 88, left: wide && panelVisible ? 442 : 16, right: 16 }} className="absolute max-w-[95%] self-center rounded-2xl bg-white">
                 <Button icon="search-outline" secondary onPress={searchArea}>
                   Cerca in quest’area
                 </Button>
@@ -823,12 +816,11 @@ function MapsApp() {
 
       </View>
 
-        {panelVisible ? <View testID="map-sheet" style={{ position: "absolute", left: wide ? 12 : 0, right: wide ? undefined : 0, bottom: 64, width: wide ? 410 : undefined, height: sheetHeight, borderColor: colors.line, borderWidth: 1, borderTopLeftRadius: 24, borderTopRightRadius: 24, overflow: "hidden" }} className="bg-white">
-          <View className="h-3 items-center justify-center"><View className="h-1 w-8 rounded-full bg-[#E2E8F0]" /></View>
+        {panelVisible ? <View testID="map-sheet" style={{ position: "absolute", left: 12, right: wide ? undefined : 12, bottom: 8, width: wide ? 410 : undefined, height: sheetHeight, borderColor: colors.line, borderWidth: 1, borderRadius: 20, overflow: "hidden" }} className="bg-white">
           <View style={{ height: Math.max(56, 48 * fontScale) }} className="flex-row items-center border-b border-[#E2E8F0] px-2">
             <IconButton icon="arrow-back" label="Indietro" onPress={backPanel} />
             <Text accessibilityRole="header" numberOfLines={2} className="min-w-0 flex-1 text-base leading-5 font-semibold text-[#17243C]">{title}</Text>
-            {!wide ? <IconButton icon={listOnly ? "chevron-down" : "chevron-up"} label={listOnly ? "Riduci scheda" : "Espandi scheda"} onPress={() => { Keyboard.dismiss(); setListOnly(value => !value); }} /> : null}
+            <IconButton icon={listOnly ? "chevron-down" : "chevron-up"} label={listOnly ? "Riduci scheda" : "Espandi scheda"} onPress={() => { Keyboard.dismiss(); setListOnly(value => !value); }} />
             <IconButton icon="close" label="Chiudi scheda" onPress={closePanel} />
           </View>
           <ScrollView
@@ -844,8 +836,6 @@ function MapsApp() {
               <PrivacyContent onLink={openLink} />
             ) : routeView && selected && !journeyStop ? (
               <View className="gap-3 p-4">
-                {savedJourneyVisible ? <Notice text="Viaggio salvato · da aggiornare" /> : null}
-                {retainedSelection ? <Notice text="Scegli un’alternativa aggiornata: il viaggio selezionato non compare più nei risultati recenti." /> : null}
                 {navigation.error ? <Notice danger text={navigation.error} action="Impostazioni app" onAction={() => { void Linking.openSettings(); }} /> : null}
                 <View className="flex-row items-center gap-2 border-b border-[#E2E8F0] pb-2">
                   <View className="flex-1">
@@ -889,9 +879,7 @@ function MapsApp() {
                     }}
                   />
                 ) : null}
-                {pickingOrigin ? (
-                  <Notice text="Scegli la partenza sulla mappa per calcolare il percorso." />
-                ) : routeMode === "transit" && route ? (
+                {pickingOrigin ? null : routeMode === "transit" && route ? (
                   <JourneyResults
                     plans={routePlans}
                     selected={route}
@@ -905,9 +893,7 @@ function MapsApp() {
                     retained={retainedSelection}
                     onOpenStop={openJourneyStop}
                   />
-                ) : (routing && !route) || originPending ? (
-                  <Loading label="Calcolo del percorso…" />
-                ) : routeError && !route ? (
+                ) : (routing && !route) || originPending ? null : routeError && !route ? (
                   <Notice
                     danger
                     text={routeError}
@@ -915,9 +901,9 @@ function MapsApp() {
                     onAction={refreshRoutes}
                   />
                 ) : route ? (
-                  <Disclosure title="Indicazioni e fonti del percorso">
+                  <Disclosure title="Dettagli percorso">
                     <Text className="text-xs leading-5 text-[#59667A]">Consultato il {journeyDate(route.fetchedAt)} alle {journeyTime(route.fetchedAt)}. {savedJourneyVisible ? "Da aggiornare." : ""}</Text>
-                    {routeError ? <Notice danger text={`Aggiornamento non riuscito. ${routeError} Il percorso precedente resta visibile. Il prossimo tentativo può richiedere qualche minuto.`} /> : null}
+                    {routeError ? <Notice danger text={`${routeError} Mostro il percorso precedente.`} /> : null}
                     <Button secondary icon="refresh-outline" loading={routing} onPress={refreshRoutes}>Ricalcola percorso</Button>
                     {route.warnings.map((warning, index) => (
                       <Notice key={index} text={warning} />
@@ -952,25 +938,21 @@ function MapsApp() {
                       </View>
                     ))}
                     <Text className="text-xs leading-5 text-[#59667A]">
-                      Anteprima del percorso. Per le indicazioni durante il viaggio usa Avvia navigazione su Android. Percorso: {route.source}. Dati © OpenStreetMap
+                      {route.source} · senza traffico in tempo reale. Dati © OpenStreetMap
                       contributors.
                     </Text>
                   </Disclosure>
                 ) : !originPending ? (
                   <Button secondary icon="refresh-outline" onPress={refreshRoutes}>Calcola percorso</Button>
                 ) : null}
-                <Disclosure title="Come funziona la navigazione">
-                  <Text className="text-sm leading-5 text-[#59667A]">L’anteprima serve a pianificare. Avvia navigazione su Android richiede una posizione precisa attuale; per i percorsi stradali viene calcolata una nuova partenza. Android può chiedere posizione e notifiche. Con i mezzi confermi salita e discesa; un viaggio non aggiornato o distante va ricalcolato.</Text>
-                </Disclosure>
                 {route && !pickingOrigin && !originPending ? (
                   <View className="gap-3 border-t border-[#E2E8F0] pt-4">
-                    <Text className="text-xs leading-5 text-[#59667A]">Copia locale con gli orari consultati, da aggiornare prima del viaggio.</Text>
                     {journeySaveError ? <Notice danger text={journeySaveError} /> : null}
                     {savedJourneyVisible ? (
-                      <Button secondary icon="trash-outline" loading={journeyBusy} onPress={clearSavedJourney}>Rimuovi viaggio salvato</Button>
+                      <Button secondary icon="trash-outline" loading={journeyBusy} onPress={clearSavedJourney}>Rimuovi viaggio</Button>
                     ) : (
                       <Button secondary icon="bookmark-outline" loading={journeyBusy} disabled={routing || retainedSelection || travel.journeyStatus === "loading"} onPress={saveSelectedJourney}>
-                        {travel.journey || travel.journeyStatus === "unavailable" ? "Sostituisci viaggio salvato" : "Salva viaggio selezionato"}
+                        {travel.journey || travel.journeyStatus === "unavailable" ? "Sostituisci viaggio" : "Salva viaggio"}
                       </Button>
                     )}
                   </View>
@@ -981,9 +963,6 @@ function MapsApp() {
                 <View>
                   <Text className="text-base text-[#59667A]">
                     {categoryLabel(selected.category)}
-                    {selected.distanceMeters != null
-                      ? ` · ${distance(selected.distanceMeters)}`
-                      : ""}
                   </Text>
                   {selected.address ? (
                     <Text className="mt-2 text-sm leading-5 text-[#17243C]">
@@ -1024,8 +1003,8 @@ function MapsApp() {
                     onPress={() => openLink(`tel:${selected.phone}`)}
                   />
                 ) : null}
-                <Text className="text-xs text-[#59667A]">Orari non disponibili</Text>
-                <Disclosure title="Fonti e aggiornamento">
+                <Disclosure title="Dettagli">
+                  <Text className="text-xs text-[#59667A]">Orari non disponibili</Text>
                 <Text className="text-xs leading-5 text-[#59667A]">
                   Fonte: {selected.source}
                   {selected.dataUpdatedAt
@@ -1035,7 +1014,6 @@ function MapsApp() {
                     ? `\n${selected.attributions.join("\n")}`
                     : ""}
                 </Text>
-                </Disclosure>
                 <Pressable
                   accessibilityRole="link"
                   className="min-h-12 justify-center"
@@ -1049,6 +1027,7 @@ function MapsApp() {
                     Visualizza su OpenStreetMap
                   </Text>
                 </Pressable>
+                </Disclosure>
               </View>
             ) : boardStop ? (
               <View className="gap-3 p-4">
@@ -1071,9 +1050,6 @@ function MapsApp() {
               </View>
             ) : tab === "transit" ? (
               <>
-                <View className="mx-5 mt-4">
-                  <Notice text="Scegli una fermata per gli arrivi GTT. Per un itinerario con i mezzi, cerca una destinazione e apri Indicazioni." />
-                </View>
                 {stops.length ? (
                   stops.map((item) => (
                     <Pressable
@@ -1119,17 +1095,15 @@ function MapsApp() {
                 )}
               </>
             ) : tab === "explore" && !hasSearch ? (
-              <View className="px-5 py-3">
-                <Text className="mb-3 text-sm leading-5 text-[#59667A]">Scrivi un nome o un indirizzo, oppure scegli cosa cercare nell’area.</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 8, gap: 8 }}>
                 {categories.map(item => <Pressable key={item.query} accessibilityRole="button" onPress={() => {
                   Keyboard.dismiss(); setQuery(""); setCategory(item.query); setSearchOpen(false);
                   setSearchCenter(viewport.current); setAreaChanged(false);
-                }} className="min-h-12 flex-row items-center gap-3 border-b border-[#E2E8F0] py-3">
-                  <Icon name={item.icon} size={20} color={colors.muted} />
-                  <Text className="flex-1 text-base text-[#17243C]">{item.label}</Text>
-                  <Icon name="chevron-forward" size={16} color={colors.muted} />
+                }} className="min-h-12 flex-row items-center gap-2 rounded-full bg-[#F3F6FA] px-4">
+                  <Icon name={item.icon} size={18} color={colors.muted} />
+                  <Text className="text-sm text-[#17243C]">{item.label}</Text>
                 </Pressable>)}
-              </View>
+              </ScrollView>
             ) : (
               <>
                 {tab === "saved" ? <SavedTravelPanel
@@ -1166,17 +1140,17 @@ function MapsApp() {
                     }
                     title={
                       tab === "saved"
-                        ? "Tieni a portata i tuoi posti"
+                        ? "Nessun luogo salvato"
                         : searchResult.coverage.extent === "outside" ? "Fuori dal pacchetto locale" : "Nessuna corrispondenza"
                     }
                     description={
                       tab === "saved"
-                        ? "Apri un luogo e tocca Salva. Lo ritrovi qui, senza account."
+                        ? "Tocca Salva in un luogo."
                         : searchResult.coverage.extent === "outside"
-                          ? "Il raggio di ricerca non raggiunge il pacchetto. Torna verso il confine tratteggiato sulla mappa: l’assenza di risultati non indica che non ci siano attività."
+                          ? "Dati locali non disponibili qui. Sposta la mappa."
                           : searchPolicy === "local-only"
-                            ? "Il luogo può mancare nel pacchetto. Prova un altro nome o una categoria. Puoi abilitare la ricerca online in Privacy e fonti."
-                            : "Prova un altro nome o una categoria. Le fonti possono essere incomplete: nessun risultato non significa che il luogo sia chiuso."
+                            ? "Prova un altro nome o attiva la ricerca online nelle impostazioni."
+                            : "Prova un altro nome. I dati possono essere incompleti."
                     }
                   />
                 )}
@@ -1190,54 +1164,50 @@ function MapsApp() {
               </>
             )}
           </ScrollView>
-          {routeView && selected && !journeyStop && !privacy ? <View testID="route-actions" className="border-t border-[#E2E8F0] px-4 pb-3 pt-2">
-            <View className="h-12 flex-row items-center gap-2">
+          {routeView && selected && !journeyStop && !privacy ? <View testID="route-actions" style={{ height: 72, flexShrink: 0 }} className="flex-row items-center gap-2 border-t border-[#E2E8F0] px-3">
               <View className="flex-1">
-                <Text numberOfLines={1} accessibilityLiveRegion="polite" className="text-lg font-semibold text-[#17243C]">{originPending || (routing && !route) ? "Calcolo del percorso…" : pickingOrigin ? "Scegli la partenza" : route ? `${duration(route.durationSeconds)} · ${distance(route.distanceMeters)}` : routeError ? "Percorso non disponibile" : "Anteprima del percorso"}</Text>
-                <Text numberOfLines={1} className="text-xs text-[#59667A]">{routing && route ? "Aggiornamento…" : routeError && route ? "Aggiornamento non riuscito · percorso precedente" : savedJourneyVisible ? "Viaggio salvato · da aggiornare" : retainedSelection ? "Selezione da aggiornare" : "Pianificazione · senza traffico in tempo reale"}</Text>
+                <Text numberOfLines={1} accessibilityLiveRegion="polite" className="text-lg font-semibold text-[#17243C]">{originPending || (routing && !route) ? "Calcolo del percorso…" : pickingOrigin ? "Tocca la partenza" : route ? `${duration(route.durationSeconds)} · ${distance(route.distanceMeters)}` : routeError ? "Percorso non disponibile" : "Anteprima del percorso"}</Text>
+                <Text numberOfLines={1} className="text-xs text-[#59667A]">{routing && route ? "Aggiornamento…" : routeError && route ? "Aggiornamento non riuscito · percorso precedente" : savedJourneyVisible ? "Viaggio salvato · da aggiornare" : retainedSelection ? "Selezione da aggiornare" : navigation.supported ? "Anteprima" : "Navigazione su Android"}</Text>
               </View>
-              <IconButton icon="scan-outline" label="Mostra tutto il percorso" disabled={!route || pickingOrigin} onPress={() => setFrameRevision(value => value + 1)} />
-            </View>
+              {pickingOrigin ? <IconButton icon="close" label="Annulla scelta partenza" onPress={() => { if (!originReady) { setRouteView(false); resetRoutes(); } setPickingOrigin(false); }} /> : <IconButton icon="scan-outline" label="Mostra tutto il percorso" disabled={!route} onPress={() => setFrameRevision(value => value + 1)} />}
             {navigation.supported ? <Button icon="navigate-outline" disabled={!route || !navigation.ready || routing || retainedSelection || pickingOrigin || originPending} onPress={() => {
               if (!route || retainedSelection) return;
               cancelLocationRequest(); suspendTransitWork(); setFollowing(true);
               if (routeMode === "transit") void navigation.startTransit({ plan: route, origin, destination: selected.coordinate });
               else void navigation.start({ destination: selected.coordinate, mode: routeMode });
-            }}>{routeMode === "transit" ? "Avvia viaggio" : "Avvia navigazione"}</Button> : <Text className="h-6 text-xs leading-6 text-[#59667A]">Guida disponibile nell’app Android.</Text>}
+            }}>Avvia</Button> : null}
           </View> : null}
         </View> : null}
-      <View className="absolute bottom-0 left-0 right-0 h-16 flex-row border-t border-[#E2E8F0] bg-white px-4">
+      {!panelVisible ? <View style={{ position: "absolute", bottom: 12, left: 12, right: 12 }} className="flex-row justify-center gap-2">
         {(
           [
-            { id: "explore", label: "Mappa", icon: "map-outline" },
             { id: "transit", label: "Trasporti", icon: "bus-outline" },
             { id: "saved", label: "Salvati", icon: "bookmark-outline" },
           ] as const
         ).map((item) => (
           <Pressable
             key={item.id}
-            accessibilityRole="tab"
-            accessibilityState={{ selected: tab === item.id }}
+            accessibilityRole="button"
             onPress={() => changeTab(item.id)}
-            className="h-16 flex-1 items-center justify-center gap-1 py-2"
+            className="min-h-12 flex-row items-center justify-center gap-2 rounded-full bg-white px-5"
           >
             <View
-              className={`w-16 items-center rounded-full ${tab === item.id ? "bg-[#ECF2FF]" : ""}`}
+              className="items-center"
             >
               <Icon
                 name={item.icon}
                 size={23}
-                color={tab === item.id ? colors.blue : colors.muted}
+                color={colors.muted}
               />
             </View>
             <Text
-              className={`text-xs ${tab === item.id ? "font-semibold text-[#2359D7]" : "text-[#59667A]"}`}
+              className="text-sm text-[#59667A]"
             >
               {item.label}
             </Text>
           </Pressable>
         ))}
-      </View>
+      </View> : null}
         </>}
       </View>
     </SafeAreaView>
@@ -1348,37 +1318,14 @@ function PrivacyContent({ onLink }: { onLink: (url: string) => void }) {
   ];
   return (
     <View className="gap-3 p-4">
-      <Text className="text-base leading-6 text-[#17243C]">
-        Nessun account o telemetria. Viaggi, fermate e luoghi salvati restano sul dispositivo.
-        Se già autorizzata, la posizione viene aggiornata all’apertura della mappa. Il pulsante posizione permette di richiederla e ricentrare.
-      </Text>
-      <Text accessibilityRole="header" className="text-lg font-semibold text-[#17243C]">
-        Navigazione e posizione
-      </Text>
-      <Text className="text-sm leading-6 text-[#59667A]">
-        Avvia navigazione richiede la posizione precisa e attiva il GPS di Android
-        in modo continuo, anche con lo schermo spento finché Android mantiene il
-        servizio attivo. La posizione e l’avanzamento sono elaborati sul dispositivo.
-        All’avvio e nei ricalcoli stradali, posizione attuale e destinazione vengono
-        inviate a FOSSGIS; i ricalcoli automatici sono limitati. Le anteprime possono
-        usare una partenza scelta sulla mappa.
-      </Text>
-      <Text className="text-sm leading-6 text-[#59667A]">
-        Una copia locale limitata della sessione permette di mostrare un viaggio
-        interrotto e richiede una ripresa esplicita. Interrompi navigazione termina
-        posizione continua, voce e richieste e cancella questa copia. Anche l’arrivo
-        termina la sessione. La guida vocale usa una voce italiana dichiarata offline
-        dal motore del dispositivo; se manca, restano le indicazioni visive.
-        La diagnostica locale conserva solo codici di stato, senza posizione o viaggio.
-      </Text>
-      <Text className="text-sm leading-6 text-[#59667A]">
-        Le mappe online comunicano l’area visualizzata a OpenFreeMap. Le
-        richieste dirette espongono il tuo indirizzo IP al fornitore. Il
-        confine tratteggiato sulla mappa mostra l’estensione del pacchetto
-        locale: la presenza di dati non garantisce un elenco completo.
-      </Text>
+      <Text className="text-sm text-[#59667A]">Salvataggi sul dispositivo. Nessun account o telemetria.</Text>
+      <Disclosure title="Posizione e privacy">
+        <Text className="text-sm leading-5 text-[#59667A]">La mappa usa la posizione se autorizzata. La navigazione richiede un fix preciso e mantiene attivi GPS e voce fino a Stop o arrivo, anche a schermo spento se Android lo consente.</Text>
+        <Text className="text-sm leading-5 text-[#59667A]">Mappe e percorsi inviano area, partenza o destinazione ai fornitori, che ricevono anche l’indirizzo IP. La guida usa una voce italiana offline; le sessioni interrotte richiedono Riprendi.</Text>
+      </Disclosure>
       <DiscoverySettings />
-      <DiagnosticsPanel />
+      <Disclosure title="Diagnostica locale"><DiagnosticsPanel /></Disclosure>
+      <Disclosure title="Fonti e licenze">
       {PROVIDER_NOTICES.map((notice, index) => (
         <View key={notice.name}>
           <ActionRow
@@ -1392,7 +1339,7 @@ function PrivacyContent({ onLink }: { onLink: (url: string) => void }) {
           </Text>
         </View>
       ))}
-      <Notice text="Mappe online, arrivi in tempo reale e calcolo dei percorsi richiedono una connessione. Puoi riaprire la copia di un viaggio salvato senza connessione; i suoi orari sono da aggiornare. La disponibilità dei servizi pubblici può variare." />
+
       <NavigationNotices onLink={onLink} />
       <Text className="mt-2 text-lg font-semibold text-[#17243C]">
         Licenze dei dati
@@ -1422,6 +1369,7 @@ function PrivacyContent({ onLink }: { onLink: (url: string) => void }) {
           ) : null}
         </View>
       ))}
+      </Disclosure>
     </View>
   );
 }

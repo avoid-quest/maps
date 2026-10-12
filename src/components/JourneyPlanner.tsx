@@ -1,7 +1,7 @@
 import { useReducer, useState } from 'react';
 import { Keyboard, Pressable, Text, TextInput, View } from 'react-native';
 import type { RouteLeg, RoutePlan, RouteStop, Stop, TransitTime } from '../domain/types';
-import { Button, Icon, Notice } from './Controls';
+import { Button, Disclosure, Icon, Notice } from './Controls';
 import { matchJourneyStop } from '../services/transit-stop-matching';
 import {
   createTransitTimeDraft, draftTransitTime, italianDate, journeyDate, journeyDistance, journeyDuration,
@@ -17,8 +17,6 @@ export function TransitTimeForm({ value, onSubmit, disabled }: {
 }) {
   const [{ kind, date, time }, updateDraft] = useReducer(transitTimeDraftReducer, value, createTransitTimeDraft);
   const [error, setError] = useState('');
-  const changed = kind !== value.kind || (kind !== 'now' && value.kind !== 'now'
-    && (date !== italianDate(value.date) || time !== value.time.slice(0, 5)));
   function submit() {
     try {
       const next = draftTransitTime(kind, date.trim(), time.trim());
@@ -92,8 +90,7 @@ export function TransitTimeForm({ value, onSubmit, disabled }: {
           </View>
         </>
       ) : null}
-      <Text className="text-xs leading-5 text-[#59667A]">Ora italiana (Europe/Rome)</Text>
-      {changed ? <Text className="text-sm leading-5 text-[#59667A]">Orari modificati. Premi Cerca percorsi per applicarli.</Text> : null}
+      <Text className="text-xs leading-5 text-[#59667A]">Ora italiana</Text>
       {error ? <Notice danger text={error} /> : null}
       <Button onPress={submit} disabled={disabled}>Cerca percorsi</Button>
     </View>
@@ -124,18 +121,17 @@ export function JourneyResults({ plans, selected, onSelect, onRefresh, loading, 
   return (
     <View className="gap-4">
       <Text className="text-sm font-semibold leading-5 text-[#17243C]">{saved ? savedJourneyTimeLabel(query, selected.fetchedAt) : transitTimeLabel(query)}</Text>
-      {error ? <Notice danger text={`Aggiornamento non riuscito. ${error} Il percorso precedente resta visibile. Il prossimo tentativo può richiedere qualche minuto.`} /> : null}
-      {retained ? <Notice text="Il percorso selezionato non compare più tra i risultati aggiornati. Verifica e scegli un’alternativa. La mappa e le tratte mostrano ancora il percorso precedente, da aggiornare; scegli un risultato aggiornato prima di salvare." /> : null}
+      {error ? <Notice danger text={`${error} Percorso precedente conservato.`} /> : null}
+      {retained ? <Notice text="Percorso precedente da aggiornare. Scegli un’alternativa aggiornata." /> : null}
       <View className="gap-2">
         <Text className="text-xs leading-5 text-[#59667A]">
           Consultato il {journeyDate(selected.fetchedAt)} alle {journeyTime(selected.fetchedAt)}
           {age === 0 ? ' (meno di 1 min fa).' : ` (${age} min fa).`}{stale ? ' Da aggiornare.' : ''}
         </Text>
         <Button secondary icon={saved && query.kind === 'now' ? undefined : 'refresh-outline'} loading={loading} onPress={onRefresh}>
-          {loading ? 'Aggiornamento…' : saved && query.kind === 'now' ? 'Ricalcola con partenza adesso' : 'Aggiorna percorsi'}
+          {loading ? 'Aggiornamento…' : saved && query.kind === 'now' ? 'Ricalcola adesso' : 'Aggiorna'}
         </Button>
       </View>
-      <Text className="text-lg font-bold text-[#17243C]">{retained ? `${plans.length} ${plans.length === 1 ? 'percorso aggiornato' : 'percorsi aggiornati'}` : plans.length === 1 ? 'Percorso proposto' : `${plans.length} percorsi proposti`}</Text>
       <View className="gap-2">
         {plans.map((plan, index) => (
           <Pressable
@@ -155,15 +151,12 @@ export function JourneyResults({ plans, selected, onSelect, onRefresh, loading, 
               {plan.id === selected.id ? <Icon name="checkmark-circle" color="#2359D7" size={21} /> : null}
             </View>
             <Text className="text-sm leading-5 text-[#17243C]">{plan.legs.filter(leg => leg.transitLeg).map(legLabel).join(' → ') || 'A piedi fino alla destinazione'}</Text>
-            <Text className="text-xs leading-5 text-[#59667A]">A piedi {journeyDuration(plan.walkingDurationSeconds)} ({journeyDistance(plan.walkingDistanceMeters)}) · Attese {plan.waitingDurationSeconds ? journeyDuration(plan.waitingDurationSeconds) : 'nessuna'}</Text>
             {plan.legs.some(leg => leg.timingStatus === 'cancelled') ? <Text className="text-sm font-semibold text-[#9B391B]">Include una corsa cancellata</Text> : null}
           </Pressable>
         ))}
       </View>
-      <View className="gap-1">
-        <Text className="text-xl font-bold text-[#17243C]">{retained ? 'Il percorso precedente, tratta per tratta' : 'Il viaggio, tratta per tratta'}</Text>
-        {selected.departureAt != null ? <Text className="text-sm text-[#59667A]">{journeyDate(selected.departureAt)} · Ora italiana</Text> : null}
-      </View>
+      <Disclosure title={retained ? 'Tratte del percorso precedente' : 'Tratte'}>
+        <Text className="text-xs leading-5 text-[#59667A]">A piedi {journeyDuration(selected.walkingDurationSeconds)} ({journeyDistance(selected.walkingDistanceMeters)}) · Attese {selected.waitingDurationSeconds ? journeyDuration(selected.waitingDurationSeconds) : 'nessuna'} · Ora italiana</Text>
       {selected.legs.map((leg, index) => {
         const previous = selected.legs[index - 1];
         const next = selected.legs[index + 1];
@@ -194,9 +187,10 @@ export function JourneyResults({ plans, selected, onSelect, onRefresh, loading, 
           </View>
         );
       })}
-      {selected.legs.some(leg => leg.timingStatus === 'prediction') ? <Notice text="Le previsioni MATO sono indicate all’ora della consultazione. Il servizio non fornisce la data di aggiornamento della fonte." /> : null}
+      </Disclosure>
+      {selected.legs.some(leg => leg.timingStatus === 'prediction') ? <Notice text="Previsioni MATO: aggiornamento della fonte non disponibile." /> : null}
       {selected.warnings.map((warning, index) => <Notice key={index} text={warning} />)}
-      <Text className="text-xs leading-5 text-[#59667A]">Anteprima del viaggio. Avvia viaggio su Android per seguire le tratte e confermare salita e discesa. Gli avvisi sulle corse non vengono monitorati durante la guida. Percorso: {selected.source}. Dati © OpenStreetMap contributors.</Text>
+      <Text className="text-xs leading-5 text-[#59667A]">{selected.source} · © OpenStreetMap contributors. Corse non monitorate durante la guida.</Text>
     </View>
   );
 }
