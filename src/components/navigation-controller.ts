@@ -9,6 +9,7 @@ const diagnosticProblems: Partial<Record<NonNullable<NavigationSnapshot['problem
   'location-permission': 'denied', 'engine-unavailable': 'engine-unavailable', 'service-unavailable': 'service-unavailable',
   'route-unavailable': 'route-unavailable', 'rate-limit': 'rate-limit', 'reroute-limit': 'reroute-limit', 'transit-replan-needed': 'transit-replan-needed', 'native-error': 'native-error',
 };
+const unavailableStateMessage = 'Stato della navigazione non disponibile. Riapri l’app per controllarlo.';
 function errorCode(error: unknown): string {
   if (error && typeof error === 'object' && 'code' in error && typeof error.code === 'string') return error.code;
   return error instanceof Error ? error.message : '';
@@ -32,6 +33,7 @@ export function createNavigationController(platform: NavigationPlatform, record:
   let state: NavigationState = { snapshot: idleNavigation, ready: !platform.supported, busy: null, error: null };
   let operation = 0;
   let attachment = 0;
+  let pendingStart: { submitted: boolean; previousSessionId: string | null } | null = null;
   const listeners = new Set<() => void>();
   const publish = (next: NavigationState) => { state = next; for (const listener of listeners) listener(); };
   const accept = (snapshot: NavigationSnapshot) => {
@@ -51,11 +53,11 @@ export function createNavigationController(platform: NavigationPlatform, record:
     const keepRoute = sameRoute && !['idle', 'stopped', 'arrived', 'interrupted', 'error'].includes(snapshot.status);
     if (keepRoute && !Object.hasOwn(snapshot, 'route')) snapshot = { ...snapshot, route: previous.route };
     else if (snapshot.route && previous.route && sameRoute) snapshot = { ...snapshot, route: previous.route };
-    publish({ ...state, snapshot, ready: true });
+    publish({ ...state, snapshot, ready: true, error: state.error === unavailableStateMessage ? null : state.error });
   };
   const refresh = async () => {
     try { accept(await platform.getSnapshot()); }
-    catch { record('service-unavailable'); publish({ ...state, ready: false, error: 'Stato della navigazione non disponibile. Riapri l’app per controllarlo.' }); }
+    catch { record('service-unavailable'); publish({ ...state, ready: false, error: unavailableStateMessage }); }
   };
   const command = async (kind: NavigationState['busy'], action: (current: () => boolean) => Promise<NavigationSnapshot | undefined>) => {
     const id = ++operation;
@@ -70,6 +72,30 @@ export function createNavigationController(platform: NavigationPlatform, record:
     }
     finally { if (operation === id) publish({ ...state, busy: null }); }
   };
+  const start = (action: () => Promise<NavigationSnapshot>) => {
+    if (!state.ready || state.busy || navigationVisible(state.snapshot)) return Promise.resolve();
+    record('start-requested');
+    const pending = { submitted: false, previousSessionId: state.snapshot.sessionId };
+    pendingStart = pending;
+    return command('start', async current => {
+      try {
+        await platform.prepareStart();
+        if (!current()) return undefined;
+        pending.submitted = true;
+        return await action();
+      } finally { if (pendingStart === pending) pendingStart = null; }
+    });
+  };
+  const stop = async () => {
+    const permissionOnly = pendingStart?.submitted === false;
+    const submittedWithoutSession = pendingStart?.submitted && state.snapshot.sessionId === pendingStart.previousSessionId;
+    const sessionId = permissionOnly || submittedWithoutSession ? null : state.snapshot.sessionId;
+    pendingStart = null;
+    // Permission-only cancellation needs no native command. A wildcard is reserved for an
+    // already submitted Start whose first session event/response has not reached JS yet.
+    await command('stop', () => sessionId !== null || submittedWithoutSession ? platform.stopNavigation(sessionId) : Promise.resolve(undefined));
+    return state.snapshot.status === 'stopped' || state.snapshot.status === 'idle';
+  };
   return {
     supported: platform.supported,
     getSnapshot: () => state,
@@ -81,25 +107,20 @@ export function createNavigationController(platform: NavigationPlatform, record:
       return () => { if (attachment === id) attachment += 1; remove(); };
     },
     refresh,
-    start(options: NavigationStart) {
-      if (!state.ready || state.busy || navigationVisible(state.snapshot)) return Promise.resolve();
-      record('start-requested');
-      return command('start', async current => {
-        await platform.prepareStart();
-        return current() ? platform.startNavigation(options) : undefined;
+    start: (options: NavigationStart) => start(() => platform.startNavigation(options)),
+    startTransit: (options: TransitNavigationStart) => start(() => platform.startTransitNavigation(options)),
+    stop,
+    back(confirm: (stop: () => void) => void) {
+      if (state.busy === 'stop') return true;
+      if (state.busy === 'start' || ['arrived', 'error', 'interrupted'].includes(state.snapshot.status)) { void stop(); return true; }
+      if (!navigationVisible(state.snapshot)) return false;
+      const sessionId = state.snapshot.sessionId;
+      const requestedOperation = operation;
+      const requestedAttachment = attachment;
+      confirm(() => {
+        if (attachment === requestedAttachment && operation === requestedOperation && state.snapshot.sessionId === sessionId) void stop();
       });
-    },
-    startTransit(options: TransitNavigationStart) {
-      if (!state.ready || state.busy || navigationVisible(state.snapshot)) return Promise.resolve();
-      record('start-requested');
-      return command('start', async current => {
-        await platform.prepareStart();
-        return current() ? platform.startTransitNavigation(options) : undefined;
-      });
-    },
-    async stop() {
-      await command('stop', () => platform.stopNavigation(null));
-      return state.snapshot.status === 'stopped' || state.snapshot.status === 'idle';
+      return true;
     },
     confirmTransit(action: TransitConfirmation) {
       const sessionId = state.snapshot.sessionId;

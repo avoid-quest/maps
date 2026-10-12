@@ -68,6 +68,29 @@ class TransitJourneyEngineTest {
     assertEquals("alight", phase(engine.onLocation(45.0095, 7.0, 5.0)))
   }
 
+  @Test fun firstFixNearBoardingStopSpeaksTheSelectedLineAndDirection() {
+    val engine = engine(leg(0, true) + ("headsign" to "Falchera"))
+    val near = engine.onLocation(45.0, 7.0, 5.0)
+    assertEquals("board", phase(near))
+    assertEquals(true, transit(near)["canConfirmBoarding"])
+    assertTrue(near.announcement!!.contains("Fermata 0"))
+    assertTrue(near.announcement.contains("linea 4"))
+    assertTrue(near.announcement.contains("direzione Falchera"))
+    assertTrue(near.announcement.contains("conferma solo dopo essere salito"))
+    assertNull(engine.onLocation(45.0, 7.0, 5.0).announcement)
+    assertEquals("ride", phase(engine.confirm("board")))
+  }
+
+  @Test fun boardingProximityKeepsMissingServiceFactsExplicitWithoutInventingThem() {
+    val engine = engine(leg(0, true) + mapOf("line" to null, "headsign" to null))
+    val near = engine.onLocation(45.0, 7.0, 5.0)
+    assertEquals("board", phase(near))
+    assertTrue(near.announcement!!.contains("il mezzo previsto"))
+    assertTrue(near.announcement.contains("Verifica linea e direzione"))
+    assertFalse(near.announcement.contains("null"))
+    assertNull(engine.onLocation(45.0, 7.0, 5.0).announcement)
+  }
+
   @Test fun coincidentLoopEndpointsDoNotProduceImmediateGetOffCue() {
     val engine = engine(leg(0, true, origin, origin))
     engine.onLocation(45.0, 7.0, 5.0)

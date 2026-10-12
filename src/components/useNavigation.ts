@@ -11,5 +11,5 @@ export function useNavigation(active: boolean) {
   useEffect(() => controller.connect(), [controller]);
   useEffect(() => { if (active && !wasActive.current) void controller.refresh(); wasActive.current = active; }, [active, controller]);
   return { ...state, supported: controller.supported, visible: state.busy === 'start' || state.busy === 'stop' || navigationVisible(state.snapshot),
-    start: controller.start, startTransit: controller.startTransit, stop: controller.stop, retry: controller.retry, toggleMuted: controller.toggleMuted, confirmTransit: controller.confirmTransit };
+    start: controller.start, startTransit: controller.startTransit, stop: controller.stop, back: controller.back, retry: controller.retry, toggleMuted: controller.toggleMuted, confirmTransit: controller.confirmTransit };
 }

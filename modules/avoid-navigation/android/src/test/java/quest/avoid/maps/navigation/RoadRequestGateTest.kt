@@ -70,12 +70,20 @@ class RoadRequestGateTest {
     gate.request { }
   }
 
-  @Test fun `restored cooldown and spacing are enforced without wall clock assumptions`() = runBlocking {
+  @Test fun `restored cooldown is enforced without wall clock assumptions`() = runBlocking {
     var clock = 25L
     val gate = RoadRequestGate({ clock }, { clock += it }, initialSpacingMs = 1_100, initialCooldownMs = 60_000)
     try { gate.request { fail("Cooldown") }; fail("Expected cooldown") } catch (_: RoadCooldown) { }
     clock += 60_000
     gate.request { assertEquals(60_025L, clock) }
+  }
+
+  @Test fun `restored spacing delays the first request without a cooldown`() = runBlocking {
+    var clock = 25L
+    val waits = mutableListOf<Long>()
+    val gate = RoadRequestGate({ clock }, { waits.add(it); clock += it }, initialSpacingMs = 1_100)
+    gate.request { assertEquals(1_125L, clock) }
+    assertEquals(listOf(1_100L), waits)
   }
 
   @Test fun `overflowing provider duration remains a cooldown`() {

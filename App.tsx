@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExtern
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   ActivityIndicator,
+  Alert,
   BackHandler,
   Keyboard,
   Linking,
@@ -142,7 +143,7 @@ function MapsApp() {
   const suspendActiveWork = useRef(() => {});
   const appActive = useAppActive(active => { if (!active) suspendActiveWork.current(); });
   const navigation = useNavigation(appActive);
-  const stopNavigation = navigation.stop;
+  const navigationBack = navigation.back;
   const { route, plans: routePlans, error: routeError, loading: routing, refresh: refreshRoutes, select: selectRoute, reset: resetRoutePlans, restore: restoreRoute, saved: restoredRoute, restoredViewId, retainedSelection, suspend: suspendRoutes } = useRoutePlans({
     from: origin,
     to: selected?.coordinate,
@@ -193,10 +194,10 @@ function MapsApp() {
     const subscription = BackHandler.addEventListener(
       "hardwareBackPress",
       () => {
-        if (navigation.visible) {
-          void stopNavigation();
-          return true;
-        }
+        if (navigationBack(stop => Alert.alert("Interrompere la navigazione?", "Puoi continuare a seguire il percorso oppure interrompere la sessione.", [
+          { text: "Continua", style: "cancel" },
+          { text: "Interrompi", style: "destructive", onPress: stop },
+        ], { cancelable: true }))) return true;
         if (pickingOrigin) {
           setPickingOrigin(false);
           return true;
@@ -233,7 +234,7 @@ function MapsApp() {
       },
     );
     return () => subscription.remove();
-  }, [pickingOrigin, privacy, routeView, selected, stop, listOnly, tab, cancelLocationRequest, resetRoutes, changeStop, journeyStop, closeJourneyStop, navigation.visible, stopNavigation]);
+  }, [pickingOrigin, privacy, routeView, selected, stop, listOnly, tab, cancelLocationRequest, resetRoutes, changeStop, journeyStop, closeJourneyStop, navigationBack]);
   useEffect(() => {
     void searchPreferences.initialize(AsyncStorage);
     void savedTravel.initialize(AsyncStorage);

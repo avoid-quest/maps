@@ -11,8 +11,10 @@ import kotlinx.coroutines.withContext
 
 class AvoidNavigationModule : Module() {
   private val main = android.os.Handler(android.os.Looper.getMainLooper())
-  private val runtime: NavigationRuntime get() = NavigationRuntime.get(requireNotNull(appContext.reactContext))
-  private val observer: (Map<String, Any?>) -> Unit = { sendEvent("onNavigationState", it) }
+  private val retainedRuntime = lazy { NavigationRuntime.get(requireNotNull(appContext.reactContext)) }
+  private val runtime: NavigationRuntime get() = retainedRuntime.value
+  @Volatile private var destroyed = false
+  private val observer: (Map<String, Any?>) -> Unit = { if (!destroyed) sendEvent("onNavigationState", it) }
   private fun requireForeground() {
     val activity = appContext.currentActivity
     if (activity == null || activity.isFinishing || activity.isDestroyed || (activity as? LifecycleOwner)?.lifecycle?.currentState?.isAtLeast(Lifecycle.State.RESUMED) != true) {
@@ -22,9 +24,25 @@ class AvoidNavigationModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("AvoidNavigation")
     Events("onNavigationState")
-    OnStartObserving { main.post { runtime.observe(observer) } }
-    OnStopObserving { main.post { runtime.unobserve(observer) } }
-    OnDestroy { main.post { runtime.unobserve(observer) } }
+    OnStartObserving {
+      if (!destroyed) {
+        val owner = runtime
+        main.post { if (!destroyed) owner.observe(observer) }
+      }
+    }
+    OnStopObserving {
+      if (retainedRuntime.isInitialized()) {
+        val owner = runtime
+        main.post { owner.unobserve(observer) }
+      }
+    }
+    OnDestroy {
+      destroyed = true
+      if (retainedRuntime.isInitialized()) {
+        val owner = runtime
+        main.post { owner.unobserve(observer) }
+      }
+    }
     AsyncFunction("getSnapshot") Coroutine { -> withContext(Dispatchers.Main.immediate) { runtime.snapshot() } }
     AsyncFunction("startNavigation") Coroutine { options: Map<String, Any?> ->
       withContext(Dispatchers.Main.immediate) {

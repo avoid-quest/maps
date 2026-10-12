@@ -18,7 +18,7 @@ export function NavigationNotices({ onLink }: { onLink: (url: string) => void })
   const [expanded, setExpanded] = useState<string | null>(null);
   return <View className="gap-3">
     <Text accessibilityRole="header" className="text-lg font-semibold text-[#17243C]">Licenze dei componenti di navigazione</Text>
-    <Text className="text-sm leading-6 text-[#59667A]">I testi originali sono inclusi nell’app e leggibili senza connessione. I collegamenti al codice sorgente richiedono Internet. Queste licenze sono separate da quelle dei dati.</Text>
+    <Text className="text-sm leading-6 text-[#59667A]">I testi originali sono inclusi nell’app e leggibili senza connessione. I collegamenti al codice sorgente e ai metadati delle librerie richiedono Internet. Queste licenze sono separate da quelle dei dati.</Text>
     <View className="flex-row flex-wrap gap-2">
       {groups.map(item => <Button key={item.id} secondary onPress={() => {
         setGroup(group === item.id ? null : item.id); setExpanded(null);
@@ -35,8 +35,8 @@ export function NavigationNotices({ onLink }: { onLink: (url: string) => void })
         <Icon name={expanded === component.id ? 'chevron-up' : 'chevron-down'} size={18} />
       </Pressable>
       {expanded === component.id ? <View className="gap-3">
-        {component.sources.map(url => <Button key={url} secondary icon="open-outline" onPress={() => onLink(url)}>Apri codice o fonte originale</Button>)}
-        {component.noticeIds.map(id => {
+        {component.sources.map(url => <Button key={url} secondary icon="open-outline" onPress={() => onLink(url)}>{/\.pom(?:[?#]|$)/i.test(url) ? 'Apri metadati della libreria' : 'Apri codice o fonte originale'}</Button>)}
+        {[...new Set(component.noticeIds)].map(id => {
           const notice = notices.notices.find(item => item.id === id);
           return notice ? <Text key={id} selectable className="text-xs leading-5 text-[#59667A]">{notice.text}</Text> : null;
         })}

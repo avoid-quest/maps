@@ -31,11 +31,15 @@ internal class RoadRequestGate(
       if (remaining <= 0) break
       wait(remaining)
     }
-    // Cooldown may arrive from a cancelled transport while this request was queued.
-    if (blockedUntil > now()) throw RoadCooldown()
-    currentCoroutineContext().ensureActive()
-    nextStart = deadline(now(), 1_100)
-    started()
+    val context = currentCoroutineContext()
+    // A late cooldown and the final start reservation share one ordering, including persistence.
+    synchronized(this) {
+      context.ensureActive()
+      val reservationTime = now()
+      if (blockedUntil > reservationTime) throw RoadCooldown()
+      nextStart = deadline(reservationTime, 1_100)
+      started()
+    }
     block()
   }
   companion object {

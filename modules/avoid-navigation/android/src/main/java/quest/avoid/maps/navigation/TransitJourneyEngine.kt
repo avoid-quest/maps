@@ -117,7 +117,7 @@ class TransitJourneyEngine(
     if (targetDistance != null) {
       val confidentlyNear = targetDistance + accuracy <= 75
       when (phase) {
-        "board" -> if (confidentlyNear) announcement = once("board-near", "Sei vicino a ${segment.first.from}. Verifica linea e direzione; conferma solo dopo essere salito.")
+        "board" -> if (confidentlyNear) announcement = once("board-near", "Sei vicino a ${segment.first.from}. Prendi ${boardingService(segment)}. Verifica linea e direzione; conferma solo dopo essere salito.")
         "walk", "transfer" -> if (confidentlyNear && canPromptEnd) announcement = once("walk-near", "Sei vicino a ${segment.last.to}. Controlla l’accesso e conferma quando hai completato il tratto a piedi.")
         "ride", "alight" -> if (canPromptEnd) {
           if (confidentlyNear) {
@@ -167,15 +167,17 @@ class TransitJourneyEngine(
   private fun instruction(): String {
     if (phase == "complete") return "Viaggio completato"
     val segment = segments[segmentIndex]
-    val line = segment.first.line?.let { " la linea $it" } ?: " il mezzo previsto"
-    val direction = segment.first.headsign?.let { ", direzione $it" } ?: ""
     return when (phase) {
-      "board" -> "Raggiungi ${segment.first.from} e prendi$line$direction. Conferma quando sei a bordo."
+      "board" -> "Raggiungi ${segment.first.from} e prendi ${boardingService(segment)}. Conferma quando sei a bordo."
       "ride" -> "Resta a bordo fino a ${segment.last.to}. Conferma dopo essere sceso."
       "alight" -> "Fermata ${segment.last.to} vicina. Verifica la fermata e conferma dopo essere sceso."
       else -> "Raggiungi ${segment.last.to} a piedi seguendo il percorso sulla mappa. Conferma all’arrivo."
     }
   }
+
+  private fun boardingService(segment: Segment): String =
+    (segment.first.line?.let { "la linea $it" } ?: "il mezzo previsto") +
+      (segment.first.headsign?.let { ", direzione $it" } ?: "")
 
   private fun nextInstruction(): String? {
     if (phase == "complete") return null

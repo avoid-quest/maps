@@ -8,10 +8,10 @@ import { navigationLocationForReplan } from '../domain/navigation';
 import MapCanvas from './MapCanvas';
 import { Button, Icon, IconButton, Notice } from './Controls';
 import type { NavigationState } from './navigation-controller';
+import { journeyDuration } from './journey-presentation';
 
 const tuple = (point: Coordinate): [number, number] => [point.longitude, point.latitude];
 const distance = (meters: number) => meters < 1000 ? `${Math.round(meters)} m` : `${(meters / 1000).toFixed(1).replace('.', ',')} km`;
-const duration = (seconds: number) => seconds < 3600 ? `${Math.max(1, Math.round(seconds / 60))} min` : `${Math.floor(seconds / 3600)} h ${Math.round(seconds % 3600 / 60)} min`;
 const statuses: Record<NavigationSnapshot['status'], string> = {
   idle: 'Preparazione', 'waiting-for-fix': 'Ricerca della posizione precisa', routing: 'Calcolo dalla tua posizione',
   navigating: 'Navigazione', 'location-degraded': 'Posizione da ritrovare', 'off-route': 'Fuori percorso', rerouting: 'Ricalcolo del percorso',
@@ -48,7 +48,7 @@ export function NavigationPanel({ snapshot, busy, error, fallbackCenter, onStop,
   const transit = snapshot.transit;
   const time = (value: number) => new Date(value).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
   const transitAge = transit ? Math.max(0, Math.floor((now - transit.fetchedAt) / 60_000)) : 0;
-  const replanLocation = navigationLocationForReplan(snapshot, now);
+  const replanLocation = navigationLocationForReplan(snapshot);
   return <SafeAreaView className="flex-1 bg-white" edges={['top', 'bottom']}>
     <View className="bg-[#17243C] px-5 py-4">
       <View className="flex-row items-center gap-2">
@@ -67,7 +67,7 @@ export function NavigationPanel({ snapshot, busy, error, fallbackCenter, onStop,
     </View>
     <ScrollView className="max-h-[48%]" contentContainerStyle={{ padding: 20, gap: 14 }}>
       {guiding && !transit && snapshot.distanceRemainingMeters != null ? <View className="flex-row flex-wrap items-baseline gap-x-4 gap-y-1">
-        {remainingSeconds != null ? <Text className="text-3xl font-bold text-[#2359D7]">{duration(remainingSeconds)}</Text> : null}
+        {remainingSeconds != null ? <Text className="text-3xl font-bold text-[#2359D7]">{journeyDuration(remainingSeconds)}</Text> : null}
         <Text className="text-lg text-[#17243C]">{distance(snapshot.distanceRemainingMeters)}</Text>
         {arrival ? <Text className="text-base text-[#59667A]">Arrivo stimato {arrival}</Text> : null}
       </View> : null}

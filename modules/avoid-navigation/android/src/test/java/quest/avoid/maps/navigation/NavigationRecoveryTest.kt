@@ -4,10 +4,10 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class NavigationRecoveryTest {
-  @Test fun `provider failure remains latched through lost and recovered GPS until explicit Retry`() {
+  @Test fun `road failure blocks fix progress until explicit road retry`() {
     val recovery = NavigationRecovery()
     recovery.roadFailed()
-    // Fix loss/recovery has no transition: neither can authorize another HTTP request.
+    // This policy test covers the recovery latch, not runtime fix callbacks.
     assertTrue(recovery.blocksFixProgress)
     assertFalse(recovery.manualRoutePending)
     recovery.requestRoadRetry()
@@ -16,7 +16,7 @@ class NavigationRecoveryTest {
     recovery.routeRequested()
     assertFalse(recovery.manualRoutePending)
   }
-  @Test fun `invalid transit itinerary requires new selection even after retry or accurate fixes`() {
+  @Test fun `road retry does not clear the transit replan requirement`() {
     val recovery = NavigationRecovery()
     recovery.transitAdmissionFailed()
     recovery.requestRoadRetry()

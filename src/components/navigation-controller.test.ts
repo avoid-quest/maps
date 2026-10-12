@@ -64,6 +64,31 @@ test('Start waits for known native session state and a failed read never assumes
   assert.equal(controller.getSnapshot().ready, false);
 });
 
+test('successful native reads and events clear the recovered read error without hiding command failures', async () => {
+  let readable = false;
+  const { controller, emit } = fixture({
+    getSnapshot: async () => { if (!readable) throw new Error('bridge unavailable'); return idleNavigation; },
+    prepareStart: async () => { throw new Error('location-permission'); },
+  });
+  await Promise.resolve();
+  assert.equal(controller.getSnapshot().ready, false);
+  assert.match(controller.getSnapshot().error!, /Stato della navigazione/);
+  readable = true;
+  await controller.refresh();
+  assert.equal(controller.getSnapshot().ready, true);
+  assert.equal(controller.getSnapshot().error, null);
+  await controller.start(options);
+  const denied = controller.getSnapshot().error;
+  assert.match(denied!, /posizione precisa/);
+  await controller.refresh();
+  assert.equal(controller.getSnapshot().error, denied);
+  readable = false;
+  await controller.refresh();
+  emit(snapshot(10));
+  assert.equal(controller.getSnapshot().ready, true);
+  assert.equal(controller.getSnapshot().error, null);
+});
+
 test('Stop while permission is pending prevents the late Start and remains idempotent', async () => {
   const permission = deferred<void>();
   const { controller, calls } = fixture({ prepareStart: () => permission.promise });
@@ -73,9 +98,117 @@ test('Stop while permission is pending prevents the late Start and remains idemp
   permission.resolve();
   await start;
   await controller.stop();
-  assert.deepEqual(calls, ['read', 'stop', 'stop']);
-  assert.equal(controller.getSnapshot().snapshot.status, 'stopped');
+  assert.deepEqual(calls, ['read']);
+  assert.equal(controller.getSnapshot().snapshot.status, 'idle');
   assert.equal(controller.getSnapshot().busy, null);
+});
+
+test('cancelling permission for a new Start does not send Stop for the previous stopped session', async () => {
+  const permission = deferred<void>();
+  const { controller, calls } = fixture({ getSnapshot: async () => snapshot(1, 'stopped'), prepareStart: () => permission.promise });
+  await Promise.resolve();
+  const start = controller.start(options);
+  await controller.stop();
+  permission.resolve();
+  await start;
+  assert.deepEqual(calls, []);
+  assert.equal(controller.getSnapshot().snapshot.status, 'stopped');
+});
+
+test('a delayed Stop from an obsolete controller cannot stop a replacement native session', async () => {
+  const deliver = deferred<void>();
+  let native = snapshot(10);
+  const targets: (string | null)[] = [];
+  const { controller, disconnect } = fixture({
+    getSnapshot: async () => native,
+    stopNavigation: async id => {
+      targets.push(id);
+      await deliver.promise;
+      if (id === null || id === native.sessionId) native = { ...native, revision: 12, status: 'stopped' };
+      return native;
+    },
+  });
+  await Promise.resolve();
+  const stopping = controller.stop();
+  disconnect();
+  native = { ...snapshot(11), sessionId: 'replacement' };
+  deliver.resolve();
+  assert.equal(await stopping, false);
+  assert.deepEqual(targets, ['session']);
+  assert.equal(native.status, 'navigating');
+});
+
+test('Stop targets a new session event while Start is pending, otherwise cancels only a submitted Start', async () => {
+  for (const reported of [false, true]) {
+    const started = deferred<NavigationSnapshot>();
+    const targets: (string | null)[] = [];
+    const { controller, emit } = fixture({
+      getSnapshot: async () => snapshot(1, 'stopped'),
+      startNavigation: () => started.promise,
+      stopNavigation: async id => { targets.push(id); return snapshot(4, 'stopped'); },
+    });
+    await Promise.resolve();
+    const start = controller.start(options);
+    await Promise.resolve();
+    if (reported) emit({ ...snapshot(3, 'waiting-for-fix'), sessionId: 'new-start' });
+    await controller.stop();
+    started.resolve({ ...snapshot(2, 'waiting-for-fix'), sessionId: 'new-start' });
+    await start;
+    assert.deepEqual(targets, [reported ? 'new-start' : null]);
+    assert.equal(controller.getSnapshot().snapshot.status, 'stopped');
+  }
+});
+
+test('Back confirms active guidance and a late confirmation cannot stop a replacement session', async () => {
+  const targets: (string | null)[] = [];
+  const { controller, emit } = fixture({ stopNavigation: async id => { targets.push(id); return snapshot(20, 'stopped'); } });
+  emit(snapshot(10));
+  let confirmStop: (() => void) | undefined;
+  assert.equal(controller.back(stop => { confirmStop = stop; }), true);
+  assert.deepEqual(targets, []); // Continuing or dismissing the dialog leaves guidance running.
+  emit({ ...snapshot(11), sessionId: 'replacement' });
+  confirmStop!();
+  await Promise.resolve();
+  assert.deepEqual(targets, []);
+  controller.back(stop => { confirmStop = stop; });
+  confirmStop!();
+  await Promise.resolve();
+  assert.deepEqual(targets, ['replacement']);
+});
+
+test('Back cancels pending permission and closes terminal states without a guidance confirmation', async () => {
+  const permission = deferred<void>();
+  const pending = fixture({ prepareStart: () => permission.promise });
+  await Promise.resolve();
+  assert.equal(pending.controller.back(() => assert.fail('Idle has no confirmation')), false);
+  const start = pending.controller.start(options);
+  assert.equal(pending.controller.back(() => assert.fail('Pending Start cancels')), true);
+  permission.resolve();
+  await start;
+  assert.deepEqual(pending.calls, ['read']);
+  for (const status of ['arrived', 'error', 'interrupted'] as const) {
+    const { controller, emit, calls } = fixture();
+    emit(snapshot(1, status));
+    assert.equal(controller.back(() => assert.fail('Terminal Back closes')), true);
+    await Promise.resolve();
+    assert.ok(calls.includes('stop'));
+  }
+});
+
+test('a dismissed controller or repeated Back confirmation cannot submit another Stop', async () => {
+  const { controller, emit, disconnect, calls } = fixture();
+  emit(snapshot(10));
+  let confirmStop: (() => void) | undefined;
+  controller.back(stop => { confirmStop = stop; });
+  disconnect();
+  confirmStop!();
+  await Promise.resolve();
+  assert.equal(calls.includes('stop'), false);
+  controller.back(stop => { confirmStop = stop; });
+  confirmStop!();
+  confirmStop!();
+  await Promise.resolve();
+  assert.equal(calls.filter(call => call === 'stop').length, 1);
 });
 
 test('new native events beat delayed command results and duplicate Start is coalesced', async () => {
