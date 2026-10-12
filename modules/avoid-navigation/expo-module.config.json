@@ -1,0 +1,4 @@
+{
+  "platforms": ["android"],
+  "android": { "modules": ["quest.avoid.maps.navigation.AvoidNavigationModule"] }
+}

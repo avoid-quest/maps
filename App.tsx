@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExtern
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   ActivityIndicator,
+  Alert,
   BackHandler,
   Keyboard,
   Linking,
@@ -60,6 +61,10 @@ import { routeQueryKey } from "./src/components/route-state";
 import { SavedTravelPanel, savedTravelFailureMessage } from "./src/components/SavedTravelPanel";
 import { journeyDate, journeyTime } from "./src/components/journey-presentation";
 import { savedTravel, type SavedJourney } from "./src/services/saved-travel";
+import { useNavigation } from "./src/components/useNavigation";
+import { NavigationPanel } from "./src/components/NavigationPanel";
+import { NavigationNotices } from "./src/components/NavigationNotices";
+import { navigationLocationForReplan } from "./src/domain/navigation";
 
 const DOCKS: Coordinate = { latitude: 45.0937, longitude: 7.6832 };
 const tuple = (point: Coordinate): [number, number] => [
@@ -137,15 +142,17 @@ function MapsApp() {
   const boardStop = journeyStop ?? stop;
   const suspendActiveWork = useRef(() => {});
   const appActive = useAppActive(active => { if (!active) suspendActiveWork.current(); });
+  const navigation = useNavigation(appActive);
+  const navigationBack = navigation.back;
   const { route, plans: routePlans, error: routeError, loading: routing, refresh: refreshRoutes, select: selectRoute, reset: resetRoutePlans, restore: restoreRoute, saved: restoredRoute, restoredViewId, retainedSelection, suspend: suspendRoutes } = useRoutePlans({
     from: origin,
     to: selected?.coordinate,
     mode: routeMode,
     transitTime,
     enabled: routeView,
-    active: routeView && !journeyStop && appActive && !privacy && !pickingOrigin && !originPending && !locating,
+    active: routeView && !journeyStop && appActive && !privacy && !pickingOrigin && !originPending && !locating && !navigation.visible,
   });
-  const stopBoard = useStopBoard({ stopId: boardStop?.id, active: !!boardStop && appActive && !privacy && (!!journeyStop || (!routeView && !selected)) });
+  const stopBoard = useStopBoard({ stopId: boardStop?.id, active: !!boardStop && appActive && !privacy && !navigation.visible && (!!journeyStop || (!routeView && !selected)) });
   const suspendStopBoard = stopBoard.suspend;
   const suspendTransitWork = useCallback(() => {
     suspendRoutes();
@@ -187,6 +194,10 @@ function MapsApp() {
     const subscription = BackHandler.addEventListener(
       "hardwareBackPress",
       () => {
+        if (navigationBack(stop => Alert.alert("Interrompere la navigazione?", "Puoi continuare a seguire il percorso oppure interrompere la sessione.", [
+          { text: "Continua", style: "cancel" },
+          { text: "Interrompi", style: "destructive", onPress: stop },
+        ], { cancelable: true }))) return true;
         if (pickingOrigin) {
           setPickingOrigin(false);
           return true;
@@ -223,7 +234,7 @@ function MapsApp() {
       },
     );
     return () => subscription.remove();
-  }, [pickingOrigin, privacy, routeView, selected, stop, listOnly, tab, cancelLocationRequest, resetRoutes, changeStop, journeyStop, closeJourneyStop]);
+  }, [pickingOrigin, privacy, routeView, selected, stop, listOnly, tab, cancelLocationRequest, resetRoutes, changeStop, journeyStop, closeJourneyStop, navigationBack]);
   useEffect(() => {
     void searchPreferences.initialize(AsyncStorage);
     void savedTravel.initialize(AsyncStorage);
@@ -250,7 +261,7 @@ function MapsApp() {
     return () => clearInterval(timer);
   }, []);
   useEffect(() => {
-    if (tab !== "explore") return;
+    if (tab !== "explore" || navigation.visible) return;
     const controller = new AbortController();
     // A switch change aborts now, without waiting for React's effect cleanup.
     const unsubscribe = searchPreferences.subscribe(() => {
@@ -296,7 +307,7 @@ function MapsApp() {
       controller.abort();
       unsubscribe();
     };
-  }, [query, category, searchCenter, retrySearch, tab, preference.ready, searchPolicy, localResult]);
+  }, [query, category, searchCenter, retrySearch, tab, preference.ready, searchPolicy, localResult, navigation.visible]);
 
 
   async function locate() {
@@ -460,6 +471,28 @@ function MapsApp() {
       }
     }
   }
+  async function replanTransitNavigation() {
+    const current = navigation.snapshot;
+    cancelLocationRequest();
+    suspendTransitWork();
+    // Keep preview requests suspended while Stop settles and the new origin is chosen.
+    setPickingOrigin(true);
+    if (!await navigation.stop()) return;
+    const from = navigationLocationForReplan(current);
+    if (from) {
+      setOrigin(from);
+      setOriginLabel("La tua posizione alla richiesta di aggiornamento");
+      setLocation(from);
+      setCenter(from);
+    }
+    if (current.destination && (selected?.coordinate.latitude !== current.destination.latitude || selected?.coordinate.longitude !== current.destination.longitude)) setSelected({ id: "navigation-destination", name: "Destinazione del viaggio", coordinate: current.destination, source: "MATO / 5T", attributions: [] });
+    setRouteMode("transit");
+    setTransitTime({ kind: "now" });
+    setRouteView(true);
+    setPickingOrigin(!from);
+    setPrivacy(false);
+    resetRoutes();
+  }
   async function openLink(url: string) {
     if (!/^(https?:|tel:)/i.test(url)) return;
     try {
@@ -543,6 +576,10 @@ function MapsApp() {
 
     return markers;
   }, [tab, stops, shownPlaces, selected, boardStop]);
+
+  if (navigation.visible) return <NavigationPanel {...navigation} fallbackCenter={center}
+    onStop={() => { void navigation.stop(); }} onRetry={() => { void navigation.retry(); }} onMute={() => { void navigation.toggleMuted(); }}
+    onConfirmTransit={action => { void navigation.confirmTransit(action); }} onReplan={() => { void replanTransitNavigation(); }} />;
 
   return (
     <SafeAreaView className="flex-1 bg-white" edges={["top", "bottom"]}>
@@ -922,6 +959,22 @@ function MapsApp() {
                     }}
                   />
                 ) : null}
+                {route && !pickingOrigin && !originPending ? <View className="gap-3">
+                  {navigation.supported ? <>
+                    <Text className="text-sm leading-6 text-[#59667A]">{routeMode === "transit"
+                      ? "Avvia il viaggio selezionato dalla tua posizione precisa. Confermerai salita e discesa; se la partenza è distante o i dati sono da aggiornare, dovrai scegliere un nuovo percorso."
+                      : "Avvia dalla tua posizione precisa attuale. Verrà calcolato un nuovo percorso: la partenza scelta per l’anteprima non viene usata."} Android chiederà posizione e notifiche per la guida anche a schermo spento.</Text>
+                    {retainedSelection ? <Notice text="Scegli un’alternativa aggiornata prima di avviare: il viaggio selezionato non compare più nei risultati recenti." /> : null}
+                    <Button icon="navigate-outline" disabled={!navigation.ready || routing || retainedSelection} onPress={() => {
+                      if (retainedSelection) return;
+                      cancelLocationRequest();
+                      suspendTransitWork();
+                      if (routeMode === "transit") void navigation.startTransit({ plan: route, origin, destination: selected.coordinate });
+                      else void navigation.start({ destination: selected.coordinate, mode: routeMode });
+                    }}>{routeMode === "transit" ? "Avvia viaggio" : "Avvia navigazione"}</Button>
+                  </> : <Notice text="Per avviare la navigazione usa la versione Android con il modulo di navigazione. Qui puoi consultare l’anteprima." />}
+                  {navigation.error ? <Notice danger text={navigation.error} action="Impostazioni app" onAction={() => { void Linking.openSettings(); }} /> : null}
+                </View> : null}
                 {pickingOrigin ? (
                   <Notice text="Scegli la partenza sulla mappa per calcolare il percorso." />
                 ) : routeMode === "transit" && route ? (
@@ -993,7 +1046,7 @@ function MapsApp() {
                       </View>
                     ))}
                     <Text className="text-xs leading-5 text-[#59667A]">
-                      Pianificazione del viaggio, senza guida vocale. Percorso: {route.source}. Dati © OpenStreetMap
+                      Anteprima del percorso. Per le indicazioni durante il viaggio usa Avvia navigazione su Android. Percorso: {route.source}. Dati © OpenStreetMap
                       contributors.
                     </Text>
                   </>
@@ -1370,8 +1423,27 @@ function PrivacyContent({ onLink }: { onLink: (url: string) => void }) {
   return (
     <View className="gap-4 p-5">
       <Text className="text-base leading-6 text-[#17243C]">
-        Nessun account. Viaggi, fermate e luoghi salvati restano sul dispositivo. La posizione
-        si attiva quando la richiedi.
+        Nessun account o telemetria. Viaggi, fermate e luoghi salvati restano sul dispositivo.
+        La posizione si attiva quando la richiedi.
+      </Text>
+      <Text accessibilityRole="header" className="text-lg font-semibold text-[#17243C]">
+        Navigazione e posizione
+      </Text>
+      <Text className="text-sm leading-6 text-[#59667A]">
+        Avvia navigazione richiede la posizione precisa e attiva il GPS di Android
+        in modo continuo, anche con lo schermo spento finché Android mantiene il
+        servizio attivo. La posizione e l’avanzamento sono elaborati sul dispositivo.
+        All’avvio e nei ricalcoli stradali, posizione attuale e destinazione vengono
+        inviate a FOSSGIS; i ricalcoli automatici sono limitati. Le anteprime possono
+        usare una partenza scelta sulla mappa.
+      </Text>
+      <Text className="text-sm leading-6 text-[#59667A]">
+        Una copia locale limitata della sessione permette di mostrare un viaggio
+        interrotto e richiede una ripresa esplicita. Interrompi navigazione termina
+        posizione continua, voce e richieste e cancella questa copia. Anche l’arrivo
+        termina la sessione. La guida vocale usa una voce italiana dichiarata offline
+        dal motore del dispositivo; se manca, restano le indicazioni visive.
+        La diagnostica locale conserva solo codici di stato, senza posizione o viaggio.
       </Text>
       <Text className="text-sm leading-6 text-[#59667A]">
         Le mappe online comunicano l’area visualizzata a OpenFreeMap. Le
@@ -1395,6 +1467,7 @@ function PrivacyContent({ onLink }: { onLink: (url: string) => void }) {
         </View>
       ))}
       <Notice text="Mappe online, arrivi in tempo reale e calcolo dei percorsi richiedono una connessione. Puoi riaprire la copia di un viaggio salvato senza connessione; i suoi orari sono da aggiornare. La disponibilità dei servizi pubblici può variare." />
+      <NavigationNotices onLink={onLink} />
       <Text className="mt-2 text-lg font-semibold text-[#17243C]">
         Licenze dei dati
       </Text>

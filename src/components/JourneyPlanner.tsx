@@ -196,7 +196,7 @@ export function JourneyResults({ plans, selected, onSelect, onRefresh, loading, 
       })}
       {selected.legs.some(leg => leg.timingStatus === 'prediction') ? <Notice text="Le previsioni MATO sono indicate all’ora della consultazione. Il servizio non fornisce la data di aggiornamento della fonte." /> : null}
       {selected.warnings.map((warning, index) => <Notice key={index} text={warning} />)}
-      <Text className="text-xs leading-5 text-[#59667A]">Pianificazione del viaggio, senza guida vocale né monitoraggio dei cambi. Percorso: {selected.source}. Dati © OpenStreetMap contributors.</Text>
+      <Text className="text-xs leading-5 text-[#59667A]">Anteprima del viaggio. Avvia viaggio su Android per seguire le tratte e confermare salita e discesa. Gli avvisi sulle corse non vengono monitorati durante la guida. Percorso: {selected.source}. Dati © OpenStreetMap contributors.</Text>
     </View>
   );
 }

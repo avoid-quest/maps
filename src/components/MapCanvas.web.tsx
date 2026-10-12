@@ -12,6 +12,7 @@ export default function MapCanvas(props: MapCanvasProps) {
   const initialView = useRef({ center: props.center, zoom: props.zoom ?? 14.5 });
   const [longitude, latitude] = props.center;
   const zoom = props.zoom ?? 14.5;
+  const followLocation = props.followLocation;
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
@@ -44,7 +45,7 @@ export default function MapCanvas(props: MapCanvasProps) {
     const observer = new ResizeObserver(() => instance.resize()); observer.observe(container.current);
     return () => { observer.disconnect(); instance.remove(); map.current = null; };
   }, []);
-  useEffect(() => { if (loaded) map.current?.easeTo({ center: [longitude, latitude], zoom, duration: 450 }); }, [loaded, longitude, latitude, zoom]);
+  useEffect(() => { if (loaded && followLocation !== false) map.current?.easeTo({ center: [longitude, latitude], zoom, duration: 450 }); }, [loaded, longitude, latitude, zoom, followLocation]);
   useEffect(() => {
     if (!loaded || !map.current) return;
     const bounds = props.coverageBounds;
@@ -59,10 +60,10 @@ export default function MapCanvas(props: MapCanvasProps) {
   useEffect(() => {
     if (!loaded || !map.current) return;
     (map.current.getSource('journey') as GeoJSONSource)?.setData({ type: 'FeatureCollection', features: props.route ? [{ type: 'Feature', geometry: props.route, properties: {} }] : [] });
-    if (props.route?.coordinates.length) {
+    if (props.route?.coordinates.length && followLocation === undefined) {
       const bounds = new maplibregl.LngLatBounds(); props.route.coordinates.forEach(p => bounds.extend([p[0]!, p[1]!]));
       map.current.fitBounds(bounds, { padding: 50, duration: 500 });
     }
-  }, [loaded, props.route]);
+  }, [loaded, props.route, followLocation]);
   return <div style={{ flex: 1, minHeight: 160, position: 'relative' }}><div ref={container} style={{ position: 'absolute', inset: 0 }} />{failed && <div style={{ position: 'absolute', top: 10, left: 10, background: '#fff9e8', padding: 8, borderRadius: 8 }}>Mappa non disponibile · controlla la connessione</div>}</div>;
 }

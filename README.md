@@ -13,7 +13,9 @@ The interface is Italian. Local discovery uses a limited bundled place dataset; 
 - Nearby GTT stops, direct live departures and service alerts with freshness and missing-data states.
 - Local favourites, persisted **Solo ricerca locale** search policy and bundled regional lookup data. Network outages retain local discovery and show honest unavailable states for online functions.
 
-This is an early test build. It does **not** yet provide spoken turn-by-turn guidance, background navigation, live road traffic, full offline routing, Google-equivalent reviews, comprehensive business hours, or all-Italy transit coverage. A route preview is not an active navigation system. MATO's access/reuse policy remains unresolved. Choosing Mezzi requests its experimental journey planner and sends route coordinates to MATO/5T.
+Development version 0.1.8 adds **Avvia navigazione** for walking, cycling, driving and the selected transit journey, with native road progress, platform GPS, offline Italian speech when installed, and manual transit boarding/alighting/transfer confirmations. The integrated Android engine, GPS, speech and screen-off service still require runtime acceptance; see [the implementation and checks](docs/development/navigation.md). Route previews remain planning until explicitly started.
+
+This is an early test build. Live road traffic, full offline routing, reviews, comprehensive business hours and all-Italy transit coverage remain unavailable. MATO's access/reuse policy remains unresolved. Choosing Mezzi requests its experimental journey planner and sends route coordinates to MATO/5T.
 
 ## Install on Android
 
@@ -21,7 +23,7 @@ When a signed APK is available, download `avoid-maps.apk` from the [public relea
 
 For updates through Obtainium, add `https://github.com/avoid-quest/maps` as a GitHub source. Repository and release access require no GitHub account or token. Select `avoid-maps.apk` if asked to choose an asset. Updates use the same signing key; install over the existing app to retain favourites. Obtainium installation and upgrade preservation still require a device test.
 
-Only grant location if you want the locate button. Denying it leaves map browsing and manual-origin search available. Read [Android installation and device checks](docs/development/android.md) before testing upgrades or rebuilding. Keep the signing key backed up privately so later APKs preserve app data.
+Location is optional for browsing and manual-origin planning; Start navigation requires precise location. Denying it leaves map browsing and manual-origin search available. Read [Android installation and device checks](docs/development/android.md) before testing upgrades or rebuilding. Keep the signing key backed up privately so later APKs preserve app data.
 
 ## Develop
 
@@ -43,4 +45,4 @@ Bundled GTT data contains stops and trip patterns for joining live predictions, 
 
 ## Source and data terms
 
-No licence has yet been selected for the original application source. Public visibility does not grant a general reuse licence. Bundled datasets retain their separate [licences and notices](src/data/licenses.json): GTT permits non-commercial use and redistribution with attribution; Overture place records retain their source-specific terms. Repository visibility does not change those data terms.
+No licence has yet been selected for the original application source. Public visibility does not grant a general reuse licence. Bundled datasets retain their separate [licences and notices](src/data/licenses.json): GTT permits non-commercial use and redistribution with attribution; Overture place records retain their source-specific terms. Repository visibility does not change those data terms. Navigation dependencies retain their [bundled code notices](modules/avoid-navigation/android/src/main/assets/third-party/README.md), separate from application-source and dataset terms.

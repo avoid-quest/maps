@@ -1,0 +1,27 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'quest.avoid.maps.navigation'
+version = '0.1.0'
+
+android {
+  namespace 'quest.avoid.maps.navigation'
+  defaultConfig {
+    minSdkVersion 25
+    versionCode 1
+    versionName '0.1.0'
+    buildConfigField 'String', 'ROAD_GUIDANCE_POLICY', groovy.json.JsonOutput.toJson(file('src/main/assets/road-guidance-policy.json').text)
+  }
+  compileOptions { coreLibraryDesugaringEnabled true }
+}
+
+dependencies {
+  implementation 'com.stadiamaps.ferrostar:core:0.57.0'
+  implementation 'com.squareup.okhttp3:okhttp:5.3.2'
+  implementation 'androidx.lifecycle:lifecycle-runtime:2.10.0'
+  coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.5'
+  testImplementation 'junit:junit:4.13.2'
+  testImplementation 'org.json:json:20250517'
+}

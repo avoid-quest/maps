@@ -1,0 +1,166 @@
+package quest.avoid.maps.navigation
+
+import java.util.concurrent.CancellationException
+import org.json.JSONObject
+import org.junit.Assert.*
+import org.junit.Test
+import uniffi.ferrostar.BoundingBox
+import uniffi.ferrostar.Disposable
+import uniffi.ferrostar.GeographicCoordinate
+import uniffi.ferrostar.ParsingException
+import uniffi.ferrostar.Route
+import uniffi.ferrostar.RouteResponseParser
+import uniffi.ferrostar.RouteStep
+
+class FerrostarRouteParserTest {
+  @Test fun `declared native parser failures become retryable invalid responses and release the parser`() {
+    val cases = listOf(
+      ParsingException.InvalidRouteObject("changed route fields"),
+      ParsingException.InvalidGeometry("changed geometry"),
+      ParsingException.InvalidStatusCode("NoRoute", "No route"),
+      ParsingException.MalformedAnnotations("changed annotations"),
+    )
+    cases.forEach { error ->
+      val parser = FakeParser { bytes ->
+        assertEquals(response, bytes.toString(Charsets.UTF_8))
+        throw error
+      }
+      invalid(response, parser)
+    }
+  }
+
+  @Test fun `invalid route bounds coordinates and metrics remain retryable`() {
+    val route = route()
+    val step = route.steps.first()
+    val cases = listOf(
+      emptyList(),
+      listOf(route.copy(geometry = emptyList())),
+      listOf(route.copy(geometry = List(100_001) { route.geometry.first() })),
+      listOf(route.copy(steps = listOf(step))),
+      listOf(route.copy(steps = List(5_001) { step })),
+      listOf(route.copy(distance = Double.NaN)),
+      listOf(route.copy(distance = -1.0)),
+      listOf(route.copy(geometry = listOf(GeographicCoordinate(91.0, 7.0), route.geometry.last()))),
+      listOf(route.copy(geometry = listOf(GeographicCoordinate(45.0, Double.NaN), route.geometry.last()))),
+      listOf(route.copy(steps = listOf(step.copy(distance = Double.POSITIVE_INFINITY), route.steps.last()))),
+      listOf(route.copy(steps = listOf(step.copy(duration = -1.0), route.steps.last()))),
+      listOf(route.copy(steps = listOf(step.copy(geometry = emptyList()), route.steps.last()))),
+      listOf(route.copy(steps = listOf(step.copy(geometry = listOf(GeographicCoordinate(91.0, 7.0))), route.steps.last()))),
+      listOf(route.copy(steps = listOf(step.copy(geometry = listOf(GeographicCoordinate(45.0, Double.NaN))), route.steps.last()))),
+      listOf(route.copy(steps = listOf(step.copy(geometry = List(100_001) { route.geometry.first() }), route.steps.last()))),
+      listOf(route.copy(steps = List(2) { step.copy(geometry = List(60_000) { route.geometry.first() }) })),
+    )
+    cases.forEach { routes -> invalid(response, FakeParser { routes }) }
+  }
+
+  @Test fun `malformed or mismatched Italian maneuver data remains retryable`() {
+    val bodies = listOf(
+      "<html>Temporarily unavailable</html>",
+      "{\"code\":\"Ok\",\"routes\":[",
+      "{\"code\":\"NoRoute\"}",
+      "{\"code\":\"Ok\",\"routes\":[{\"legs\":{}}]}",
+      "{\"code\":\"Ok\",\"routes\":[{\"legs\":[{\"steps\":[]}]}]}",
+    )
+    bodies.forEach { body -> invalid(body, FakeParser { listOf(route()) }) }
+  }
+
+  @Test fun `valid route gains Italian instructions and releases the parser`() {
+    val original = route()
+    val parser = FakeParser { listOf(original) }
+    val parsed = FerrostarRouteParser.parse(response, "walk") { parser }
+    assertEquals(listOf("Parti", "Raggiungi la destinazione"), parsed.steps.map { it.instruction })
+    assertEquals(original.geometry, parsed.geometry)
+    assertEquals(1, parser.destroyCalls)
+  }
+
+  @Test fun `empty raw step geometry is rejected before the native decoder including later alternatives`() {
+    for (alternative in listOf(false, true)) {
+      val raw = JSONObject(response)
+      val routes = raw.getJSONArray("routes")
+      if (alternative) routes.put(JSONObject(routes.getJSONObject(0).toString()))
+      routes.getJSONObject(if (alternative) 1 else 0).getJSONArray("legs").getJSONObject(0)
+        .getJSONArray("steps").getJSONObject(0).put("geometry", "")
+      invalid(raw.toString(), FakeParser { error("Empty geometry must not reach the native decoder") })
+    }
+  }
+
+  @Test fun `zero distance arrivals accept repeated endpoint geometry or a singleton`() {
+    val original = route()
+    val endpoint = original.geometry.last()
+    for (geometry in listOf(listOf(endpoint), listOf(endpoint, endpoint))) {
+      val arrival = original.steps.last().copy(geometry = geometry, distance = 0.0, duration = 0.0)
+      val parser = FakeParser { listOf(original.copy(steps = listOf(original.steps.first(), arrival))) }
+      val parsed = FerrostarRouteParser.parse(response, "walk") { parser }
+      assertEquals(geometry, parsed.steps.last().geometry)
+      assertEquals("Raggiungi la destinazione", parsed.steps.last().instruction)
+      assertEquals(1, parser.destroyCalls)
+    }
+  }
+
+  @Test fun `native load and parser construction failures keep their fatal classification`() {
+    listOf(UnsatisfiedLinkError("unavailable native library"), IllegalStateException("initialization failed")).forEach { failure ->
+      val thrown = assertThrows(failure.javaClass) { FerrostarRouteParser.parse(response, "walk") { throw failure } }
+      assertSame(failure, thrown)
+    }
+  }
+
+  @Test fun `unexpected parser failures remain fatal and still release the parser`() {
+    listOf(UnsatisfiedLinkError("native bridge failed"), IllegalArgumentException("native call failed")).forEach { failure ->
+      val parser = FakeParser { throw failure }
+      val thrown = assertThrows(failure.javaClass) { FerrostarRouteParser.parse(response, "walk") { parser } }
+      assertSame(failure, thrown)
+      assertEquals(1, parser.destroyCalls)
+    }
+  }
+
+  @Test fun `cancellation remains cancellation even when parser cleanup fails`() {
+    val cancellation = CancellationException("cancelled")
+    val cleanupFailure = IllegalStateException("cleanup failed")
+    val parser = FakeParser(cleanupFailure) { throw cancellation }
+    val thrown = assertThrows(CancellationException::class.java) { FerrostarRouteParser.parse(response, "walk") { parser } }
+    assertSame(cancellation, thrown)
+    assertEquals(listOf(cleanupFailure), thrown.suppressed.toList())
+    assertEquals(1, parser.destroyCalls)
+  }
+
+  @Test fun `unsupported mode is a configuration error before creating a parser`() {
+    var factoryCalls = 0
+    assertThrows(IllegalArgumentException::class.java) {
+      FerrostarRouteParser.parse(response, "transit") { factoryCalls++; FakeParser { listOf(route()) } }
+    }
+    assertEquals(0, factoryCalls)
+  }
+
+  @Test fun `successful parsing does not hide a native cleanup failure`() {
+    val failure = IllegalStateException("cleanup failed")
+    val parser = FakeParser(failure) { listOf(route()) }
+    assertSame(failure, assertThrows(IllegalStateException::class.java) { FerrostarRouteParser.parse(response, "walk") { parser } })
+    assertEquals(1, parser.destroyCalls)
+  }
+
+  private fun invalid(body: String, parser: FakeParser) {
+    val failure = assertThrows(NavigationFailure::class.java) { FerrostarRouteParser.parse(body, "walk") { parser } }
+    assertEquals("invalid", failure.reason)
+    assertEquals(1, parser.destroyCalls)
+  }
+
+  private class FakeParser(
+    private val cleanupFailure: Throwable? = null,
+    private val parse: (ByteArray) -> List<Route>,
+  ) : RouteResponseParser, Disposable {
+    var destroyCalls = 0
+    override fun parseResponse(response: ByteArray): List<Route> = parse(response)
+    override fun destroy() { destroyCalls++; cleanupFailure?.let { throw it } }
+  }
+
+  private fun route(): Route {
+    val start = GeographicCoordinate(45.0, 7.0)
+    val end = GeographicCoordinate(45.001, 7.001)
+    val steps = listOf(100.0, 0.0).map { distance ->
+      RouteStep(listOf(start, end), distance, distance, null, emptyList(), "Original English", emptyList(), emptyList(), null, emptyList(), null, null)
+    }
+    return Route(listOf(start, end), BoundingBox(start, end), 100.0, emptyList(), steps)
+  }
+
+  private val response = """{"code":"Ok","routes":[{"legs":[{"steps":[{"geometry":"????","maneuver":{"type":"depart"}},{"geometry":"????","maneuver":{"type":"arrive"}}]}]}]}"""
+}
