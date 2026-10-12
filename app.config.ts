@@ -20,7 +20,7 @@ const config: ExpoConfig = {
     blockedPermissions: ['android.permission.RECORD_AUDIO', 'android.permission.SYSTEM_ALERT_WINDOW', 'android.permission.READ_EXTERNAL_STORAGE', 'android.permission.WRITE_EXTERNAL_STORAGE', 'android.permission.VIBRATE'],
   },
   plugins: [
-    ['expo-dev-client', { launchMode: 'launcher', addGeneratedScheme: false }],
+    ...(isDevelopment ? [['expo-dev-client', { launchMode: 'launcher', addGeneratedScheme: false }] as [string, Record<string, unknown>]] : ['./plugins/withProductionModules']),
     ['@maplibre/maplibre-react-native', { android: { locationEngine: 'default' } }],
     './plugins/withLocalReleaseSigning',
     './plugins/withNavigation',
