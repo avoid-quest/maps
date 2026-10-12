@@ -2,6 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 source scripts/toolchain-env.sh
+export AVOID_MAPS_VARIANT=production
 export AVOID_MAPS_SIGNING_PROPERTIES="${AVOID_MAPS_SIGNING_PROPERTIES:-$HOME/.local/share/avoid-maps/signing/release.properties}"
 if [[ ! -f "$AVOID_MAPS_SIGNING_PROPERTIES" ]]; then
   echo "Missing local release signing configuration. See docs/development/android.md." >&2
@@ -13,7 +14,7 @@ if git diff --quiet && git diff --cached --quiet && [[ -z "$(git ls-files --othe
   AVOID_MAPS_BUILD_REVISION="$(git rev-parse HEAD)"
   export AVOID_MAPS_BUILD_REVISION
 fi
-node node_modules/expo/bin/cli prebuild --platform android --no-install
+node node_modules/expo/bin/cli prebuild --clean --platform android --no-install
 NATIVE_PATH_INIT="$(mktemp "${TMPDIR:-/tmp}/maps-native-paths.XXXXXX.gradle")"
 trap 'rm -f "$NATIVE_PATH_INIT"' EXIT
 cat > "$NATIVE_PATH_INIT" <<'GRADLE'

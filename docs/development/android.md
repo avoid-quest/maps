@@ -14,6 +14,23 @@ The release build generates `android/` through Expo prebuild and invokes Gradle 
 
 The build script supplies a temporary Gradle init script that appends Clang `-ffile-prefix-map` flags for the checkout, Gradle cache and local home prefixes. These paths come from the current build environment and map to relative paths in C/C++ source strings. This removes local compiler-header paths without excluding native sources or packaging metadata. The init script is deleted on exit. Scan the resulting APK for local paths as part of release inspection; JavaScript and prebuilt dependencies require their own content checks.
 
+## Expo development
+
+Use Expo’s [local development workflow](https://docs.expo.dev/guides/local-app-development/) with `expo-dev-client`. Expo Go cannot load this app’s MapLibre and local Kotlin modules. The [application variant](https://docs.expo.dev/build-reference/variants/) gives **Avoid Maps Dev** its own package so it can coexist with the release.
+
+After selecting the toolchain above, connect an Android device through authorized USB or [wireless ADB](https://developer.android.com/tools/adb#connect-to-a-device-over-wi-fi):
+
+```sh
+bun run prebuild:android:dev
+bun run android
+```
+
+These run Expo’s clean prebuild and `expo run:android`; Expo builds, installs, and starts Metro. For subsequent JavaScript/UI work, use `bun start` and Fast Refresh. Press `j` in the Expo terminal for React Native DevTools and `m` for the developer menu. LAN Metro connectivity is separate from ADB authorization.
+
+Run clean prebuild again after native dependency/configuration changes or after building the production variant; rebuild with `bun run android` after Kotlin changes. Generated native files remain disposable. The explicit development scheme in `bun start` selects the installed Dev app even when the generated native directory describes production. On devices without Google services, open its development link or enter the Metro address instead of using the launcher’s Google-powered QR scanner.
+
+Use Android Studio only when inspecting Kotlin/provider callbacks; DevTools handles JavaScript and React. Keep raw coordinates, requests and device logs private. Position reception, Fast Refresh on a physical device, and release startup with Metro stopped each require device verification.
+
 ## Signing and updates
 
 The release signing key lives outside the checkout at `~/.local/share/avoid-maps/signing/release.jks`; its local password configuration is `release.properties` in the same directory. Back up both files privately. Keeping this key allows future APKs to update the app while retaining favourites. Losing it requires uninstalling the app before installing a newly signed build, which removes app data.

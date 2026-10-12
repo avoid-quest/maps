@@ -164,7 +164,10 @@ export interface DiagnosticMetadata {
 }
 export function createDiagnosticReport(snapshot: DiagnosticSnapshot, metadata: DiagnosticMetadata, now = Date.now()): string {
   // Metadata comes from the compiled Expo config and generic platform fields only.
-  const version = typeof metadata.version === 'string' && /^\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(metadata.version) ? metadata.version : 'unknown';
+  // Accept public release channels, keeping arbitrary identifiers and build metadata out.
+  // The strict end assertion also rejects a trailing newline, unlike JavaScript's $ anchor.
+  const publicVersion = /^(?:0|[1-9]\d{0,2})(?:\.(?:0|[1-9]\d{0,2})){2}(?:-(?:alpha|beta|rc|preview|dev)(?:\.(?:0|[1-9]\d{0,2}))?)?(?![\s\S])/;
+  const version = typeof metadata.version === 'string' && publicVersion.test(metadata.version) ? metadata.version : 'unknown';
   const revision = typeof metadata.revision === 'string' && /^[a-f0-9]{40}$/.test(metadata.revision) ? metadata.revision : 'development';
   const platform = typeof metadata.platform === 'string' && ['android', 'ios', 'web'].includes(metadata.platform) ? metadata.platform : 'unknown';
   const osVersion = integer(metadata.osVersion, 1, 999) ? metadata.osVersion : 'unknown';

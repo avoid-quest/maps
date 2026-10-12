@@ -18,6 +18,22 @@ function memoryStorage(initial: string | null = null) {
 }
 const report = (snapshot: DiagnosticSnapshot) => createDiagnosticReport(snapshot, { version: '0.1.2', platform: 'android', build: 3, osVersion: 36 }, NOW);
 
+test('reports release and bounded public prerelease versions without arbitrary metadata', () => {
+  const snapshot = createDiagnostics(() => NOW).getSnapshot();
+  for (const version of ['0.1.2', '0.1.9-preview.1', '0.1.9-dev', '1.0.0-alpha.0', '1.0.0-beta.12', '999.999.999-rc.999']) {
+    const exported = createDiagnosticReport(snapshot, { version }, NOW);
+    assert.ok(exported.includes(`App: ${version} |`), version);
+  }
+  for (const version of [
+    PRIVATE, `0.1.9-${PRIVATE}`, '0.1.9-private-name', '0.1.9+private-id',
+    '0.1.9-preview.1\n', '0.1.9-preview.1\nlocation.fix', '0.1.9-preview.01',
+    '01.1.9', '0.1.9-preview.', '0.1.9-preview.1000', '1000.1.9',
+    `0.1.9-${'preview'.repeat(1000)}`, null, 123,
+  ]) {
+    assert.ok(createDiagnosticReport(snapshot, { version }, NOW).includes('App: unknown |'));
+  }
+});
+
 test('ingest, persisted hydration and export rebuild only allowlisted fields', async () => {
   const injected = {
     at: NOW, type: 'request', state: 'network', provider: PRIVATE,
