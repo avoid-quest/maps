@@ -175,6 +175,33 @@ class TransitJourneyEngineTest {
     assertEquals("alight", phase(engine.onLocation(45.01, 7.0, 5.0)))
   }
 
+  @Test fun monotonicBendKeepsCuesWhenItsGeometryIsDensified() {
+    val a = coordinate(45.00359729, 7.00254367)
+    val b = coordinate(45.00179864, 7.00254367)
+    val c = coordinate(45.0, 7.00254367)
+    val end = coordinate(45.0, 7.0)
+    for (geometry in listOf(listOf(a, c, end), listOf(a, b, c, end))) {
+      val engine = engine(leg(0, true, a, end) + mapOf("geometry" to geometry, "distanceMeters" to 600.0))
+      engine.confirm("board")
+      assertEquals(true, transit(engine.snapshot())["proximityAvailable"])
+      val approaching = engine.onLocation(b.getValue("latitude"), b.getValue("longitude"), 5.0)
+      assertEquals("ride", phase(approaching))
+      assertTrue(approaching.announcement!!.contains("Preparati"))
+      assertEquals("alight", phase(engine.onLocation(45.0, 7.0, 5.0)))
+      assertTrue(engine.confirm("alight").completed)
+    }
+  }
+
+  @Test fun earlierNearPassRemainsAmbiguousWhenGeometryIsDensified() {
+    val a = coordinate(45.0, 7.0005)
+    val near = coordinate(45.01, 7.0005)
+    val beyond = coordinate(45.02, 7.0005)
+    val turn = coordinate(45.02, 7.02)
+    for (geometry in listOf(listOf(a, beyond, turn, destination), listOf(a, near, beyond, turn, destination))) {
+      assertAmbiguousEndRemainsManual(engine(leg(0, true) + ("geometry" to geometry)))
+    }
+  }
+
   @Test fun freshlyRetrievedDepartedServiceWithFutureArrivalRequiresReplanning() {
     val departed = leg(0, true) + mapOf(
       "departureAt" to now - 1_200_000, "arrivalAt" to now + 600_000, "durationSeconds" to 1_800.0,

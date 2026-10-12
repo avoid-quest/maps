@@ -226,37 +226,42 @@ class TransitJourneyEngine(
       val direct = distance(start, end)
       if (direct < 350 && legs.sumOf { it.distance } > maxOf(300.0, direct * 2 + 100)) return true
     }
-    var remaining = 0.0
-    for (leg in legs.asReversed()) {
-      for (index in leg.geometry.lastIndex downTo 1) {
+    var closestNearApproach = Double.POSITIVE_INFINITY
+    fun observe(proximity: Double): Boolean {
+      // A meaningful move away after entering the cue area establishes an earlier visit.
+      // An ordinary bend that keeps approaching the stop must not disable its cues.
+      if (proximity > closestNearApproach + 75) return true
+      if (proximity <= 300) closestNearApproach = minOf(closestNearApproach, proximity)
+      return false
+    }
+    for (leg in legs) {
+      leg.geometry.firstOrNull()?.let { if (observe(distance(it, end))) return true }
+      for (index in 1 until leg.geometry.size) {
         val from = leg.geometry[index - 1]
         val to = leg.geometry[index]
         val length = distance(from, to)
-        val (proximity, alongRemaining) = closestApproach(end, from, to, length)
-        // A previous pass can fall between vertices. If substantially more path remains than
-        // the direct stop distance, proximity cannot identify the final approach. The 75 m
-        // allowance avoids treating small geometry noise as a distinct earlier stop visit.
-        if (proximity <= 300 && remaining + alongRemaining > proximity + 75) return true
-        remaining += length
+        // Inspect the continuous edge's minimum before its endpoint: a near pass can occur
+        // between vertices. Adding points on the same edge does not create a new visit.
+        if (observe(closestDistanceToEdge(end, from, to, length))) return true
+        if (observe(distance(to, end))) return true
       }
       // Do not invent an edge connecting disjoint or missing provider leg geometries.
     }
     return false
   }
 
-  /** Great-circle distance to a provider geometry edge and path remaining along that edge. */
-  private fun closestApproach(target: Point, from: Point, to: Point, length: Double): Pair<Double, Double> {
+  /** Minimum great-circle distance to a provider geometry edge, including its endpoints. */
+  private fun closestDistanceToEdge(target: Point, from: Point, to: Point, length: Double): Double {
     val fromDistance = distance(from, target)
     val toDistance = distance(to, target)
-    if (length < 0.001) return toDistance to 0.0
+    if (length < 0.001) return toDistance
     val radius = 6_371_000.0
     val angle = bearing(from, target) - bearing(from, to)
     val angularDistance = fromDistance / radius
     val along = atan2(sin(angularDistance) * cos(angle), cos(angularDistance)) * radius
-    if (along <= 0) return fromDistance to length
-    if (along >= length) return toDistance to 0.0
-    val cross = abs(asin((sin(angularDistance) * sin(angle)).coerceIn(-1.0, 1.0))) * radius
-    return cross to (length - along)
+    if (along <= 0) return fromDistance
+    if (along >= length) return toDistance
+    return abs(asin((sin(angularDistance) * sin(angle)).coerceIn(-1.0, 1.0))) * radius
   }
 
   private fun bearing(from: Point, to: Point): Double {
