@@ -287,11 +287,15 @@ internal class NavigationRuntime private constructor(private val context: Contex
     val startPhase = !gate.started
     val result = gate.onFix(now, age, fix.accuracy.toDouble(), fix.hasAccuracy() && validCoordinate, fix, implausible)
     logFix(fix, age, result, now, startPhase)
-    // Rejected fixes expose only accuracy and provider, never coordinates.
-    val accuracy = if (fix.hasAccuracy() && fix.accuracy.isFinite()) fix.accuracy.roundToInt() else null
-    val provider = providerCode(fix.provider)
-    var metaChanged = fields["lastFixAccuracyMeters"] != accuracy || fields["fixProvider"] != provider
-    fields["lastFixAccuracyMeters"] = accuracy; fields["fixProvider"] = provider
+    // Rejected fixes expose only accuracy and provider, never coordinates. Stale cached seeds
+    // are not current signal and leave the readout unchanged.
+    var metaChanged = false
+    if (age in 0..fixPolicy.maximumFixAgeMillis) {
+      val accuracy = if (fix.hasAccuracy() && fix.accuracy.isFinite()) fix.accuracy.roundToInt() else null
+      val provider = providerCode(fix.provider)
+      metaChanged = fields["lastFixAccuracyMeters"] != accuracy || fields["fixProvider"] != provider
+      fields["lastFixAccuracyMeters"] = accuracy; fields["fixProvider"] = provider
+    }
     if (waitingForStart && fields["problem"] == "location-disabled" && fields["startTimedOut"] != true && age <= fixPolicy.maximumFixAgeMillis) {
       // The provider came back: return to the active wait once, not on every fix.
       fields["status"] = "waiting-for-fix"; fields.remove("problem"); fields["canRetry"] = false; metaChanged = true
