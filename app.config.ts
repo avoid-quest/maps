@@ -8,6 +8,7 @@ const config: ExpoConfig = {
   version: '0.1.9',
   icon: './assets/icon.png',
   orientation: 'portrait',
+  // Android night mode follows the system; ThemeProvider applies an in-app Chiaro/Scuro override at runtime.
   userInterfaceStyle: 'light',
   newArchEnabled: true,
   extra: { diagnosticsRevision: buildRevision && /^[a-f0-9]{40}$/.test(buildRevision) ? buildRevision : 'development' },

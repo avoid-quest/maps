@@ -19,6 +19,12 @@ The map is the starting point. Search, discovery, transport and saved places are
 - Show coverage boundaries, result limits and data warnings with the results they explain. Keep mandatory map attribution accessible. Preserve place provenance, source timestamps, and live, scheduled, stale and unavailable distinctions in their relevant detail views.
 - Keep Italian action names stable and direct. Use compact system typography and restrained surfaces; the geographic content supplies the visual detail. Maintain accessible text contrast and touch targets when reducing chrome.
 
+## Appearance
+
+Appearance offers **Sistema**, **Chiaro** and **Scuro**; Sistema is the default and follows Android's dark theme. The choice is stored on the device. An unreadable saved choice falls back to Sistema without overwriting it until the user chooses again. `src/theme` resolves the choice once. Components use semantic NativeWind colours (`bg-surface`, `bg-surface-raised`, `text-primary`, `text-secondary`, `border-divider`, `bg-action`/`text-on-action`, `text-caution`, `text-danger`, `text-success`, and transit `text-live`, `text-scheduled`, `text-stale`, `text-cancelled`), never literal hex classes or `dark:` variants. Native props, icons and map layers read the same values from `useTheme()`. Tests hold every text role to WCAG AA (4.5:1) on every surface in both palettes. Live, scheduled, stale and cancelled states keep their text labels; colour supports them but never carries them alone.
+
+The basemap follows the resolved appearance: OpenFreeMap Liberty in light, OpenFreeMap Dark with legibility overrides in dark. Both are bundled style documents ([notice](../../src/theme/map-styles/NOTICE.md)). Status bar icons, navigation bar buttons and the window background follow the same choice.
+
 ## Stable geometry and camera intent
 
 Keep one map mounted across browsing, sheet expansion and navigation. Small inset task cards overlay that viewport at a compact height or an explicitly expanded height; keyboard resizing may reduce the sheet's available space while preserving the map. Status, loading and error updates change content inside reserved regions. Anchor route actions outside scrolling details, and keep navigation instruction, trip summary, Retry and Stop geometry independent of position quality.
@@ -45,3 +51,4 @@ Each feature under `src/features/` exposes a hook and context with intent-level 
 4. Open transport, saved places and route planning. Confirm each remains reachable, manual origin selection works without location, and relevant source/freshness information survives the compact layout.
 5. Replay navigating → inaccurate → stale → navigating, route loading → success → refresh failure, and expand/collapse. Compare map, sheet and primary-action bounds; asynchronous changes must not move them. Pan before a route response and after a result, then refresh; confirm the camera stays put. Verify explicit route framing and recentering still work.
 6. Inspect narrow screens, large text and screen-reader labels. Confirm search, recenter, back/close and navigation Stop remain reachable without covering required attribution. Record browser and device evidence separately.
+7. Switch Sistema/Chiaro/Scuro while browsing, with a route preview, and during navigation, then change the Android theme with Sistema selected. Confirm the map keeps its camera, route, markers and position, the system bars stay legible, and the choice survives a restart.
