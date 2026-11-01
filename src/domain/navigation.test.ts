@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { idleNavigation, navigationLocationForReplan, type NavigationSnapshot } from './navigation';
+import { idleNavigation, navigationFixPolicy, navigationLocationForReplan, type NavigationSnapshot } from './navigation';
 
 const now = Date.UTC(2026, 9, 12, 12);
 const usable: NavigationSnapshot = { ...idleNavigation, locationUsable: true, status: 'error', mode: 'transit', problem: 'transit-replan-needed',
@@ -8,10 +8,11 @@ const usable: NavigationSnapshot = { ...idleNavigation, locationUsable: true, st
 
 test('transit replanning uses only a fresh precise fix and never a stale retained map dot', () => {
   assert.deepEqual(navigationLocationForReplan(usable, now), { latitude: 45, longitude: 7 });
-  assert.deepEqual(navigationLocationForReplan({ ...usable, location: { ...usable.location!, timestamp: now - 10_000, accuracyMeters: 20 } }, now), { latitude: 45, longitude: 7 });
+  assert.deepEqual(navigationFixPolicy, { maximumFixAgeMillis: 15_000, originAccuracyMeters: 35 });
+  assert.deepEqual(navigationLocationForReplan({ ...usable, location: { ...usable.location!, timestamp: now - 15_000, accuracyMeters: 35 } }, now), { latitude: 45, longitude: 7 });
   for (const patch of [
-    { timestamp: now - 10_001 }, { timestamp: now + 1 }, { timestamp: NaN },
-    { accuracyMeters: 21 }, { accuracyMeters: 35 }, { accuracyMeters: 0 }, { accuracyMeters: Infinity }, { latitude: 91 }, { longitude: -181 },
+    { timestamp: now - 15_001 }, { timestamp: now + 1 }, { timestamp: NaN },
+    { accuracyMeters: 35.01 }, { accuracyMeters: 50 }, { accuracyMeters: 0 }, { accuracyMeters: Infinity }, { latitude: 91 }, { longitude: -181 },
   ]) assert.equal(navigationLocationForReplan({ ...usable, location: { ...usable.location!, ...patch } }, now), null);
   assert.equal(navigationLocationForReplan({ ...usable, status: 'location-degraded' }, now), null);
   for (const problem of ['location-permission', 'location-disabled', 'location-stale', 'location-inaccurate'] as const) {

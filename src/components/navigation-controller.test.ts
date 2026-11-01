@@ -341,7 +341,33 @@ test('diagnostics retain only session transitions and fixed failures across posi
   emit({ ...snapshot(30, 'location-degraded'), problem: 'location-stale' });
   emit({ ...snapshot(31, 'error'), problem: 'engine-unavailable' });
   emit({ ...snapshot(32, 'error'), problem: 'engine-unavailable' });
-  assert.deepEqual(recorded, ['start-requested', 'active', 'degraded', 'engine-unavailable']);
+  assert.deepEqual(recorded, ['start-requested', 'waiting-for-fix', 'active', 'degraded', 'location-stale', 'engine-unavailable']);
+});
+
+test('a settled start wait records one fixed start-timeout code without coordinates', async () => {
+  const recorded: string[] = [];
+  const { controller, emit } = fixture({}, state => recorded.push(state));
+  await Promise.resolve();
+  await controller.start(options);
+  const waiting = { ...snapshot(3, 'waiting-for-fix'), lastFixAccuracyMeters: 38, requiredAccuracyMeters: 35, fixProvider: 'gps' as const };
+  for (let revision = 3; revision < 10; revision++) emit({ ...waiting, revision, lastFixAccuracyMeters: 36 + revision });
+  const settled = { ...waiting, revision: 10, status: 'location-degraded' as const, problem: 'location-inaccurate' as const, startTimedOut: true, bestRejectedAccuracyMeters: 38, canRetry: true };
+  emit(settled);
+  emit({ ...settled, revision: 11, lastFixAccuracyMeters: 41 });
+  emit({ ...snapshot(12, 'routing') });
+  assert.deepEqual(recorded, ['start-requested', 'waiting-for-fix', 'degraded', 'location-inaccurate', 'start-timeout', 'routing']);
+  assert.ok(recorded.every(state => !/\d/.test(state)));
+});
+
+test('foreground-required and invalid command failures get specific messages and fixed diagnostics', async () => {
+  const recorded: string[] = [];
+  const failure = (code: string) => Object.assign(new Error('raw native text'), { code });
+  const { controller } = fixture({ startNavigation: async () => { throw failure('foreground-required'); } }, state => recorded.push(state));
+  await Promise.resolve();
+  await controller.start(options);
+  assert.match(controller.getSnapshot().error ?? '', /primo piano/);
+  assert.ok(!(controller.getSnapshot().error ?? '').includes('raw native text'));
+  assert.deepEqual(recorded, ['start-requested', 'foreground-required']);
 });
 
 test('explicit transit confirmations remain usable without GPS, and Stop rejects late confirmation responses', async () => {

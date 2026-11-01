@@ -1,4 +1,11 @@
 import type { Coordinate, RoutePlan, TravelMode } from './types';
+import fixPolicy from '../../modules/avoid-navigation/android/src/main/assets/road-guidance-policy.json';
+
+/** Same packaged policy as native fix admission; a replanning origin must meet the walking start bound. */
+export const navigationFixPolicy = {
+  maximumFixAgeMillis: fixPolicy.maximumFixAgeMillis,
+  originAccuracyMeters: fixPolicy.walk.startAccuracyMeters,
+} as const;
 
 export type RoadMode = 'walk' | 'bicycle' | 'car';
 export type NavigationStatus = 'idle' | 'waiting-for-fix' | 'routing' | 'navigating' | 'location-degraded' | 'off-route' | 'rerouting' | 'arrived' | 'stopped' | 'interrupted' | 'error';
@@ -22,7 +29,21 @@ export interface NavigationSnapshot {
   routeRevision?: number;
   /** Events omit an unchanged route; null or a terminal session clears it. Reads include the full route. */
   route?: { geometry: Coordinate[]; source: string; fetchedAt: number } | null;
-  problem?: 'location-permission' | 'location-disabled' | 'location-stale' | 'location-inaccurate' | 'route-unavailable' | 'rate-limit' | 'reroute-limit' | 'native-error' | 'transit-replan-needed' | 'engine-unavailable' | 'service-unavailable';
+  problem?: 'location-permission' | 'location-disabled' | 'location-stale' | 'location-inaccurate' | 'location-unavailable'
+    | 'route-unavailable' | 'route-invalid' | 'route-network' | 'route-timeout' | 'route-not-started' | 'rate-limit' | 'reroute-limit'
+    | 'native-error' | 'transit-replan-needed' | 'engine-unavailable' | 'service-unavailable';
+  /** Wall-clock start of the current position wait (road modes). */
+  waitingSinceMs?: number;
+  /** Latest received fix, accepted or not: accuracy and provider only, never coordinates. */
+  lastFixAccuracyMeters?: number;
+  fixProvider?: 'gps' | 'fused' | 'network' | 'other';
+  /** Accuracy the session currently needs (start bound while waiting, guidance bound afterwards). */
+  requiredAccuracyMeters?: number;
+  /** Set once the start wait settled without a usable fix; Retry and Stop stay available. */
+  startTimedOut?: boolean;
+  bestRejectedAccuracyMeters?: number;
+  /** Walking started from a fix outside the normal start bound; shown, never hidden. */
+  reducedAccuracyStartMeters?: number;
   transit?: {
     phase: 'walk' | 'board' | 'ride' | 'alight' | 'transfer' | 'complete';
     legIndex: number; legCount: number; line?: string; headsign?: string; from?: string; to?: string;
@@ -62,8 +83,8 @@ export function navigationLocationForReplan(snapshot: NavigationSnapshot, now = 
   if (!location || snapshot.locationUsable !== true || snapshot.status === 'location-degraded'
     || (snapshot.problem && snapshot.problem !== 'transit-replan-needed')) return null;
   const age = now - location.timestamp;
-  if (!Number.isFinite(age) || age < 0 || age > 10_000
-    || !Number.isFinite(location.accuracyMeters) || location.accuracyMeters <= 0 || location.accuracyMeters > 20
+  if (!Number.isFinite(age) || age < 0 || age > navigationFixPolicy.maximumFixAgeMillis
+    || !Number.isFinite(location.accuracyMeters) || location.accuracyMeters <= 0 || location.accuracyMeters > navigationFixPolicy.originAccuracyMeters
     || !Number.isFinite(location.latitude) || Math.abs(location.latitude) > 90
     || !Number.isFinite(location.longitude) || Math.abs(location.longitude) > 180) return null;
   return { latitude: location.latitude, longitude: location.longitude };

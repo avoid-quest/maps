@@ -7,6 +7,23 @@ import { Button, Icon, IconButton, Notice } from './Controls';
 import type { NavigationState } from './navigation-controller';
 import { journeyDuration } from './journey-presentation';
 
+const elapsed = (ms: number) => {
+  const seconds = Math.max(0, Math.floor(ms / 1000));
+  return seconds < 60 ? `${seconds} s` : `${Math.floor(seconds / 60)} min ${seconds % 60} s`;
+};
+/** Shown during the start wait and degraded guidance: accuracy only, never coordinates. */
+function signalText(snapshot: NavigationSnapshot): string | null {
+  const required = snapshot.requiredAccuracyMeters;
+  if (snapshot.lastFixAccuracyMeters == null) return snapshot.mode === 'transit' ? null : 'Nessun segnale ricevuto';
+  return `Segnale ±${Math.round(snapshot.lastFixAccuracyMeters)} m${required != null ? `, serve ±${Math.round(required)} m` : ''}`;
+}
+function problemText(snapshot: NavigationSnapshot): string | null {
+  if (!snapshot.problem) return null;
+  if (snapshot.problem === 'location-inaccurate' && snapshot.startTimedOut && snapshot.bestRejectedAccuracyMeters != null) {
+    return `Posizione troppo imprecisa per partire: migliore ±${Math.round(snapshot.bestRejectedAccuracyMeters)} m${snapshot.requiredAccuracyMeters != null ? `, serve ±${Math.round(snapshot.requiredAccuracyMeters)} m` : ''}. Spostati all’aperto e riprova.`;
+  }
+  return problems[snapshot.problem];
+}
 const distance = (meters: number) => meters < 1000 ? `${Math.round(meters)} m` : `${(meters / 1000).toFixed(1).replace('.', ',')} km`;
 const statuses: Record<NavigationSnapshot['status'], string> = {
   idle: 'Preparazione', 'waiting-for-fix': 'Ricerca della posizione precisa', routing: 'Calcolo dalla tua posizione',
@@ -18,7 +35,12 @@ const problems: Record<NonNullable<NavigationSnapshot['problem']>, string> = {
   'location-disabled': 'La posizione del dispositivo è disattivata. Riattivala per proseguire.',
   'location-stale': 'Posizione non aggiornata.',
   'location-inaccurate': 'Posizione poco precisa.',
-  'route-unavailable': 'Percorso non disponibile. Controlla la connessione.',
+  'location-unavailable': 'Nessuna posizione ricevuta. Spostati all’aperto, controlla che la posizione sia attiva e riprova.',
+  'route-unavailable': 'Servizio di percorso non disponibile. Riprova più tardi.',
+  'route-invalid': 'Il percorso ricevuto non è utilizzabile. Riprova.',
+  'route-network': 'Percorso non calcolato: connessione assente. Controlla la rete e riprova.',
+  'route-timeout': 'Il servizio di percorso non ha risposto in tempo. Riprova.',
+  'route-not-started': 'Il percorso ricevuto non può essere seguito. Riprova.',
   'rate-limit': 'Troppe richieste. Riprova più tardi.',
   'reroute-limit': 'Ricalcolo automatico sospeso. Controlla la posizione e riprova.',
   'native-error': 'La navigazione si è interrotta. Riprova dalla tua posizione attuale.',
@@ -42,20 +64,26 @@ export function NavigationPanel({ snapshot, busy, error, following, onRecenter, 
   const { width, height, fontScale } = useWindowDimensions();
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [now, setNow] = useState(Date.now());
-  useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 15_000); return () => clearInterval(timer); }, []);
   const terminal = snapshot.status === 'arrived' || snapshot.status === 'interrupted' || snapshot.status === 'error';
-  const guiding = snapshot.status === 'navigating' && snapshot.locationUsable !== false;
+  // Manual transit following does not need GPS; only its advisory proximity cues do.
+  const transitMode = snapshot.mode === 'transit';
+  const cues = snapshot.locationUsable === true;
+  const guiding = snapshot.status === 'navigating' && (transitMode || snapshot.locationUsable !== false);
   const waiting = busy === 'start' || snapshot.status === 'waiting-for-fix' || snapshot.status === 'routing' || snapshot.status === 'rerouting';
+  const searching = !transitMode && (snapshot.status === 'waiting-for-fix' || snapshot.startTimedOut === true);
+  useEffect(() => { const timer = setInterval(() => setNow(Date.now()), searching ? 1_000 : 15_000); return () => clearInterval(timer); }, [searching]);
   const remainingSeconds = snapshot.mode !== 'transit' ? snapshot.durationRemainingSeconds : undefined;
   const arrival = remainingSeconds != null && snapshot.location ? new Date(snapshot.location.timestamp + remainingSeconds * 1000).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }) : null;
   const transit = snapshot.transit;
   const time = (value: number) => new Date(value).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
   const transitAge = transit ? Math.max(0, Math.floor((now - transit.fetchedAt) / 60_000)) : 0;
+  const departurePassed = transit?.phase === 'board' && transit.departureAt != null && transit.departureAt < now;
   const replanLocation = navigationLocationForReplan(snapshot);
   const confirmation: TransitConfirmation | undefined = transit?.canConfirmWalking ? 'walk-complete' : transit?.canConfirmBoarding ? 'board' : transit?.canConfirmAlighting ? 'alight' : undefined;
   const voiceLabel = snapshot.voice === 'ready' ? 'Voce attiva' : snapshot.voice === 'muted' ? 'Voce disattivata' : snapshot.voice === 'initializing' ? 'Preparazione voce' : 'Voce non disponibile';
   const source = snapshot.route?.source ?? (snapshot.mode === 'transit' ? 'MATO / 5T' : 'FOSSGIS / OpenStreetMap');
   const paused = !guiding && !terminal;
+  const header = snapshot.startTimedOut ? 'Posizione non trovata' : transitMode && snapshot.status === 'waiting-for-fix' ? 'Avvio del viaggio' : statuses[snapshot.status];
   const landscape = width >= 650 && height < 500;
   const panelHeight = Math.min(height * 0.46, Math.max(176, 176 * Math.min(fontScale, 1.5)));
   return <View pointerEvents="box-none" className="flex-1">
@@ -63,9 +91,9 @@ export function NavigationPanel({ snapshot, busy, error, following, onRecenter, 
       <ScrollView>
         <View className="flex-row items-center gap-2">
           <View className="w-6">{waiting ? <ActivityIndicator color="white" /> : <Icon name={snapshot.status === 'arrived' ? 'flag-outline' : 'navigate-outline'} color="white" />}</View>
-          <Text accessibilityRole="header" accessibilityLiveRegion="polite" className="flex-1 text-sm font-semibold text-white">{paused && snapshot.instruction ? 'Guida in pausa · Ultima indicazione' : guiding && snapshot.distanceToManeuverMeters != null ? `Tra ${distance(snapshot.distanceToManeuverMeters)}` : statuses[snapshot.status]}</Text>
+          <Text accessibilityRole="header" accessibilityLiveRegion="polite" className="flex-1 text-sm font-semibold text-white">{paused && snapshot.instruction ? 'Guida in pausa · Ultima indicazione' : guiding && !transitMode && snapshot.distanceToManeuverMeters != null ? `Tra ${distance(snapshot.distanceToManeuverMeters)}` : header}</Text>
         </View>
-        <Text className="mt-2 text-xl font-semibold leading-7 text-white">{terminal ? statuses[snapshot.status] : snapshot.instruction ?? (waiting ? 'Attendi la posizione precisa' : 'In attesa di indicazioni')}</Text>
+        <Text className="mt-2 text-xl font-semibold leading-7 text-white">{terminal ? (snapshot.status === 'arrived' && snapshot.instruction ? snapshot.instruction : statuses[snapshot.status]) : snapshot.instruction ?? (snapshot.startTimedOut ? 'Riprova o interrompi la navigazione' : waiting ? 'Attendi la posizione precisa' : 'In attesa di indicazioni')}</Text>
       </ScrollView>
     </View>
     <View pointerEvents="box-none" className="flex-1">
@@ -79,12 +107,17 @@ export function NavigationPanel({ snapshot, busy, error, following, onRecenter, 
         <Pressable accessibilityRole="button" accessibilityLabel={`Dettagli navigazione, ${voiceLabel}`} onPress={() => setDetailsOpen(true)} className="min-h-12 min-w-12 items-center justify-center px-2"><Text className="text-sm font-semibold text-[#2359D7]">Dettagli</Text></Pressable>
       </View>
       <ScrollView className="flex-1" contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 8, gap: 8 }}>
-        <Text testID="navigation-quality" accessibilityLiveRegion="polite" className="text-sm leading-5 text-[#59667A]">{snapshot.problem ? problems[snapshot.problem] : guiding ? arrival ? `Arrivo stimato ${arrival}` : 'Posizione valida' : statuses[snapshot.status]}</Text>
-        {paused && snapshot.location ? <Text className="text-xs leading-4 text-[#59667A]">Ultima posizione accettata: {time(snapshot.location.timestamp)} · ±{distance(snapshot.location.accuracyMeters)}</Text> : null}
+        <Text testID="navigation-quality" accessibilityLiveRegion="polite" className="text-sm leading-5 text-[#59667A]">{problemText(snapshot) ?? (guiding ? arrival ? `Arrivo stimato ${arrival}` : transitMode && !cues ? 'Segui il viaggio e conferma ogni passaggio' : 'Posizione valida' : header)}</Text>
+        {searching && !terminal ? <Text testID="navigation-signal" className="text-xs leading-4 text-[#59667A]">{snapshot.waitingSinceMs != null ? `Ricerca da ${elapsed(now - snapshot.waitingSinceMs)} · ` : ''}{signalText(snapshot)}</Text> : null}
+        {!searching && paused && !transitMode && snapshot.lastFixAccuracyMeters != null ? <Text className="text-xs leading-4 text-[#59667A]">{signalText(snapshot)}</Text> : null}
+        {snapshot.reducedAccuracyStartMeters != null && !terminal ? <Text testID="navigation-reduced-accuracy" className="text-xs font-semibold leading-4 text-[#8A5A00]">Avvio con precisione ridotta ±{Math.round(snapshot.reducedAccuracyStartMeters)} m</Text> : null}
+        {paused && snapshot.location && !transitMode ? <Text className="text-xs leading-4 text-[#59667A]">Ultima posizione accettata: {time(snapshot.location.timestamp)} · ±{distance(snapshot.location.accuracyMeters)}</Text> : null}
+        {!terminal && snapshot.sessionId && !snapshot.notificationGranted ? <Notice text="Notifiche disattivate: nessun controllo nella barra delle notifiche. Interrompi la guida da qui." action="Apri impostazioni" onAction={() => { void Linking.openSettings(); }} /> : null}
+        {!terminal && snapshot.sessionId && snapshot.voice === 'unavailable' ? <Text testID="navigation-voice" className="text-xs leading-4 text-[#59667A]">Solo indicazioni visive: nessuna voce italiana offline installata.</Text> : null}
         {snapshot.problem === 'location-permission' ? <NavigationButton secondary onPress={() => { void Linking.openSettings(); }}>Apri impostazioni</NavigationButton> : null}
         {error ? <Notice danger text={error} /> : null}
-      {transit ? <Text className="text-xs leading-4 text-[#59667A]">{transit.line ? `${transit.line} · ` : ''}{transit.timingStatus === 'prediction' ? 'Previsioni' : transit.timingStatus === 'scheduled' ? 'Da orario' : transit.timingStatus === 'cancelled' ? 'Corsa cancellata' : 'Orari non disponibili'} · consultato {time(transit.fetchedAt)}{transitAge >= 2 ? ' · Da aggiornare' : ''}</Text> : null}
-      {snapshot.mode === 'transit' && (snapshot.problem === 'transit-replan-needed' || transitAge >= 2) ? <NavigationButton secondary icon="refresh-outline" disabled={!!busy} onPress={onReplan}>{replanLocation ? 'Ricalcola dalla mia posizione' : 'Scegli la partenza'}</NavigationButton> : null}
+      {transit ? <Text className="text-xs leading-4 text-[#59667A]">{transit.line ? `${transit.line} · ` : ''}{transit.timingStatus === 'prediction' ? 'Previsioni' : transit.timingStatus === 'scheduled' ? 'Da orario' : transit.timingStatus === 'cancelled' ? 'Corsa cancellata' : 'Orari non disponibili'} · consultato {time(transit.fetchedAt)}{transitAge >= 2 ? ` · consultato ${transitAge} min fa, da aggiornare` : ''}{departurePassed ? ' · Partenza prevista già passata' : ''}</Text> : null}
+      {snapshot.mode === 'transit' && (snapshot.problem === 'transit-replan-needed' || transitAge >= 2 || departurePassed) ? <NavigationButton secondary icon="refresh-outline" disabled={!!busy} onPress={onReplan}>{replanLocation ? 'Ricalcola dalla mia posizione' : 'Scegli la partenza'}</NavigationButton> : null}
       {snapshot.status === 'arrived' ? <Text className="text-base leading-6 text-[#17243C]">Guida terminata. Verifica l’ingresso sul posto.</Text> : null}
       {snapshot.status === 'arrived' && snapshot.destinationDistanceMeters != null && snapshot.destinationDistanceMeters > 30 ? <Text className="text-sm leading-5 text-[#59667A]">La destinazione dista ancora {distance(snapshot.destinationDistanceMeters)} in linea d’aria.</Text> : null}
       </ScrollView>
@@ -108,17 +141,16 @@ export function NavigationPanel({ snapshot, busy, error, following, onRecenter, 
         {transit.from || transit.to ? <Text className="text-sm leading-5 text-[#59667A]">{transit.from ?? 'Partenza'} → {transit.to ?? 'Destinazione'}</Text> : null}
         <Text className="text-sm leading-5 text-[#59667A]">{transit.timingStatus === 'scheduled' ? 'Orari programmati' : transit.timingStatus === 'prediction' ? 'Previsioni consultate' : transit.timingStatus === 'cancelled' ? 'Corsa cancellata' : 'Stato della corsa non disponibile'}{transit.departureAt ? ` · partenza ${time(transit.departureAt)}` : ''}{transit.arrivalAt ? ` · arrivo ${time(transit.arrivalAt)}` : ''}. Dati consultati {transitAge < 1 ? 'meno di un minuto fa' : `${transitAge} min fa`}.</Text>
         {transitAge >= 2 ? <Notice text="Dati da aggiornare. Corse non monitorate durante la guida." /> : null}
-        {guiding && snapshot.distanceToManeuverMeters != null ? <Text className="text-sm text-[#59667A]">Distanza dal punto da raggiungere in linea d’aria: {distance(snapshot.distanceToManeuverMeters)}.</Text> : null}
+        {guiding && cues && snapshot.distanceToManeuverMeters != null ? <Text className="text-sm text-[#59667A]">Distanza dal punto da raggiungere in linea d’aria: {distance(snapshot.distanceToManeuverMeters)}.</Text> : null}
         {transit.proximityAvailable === false ? <Notice text="Vicinanza non disponibile. Conferma la fermata manualmente." /> : null}
         {(transit.phase === 'walk' || transit.phase === 'transfer') ? <Text className="text-sm leading-5 text-[#59667A]">Tratta a piedi senza indicazioni di svolta.</Text> : null}
-        {!terminal && !guiding ? <Notice text="Avvisi di vicinanza sospesi. Conferma salita e discesa manualmente." /> : null}
+        {!terminal && !cues ? <Notice text="Avvisi di vicinanza sospesi senza una posizione precisa. Conferma salita e discesa manualmente." /> : null}
       </View> : null}
             {snapshot.nextInstruction ? <Text className="text-sm leading-5 text-[#59667A]">Poi: {snapshot.nextInstruction}</Text> : null}
             {snapshot.location ? <Text className="text-sm leading-5 text-[#59667A]">Ultima posizione accettata: {time(snapshot.location.timestamp)} · ±{distance(snapshot.location.accuracyMeters)}</Text> : null}
             {!terminal && snapshot.sessionId ? <>
               <Text className="text-sm leading-5 text-[#59667A]">{snapshot.voice === 'ready' ? 'Voce italiana disponibile sul dispositivo.' : snapshot.voice === 'muted' ? 'Voce disattivata.' : snapshot.voice === 'initializing' ? 'Preparazione della voce…' : 'Installa una voce italiana offline per la guida vocale.'}</Text>
               {(snapshot.voice === 'ready' || snapshot.voice === 'muted') ? <NavigationButton secondary icon={snapshot.voice === 'muted' ? 'volume-high-outline' : 'volume-mute-outline'} disabled={!!busy} onPress={onMute}>{snapshot.voice === 'muted' ? 'Attiva voce' : 'Disattiva voce'}</NavigationButton> : null}
-              {!snapshot.notificationGranted ? <Notice text="Notifiche disattivate. Torna nell’app per interrompere la guida." action="Apri impostazioni" onAction={() => { void Linking.openSettings(); }} /> : null}
             </> : null}
             <Text className="text-sm leading-5 text-[#59667A]">{source}. {snapshot.mode === 'transit' ? 'La posizione non conferma la presenza a bordo: conferma salita e discesa.' : 'Stime senza traffico in tempo reale.'} {snapshot.route ? `Percorso consultato alle ${time(snapshot.route.fetchedAt)}.` : ''}</Text>
             <Text className="text-sm leading-5 text-[#59667A]">La guida può continuare con lo schermo spento finché Android mantiene la sessione attiva.</Text>

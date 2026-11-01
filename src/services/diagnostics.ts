@@ -7,7 +7,7 @@ const states = {
   app: ['launch', 'active', 'background', 'inactive', 'unknown', 'runtime-error'],
   map: ['loaded', 'failed'],
   location: ['requested', 'approximate', 'precise', 'granted', 'denied', 'fix', 'timeout', 'unavailable', 'services-disabled', 'providers-gps-network', 'providers-gps', 'providers-network', 'providers-other', 'providers-none'],
-  navigation: ['start-requested', 'active', 'degraded', 'off-route', 'rerouting', 'arrived', 'stopped', 'interrupted', 'denied', 'engine-unavailable', 'service-unavailable', 'route-unavailable', 'rate-limit', 'reroute-limit', 'transit-replan-needed', 'native-error'],
+  navigation: ['start-requested', 'waiting-for-fix', 'routing', 'active', 'degraded', 'location-inaccurate', 'location-stale', 'location-unavailable', 'start-timeout', 'off-route', 'rerouting', 'arrived', 'stopped', 'interrupted', 'denied', 'foreground-required', 'engine-unavailable', 'service-unavailable', 'route-unavailable', 'route-invalid', 'route-network', 'route-timeout', 'route-not-started', 'rate-limit', 'reroute-limit', 'transit-replan-needed', 'native-error'],
   favorites: ['read-failed', 'write-failed'],
   'saved-travel': ['read-failed', 'write-failed', 'remove-failed', 'invalid'],
   clipboard: ['copied', 'failed'],
