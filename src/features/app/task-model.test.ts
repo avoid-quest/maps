@@ -166,6 +166,10 @@ test('transit replanning keeps the current destination and starts a new session'
   assert.equal(plannerTask(state)!.originStep, 'picking', 'Without a guidance position the origin is chosen again');
   assert.deepEqual(plannerTask(state)!.origin, { coordinate: here, label: ORIGIN_LABELS.device, ready: false });
 
+  const withoutDestination = run({ type: 'setTravelMode', mode: 'bicycle' }, { type: 'toggleSettings' });
+  assert.equal(taskReducer(withoutDestination, { type: 'replan', from: here, viewport }), withoutDestination,
+    'Without any destination no planner opens, so the next session keeps its travel choice and settings');
+
   const resumed = taskReducer(initialTaskState, { type: 'replan', destination: sameDestination, viewport });
   assert.deepEqual(kinds(resumed), ['browse', 'planner']);
   assert.deepEqual(plannerTask(resumed)!.origin, { coordinate: viewport, label: ORIGIN_LABELS.unset, ready: false });
@@ -181,6 +185,12 @@ test('search transitions keep a category on focus and replace it when typing', (
   assert.deepEqual(opened.root, { kind: 'search', category: 'bar', inputOpen: false }, 'Opening a result closes the input');
   assert.deepEqual(kinds(taskReducer(opened, { type: 'closeTopTask' })), ['search']);
   assert.deepEqual(kinds(taskReducer(taskReducer(opened, { type: 'closeTopTask' }), { type: 'closeTopTask' })), ['browse']);
+});
+
+test('a failed guidance stop returns the planner from picking to its settled origin', () => {
+  const settled: TaskAction[] = [{ type: 'openPlace', place: cafe }, { type: 'beginRoute', viewport, locating: true }, { type: 'originLocated', coordinate: here }];
+  const restored = run(...settled, { type: 'pickOrigin' }, { type: 'cancelOriginPicking' });
+  assert.deepEqual(restored, run(...settled), 'Same session, origin and step as before the replan attempt');
 });
 
 test('journey stops open only from a planner in front', () => {

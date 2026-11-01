@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react';
 import { Linking } from 'react-native';
+import { openExternalLink } from './external-link';
 import { createFeatureContext } from './feature-context';
 
 export interface AppFeedback {
@@ -14,14 +15,7 @@ export interface AppFeedback {
 export function useAppFeedback(): AppFeedback {
   const [message, setMessage] = useState('');
   const dismiss = useCallback(() => setMessage(''), []);
-  const openLink = useCallback(async (url: string) => {
-    if (!/^(https?:|tel:)/i.test(url)) return;
-    try {
-      await Linking.openURL(url);
-    } catch {
-      setMessage('Impossibile aprire questo collegamento.');
-    }
-  }, []);
+  const openLink = useCallback((url: string) => openExternalLink(url, target => Linking.openURL(target), setMessage), []);
   return { message, report: setMessage, dismiss, openLink };
 }
 

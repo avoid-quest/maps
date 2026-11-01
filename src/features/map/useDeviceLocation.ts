@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Coordinate } from '../../domain/types';
 import { getAuthorizedLocation, getCurrentLocation } from '../../platform/location';
 import type { TaskModel } from '../app/useTaskModel';
-import { point } from './coordinates';
+import { toCoordinate } from './coordinates';
 import type { MapCamera } from './useMapCamera';
 
 export type LocationOutcome = { coordinate: Coordinate } | { error: unknown };
@@ -44,7 +44,7 @@ export function useDeviceLocation({ tasks, camera, appActive, navigationVisible 
     try {
       const position = await getCurrentLocation();
       if (id !== request.current) return null;
-      const next = point(position.coordinate);
+      const next = toCoordinate(position.coordinate);
       setCoordinate(next);
       return { coordinate: next };
     } catch (error) {
@@ -63,7 +63,7 @@ export function useDeviceLocation({ tasks, camera, appActive, navigationVisible 
     void getAuthorizedLocation().then(position => {
       if (!active || !position) return;
       setMessage('');
-      const next = point(position.coordinate);
+      const next = toCoordinate(position.coordinate);
       setCoordinate(next);
       if (id === request.current) adoptInitialFix(next);
     }).catch(error => {

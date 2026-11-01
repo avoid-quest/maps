@@ -156,7 +156,8 @@ export function taskReducer(state: TaskState, action: TaskAction): TaskState {
       const selected = selectedPlace(state);
       const keep = !action.destination || (selected && sameCoordinate(selected.coordinate, action.destination.coordinate));
       const destination = keep ? selected : action.destination;
-      if (!destination) return { ...state, settings: false, travel: { mode: 'transit', transitTime: { kind: 'now' } } };
+      // Without any destination no planner opens, so nothing else changes either.
+      if (!destination) return state;
       const origin: PlannerOrigin = action.from
         ? { coordinate: action.from, label: ORIGIN_LABELS.replan, ready: true }
         : { coordinate: current?.origin.coordinate ?? action.viewport, label: current?.origin.label ?? ORIGIN_LABELS.unset, ready: false };
