@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { idleNavigation, navigationFixPolicy, navigationLocationForReplan, type NavigationSnapshot } from './navigation';
+import { idleNavigation, navigationFixPolicy, navigationLocationForReplan, navigationPresentation, type NavigationSnapshot } from './navigation';
 
 const now = Date.UTC(2026, 9, 12, 12);
 const usable: NavigationSnapshot = { ...idleNavigation, locationUsable: true, status: 'error', mode: 'transit', problem: 'transit-replan-needed',
@@ -30,4 +30,57 @@ test('far-origin admission error cannot keep a replanning origin usable after GP
   assert.equal(navigationLocationForReplan(lost, now + 1000), null);
   const recovered = { ...lost, locationUsable: true, location: { ...lost.location!, timestamp: now + 2000 } };
   assert.deepEqual(navigationLocationForReplan(recovered, now + 2000), { latitude: 45, longitude: 7 });
+});
+
+const road: NavigationSnapshot = { ...idleNavigation, sessionId: 's', mode: 'car', status: 'waiting-for-fix', notificationGranted: true, requiredAccuracyMeters: 30 };
+
+test('the start wait shows elapsed time and current against required accuracy', () => {
+  const text = navigationPresentation({ ...road, waitingSinceMs: now - 12_400, lastFixAccuracyMeters: 38, fixProvider: 'gps' }, now);
+  assert.equal(text.signal, 'Ricerca da 12 s · Segnale ±38 m, serve ±30 m');
+  assert.equal(text.instruction, 'Attendi la posizione precisa');
+  assert.equal(navigationPresentation({ ...road, waitingSinceMs: now - 3_000 }, now).signal, 'Ricerca da 3 s · Nessun segnale ricevuto');
+});
+
+test('a settled timeout says position not found with the weak signal and never "da ritrovare"', () => {
+  const timedOut: NavigationSnapshot = { ...road, status: 'location-degraded', problem: 'location-inaccurate', startTimedOut: true,
+    canRetry: true, waitingSinceMs: now - 45_000, lastFixAccuracyMeters: 500, bestRejectedAccuracyMeters: 500 };
+  const text = navigationPresentation(timedOut, now);
+  assert.equal(text.header, 'Posizione non trovata');
+  assert.equal(text.instruction, 'Riprova o interrompi la navigazione');
+  assert.equal(text.quality, 'Segnale troppo debole ±500 m (serve ±30 m). Spostati all’aperto e riprova.');
+  assert.equal(text.signal, 'Ricerca da 45 s · Segnale ±500 m, serve ±30 m');
+  const none = navigationPresentation({ ...timedOut, problem: 'location-unavailable', lastFixAccuracyMeters: undefined, bestRejectedAccuracyMeters: undefined }, now);
+  assert.match(none.quality, /^Posizione non trovata: nessun segnale/);
+  assert.match(none.signal ?? '', /Nessun segnale ricevuto/);
+  // Even without the timeout flag, a degraded state that never had a position is "not found".
+  const neverLocated = navigationPresentation({ ...road, status: 'location-degraded', problem: 'location-disabled' }, now);
+  assert.equal(neverLocated.header, 'Posizione non trovata');
+  for (const value of [text, none, neverLocated]) assert.ok(![value.header, value.instruction, value.quality].join(' ').includes('da ritrovare'));
+});
+
+test('guidance with reduced precision keeps going and shows the label', () => {
+  const location = { latitude: 45, longitude: 7, accuracyMeters: 45, timestamp: now };
+  const guiding: NavigationSnapshot = { ...road, mode: 'walk', status: 'navigating', locationUsable: true, location,
+    instruction: 'Svolta a sinistra', distanceToManeuverMeters: 16, reducedPrecisionMeters: 45, lastFixAccuracyMeters: 45, requiredAccuracyMeters: 50 };
+  const text = navigationPresentation(guiding, now);
+  assert.equal(text.header, 'Tra 16 m');
+  assert.equal(text.precision, 'Precisione ridotta ±45 m');
+  assert.equal(text.signal, null);
+  assert.equal(navigationPresentation({ ...guiding, reducedAccuracyStartMeters: 45 }, now).precision, 'Avvio con precisione ridotta ±45 m');
+  assert.equal(navigationPresentation({ ...guiding, reducedPrecisionMeters: undefined }, now).precision, null);
+  const paused = navigationPresentation({ ...guiding, status: 'location-degraded', locationUsable: false, problem: 'location-inaccurate', reducedPrecisionMeters: undefined, lastFixAccuracyMeters: 70 }, now);
+  assert.equal(paused.header, 'Guida in pausa · Ultima indicazione');
+  assert.equal(paused.signal, 'Segnale ±70 m, serve ±50 m');
+});
+
+test('an expired journey or missed boarding is flagged immediately during access walking', () => {
+  const transit = { phase: 'walk' as const, legIndex: 0, legCount: 2, timingStatus: 'scheduled' as const, fetchedAt: now,
+    canConfirmWalking: true, canConfirmBoarding: false, canConfirmAlighting: false };
+  const following: NavigationSnapshot = { ...idleNavigation, sessionId: 's', mode: 'transit', status: 'navigating', transit };
+  assert.equal(navigationPresentation({ ...following, transit: { ...transit, journeyArrivalAt: now + 600_000, nextBoardingAt: now + 300_000 } }, now).transitWarning, null);
+  assert.match(navigationPresentation({ ...following, transit: { ...transit, journeyArrivalAt: now - 3_600_000, nextBoardingAt: now - 4_000_000 } }, now).transitWarning ?? '', /già concluso/);
+  assert.match(navigationPresentation({ ...following, transit: { ...transit, journeyArrivalAt: now + 600_000, nextBoardingAt: now - 120_000 } }, now).transitWarning ?? '', /già partita/);
+  // Without GPS, manual following is still guidance, not a paused state.
+  const text = navigationPresentation({ ...following, locationUsable: false }, now);
+  assert.equal(text.guiding, true); assert.equal(text.signal, null);
 });
