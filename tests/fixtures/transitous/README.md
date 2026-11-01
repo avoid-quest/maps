@@ -5,6 +5,7 @@ Public responses recorded on 2026-11-01 (about 19:20–19:30 UTC) from `https://
 | File | Request |
 |---|---|
 | `stoptimes-porta-susa.json` | `GET /api/v6/stoptimes?stopId=it-trenitalia_00222&n=12` |
+| `stoptimes-porta-susa-arrivals.json` | `GET /api/v6/stoptimes?stopId=it-trenitalia_00222&n=12&arriveBy=true&direction=LATER`, recorded 20:10 UTC |
 | `stoptimes-lingotto.json` | `GET /api/v6/stoptimes?stopId=it-trenitalia_00452&n=20`, trimmed to the first 8 stop times |
 | `stoptimes-porta-nuova.json` | `GET /api/v6/stoptimes?stopId=it-trenitalia_00219&n=20`, trimmed to the first 5 stop times |
 | `stoptimes-gtt-2198.json` | `GET /api/v6/stoptimes?stopId=it-Piemonte-Gruppo-Torinese-Trasporti_2198&n=8&radius=0&exactRadius=true` |
