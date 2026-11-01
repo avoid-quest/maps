@@ -1,5 +1,5 @@
 import { GTT_ATTRIBUTION, type GttBoardRow } from './board-model';
-import { addDays, romeCivilTime, romeDate } from './calendar';
+import { addDays, romeCivilTimes, romeDate } from './calendar';
 
 /**
  * GTT's per-stop departures endpoint (opt-in). It returns, per line, minute-precision realtime
@@ -14,13 +14,16 @@ export interface StopLiveLine { routeId: string; line: string; direction: string
 export interface StopLiveSnapshot { stopCode: string; retrievedAt: number; lines: StopLiveLine[] }
 
 const TIME = /^([01]\d|2[0-3]):([0-5]\d)$/;
-/** HH:MM in Rome nearest to the retrieval time (a 23:58 retrieval may list 00:03 tomorrow). */
+/**
+ * HH:MM in Rome nearest to the retrieval time, across adjacent dates (a 23:58 retrieval may list
+ * 00:03 tomorrow) and both occurrences of a time in the autumn DST fold.
+ */
 function passage(value: string, retrievedAt: number): number | undefined {
   const match = TIME.exec(value);
   if (!match) return undefined;
   const today = romeDate(retrievedAt);
   const candidates = [addDays(today, -1), today, addDays(today, 1)]
-    .map(date => romeCivilTime(date, +match[1]!, +match[2]!)).filter((at): at is number => at !== undefined);
+    .flatMap(date => romeCivilTimes(date, +match[1]!, +match[2]!));
   return candidates.sort((a, b) => Math.abs(a - retrievedAt) - Math.abs(b - retrievedAt))[0];
 }
 

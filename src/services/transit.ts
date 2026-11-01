@@ -4,7 +4,8 @@ import type { Coordinate, Stop, TransitAlertSnapshot } from '../domain/types';
 import { transitAlertWarnings } from '../domain/transit-alert-freshness';
 import { BOARD_LIMIT, composeBoard } from '../transit-data/board';
 import { GTT_STOP_ENDPOINT } from '../transit-data/config';
-import { joinFeed, type FeedJoin } from '../transit-data/identity-join';
+import { joinFeed, remapRefreshReason, type FeedJoin } from '../transit-data/identity-join';
+import { REMAP_POLICY } from '../transit-data/remap';
 import { parseStopLive, stopLiveRows, type StopLiveSnapshot } from '../transit-data/stop-live';
 import type { StopBoard } from '../transit-data/board-model';
 import { epochMs, indexFeed, type RealtimeSnapshot, type RTFeed } from '../transit-data/realtime';
@@ -69,7 +70,8 @@ async function realtimeFor(feed: FeedSnapshot, reader: TimetableReader): Promise
   let entry = joined.get(feed);
   if (!entry) joined.set(feed, entry = { snapshot: indexFeed(feed.feed, feed.fetchedAt), joins: new Map() });
   const { snapshot } = entry;
-  const remapVersion = (await remapService.store.meta().catch(() => undefined))?.fetchedAt ?? 0;
+  const remapMeta = await remapService.store.meta().catch(() => undefined);
+  const remapVersion = remapMeta?.fetchedAt ?? 0;
   const key = `${reader.meta.packageHash}|${remapVersion}`;
   let join = entry.joins.get(key);
   if (!join) {
@@ -85,7 +87,10 @@ async function realtimeFor(feed: FeedSnapshot, reader: TimetableReader): Promise
     entry.joins.set(key, join);
   }
   const result = await join;
-  if (result.unknownTrips > 0) refreshRemap('unknown-trips');
+  // The optional remap failed: exact joins stand; discard the damaged store so it is rebuilt.
+  if (result.remapFailed) void remapService.recover();
+  const reason = remapRefreshReason(result, remapMeta?.fetchedAt, Date.now(), REMAP_POLICY.minIntervalMs);
+  if (reason) refreshRemap(reason);
   return { snapshot, join: result };
 }
 
@@ -95,7 +100,7 @@ export function updateSchedulesNow(): void {
   refreshRemap('manual');
 }
 
-function refreshRemap(reason: 'unknown-trips' | 'manual') {
+function refreshRemap(reason: 'unknown-trips' | 'manual' | 'stale') {
   void remapService.refresh(reason).then(report => {
     const state = report.outcome === 'updated' ? 'remap-updated' : report.outcome === 'not-modified' || report.outcome === 'package-current' ? 'remap-current' : report.outcome === 'failed' ? 'remap-failed' : undefined;
     if (state) diagnostics.record({ type: 'timetable', state, ...(report.bytes ? { count: Math.round(report.bytes / 1024) } : {}) });

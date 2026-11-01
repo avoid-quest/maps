@@ -73,7 +73,7 @@ export const timetableService = createTimetableService({
 
 /** GTT trip_id remap: ranged reads of GTT's own export, persisted in its own database. */
 export const remapService = createRemapService({
-  store: lazyRemapStore(async () => createSqlRemapStore(await driver.open('gtt-remap.db'))),
+  store: lazyRemapStore(async () => createSqlRemapStore(await driver.open('gtt-remap.db')), () => driver.remove('gtt-remap.db')),
   transport: xhrRangeTransport,
   url: GTT_STATIC_ZIP,
   networkAllowed: () => timetableService.updatesAllowed(),

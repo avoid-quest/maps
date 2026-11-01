@@ -84,6 +84,7 @@ function DepartureRow({ row, now }: { row: GttBoardRow; now: number }) {
       <Text className="font-semibold leading-5 text-[#17243C]">{row.headsign || 'Direzione non indicata'}</Text>
       <Text className={`mt-1 text-xs ${view.live ? 'text-[#167469]' : 'text-[#59667A]'}`}>{view.statusText}</Text>
       <Text className="mt-1 text-xs text-[#59667A]">{view.provenance}</Text>
+      {view.note ? <Text className="mt-1 text-xs leading-4 text-[#59667A]">{view.note}</Text> : null}
     </View>
     <Text className={`text-lg font-bold ${view.live ? 'text-[#167469]' : 'text-[#59667A]'}`}>{view.timeText}</Text>
   </View>;

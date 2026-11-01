@@ -9,8 +9,11 @@ export interface RowPresentation {
   /** Provenance beside the row: "Programmato · GTT" or "Tempo reale · GTT". */
   provenance: string;
   live: boolean;
+  /** Explanation shown under the row: calendar extension or identity-joined provenance. */
+  note?: string;
 }
 
+export const IDENTITY_JOIN_NOTE = 'Tempo reale abbinato per linea, direzione, percorso e partenza: GTT ha cambiato il codice della corsa.';
 const minutes = (ms: number) => Math.max(0, Math.round(ms / 60_000));
 
 function delayText(delay: number | undefined): string {
@@ -63,5 +66,9 @@ export function rowPresentation(input: GttBoardRow, now: number): RowPresentatio
       statusText = row.gtt.frequency && row.scheduledAt === undefined ? `Frequenza programmata fino alle ${journeyTime(row.gtt.frequency.until)}` : realtimeStateLabel(row); break;
     default: statusText = `${realtimeStateLabel(row)}${row.realtimeState === "cancelled" && scheduled ? ` · ${scheduled}` : ""}`;
   }
-  return { row, timeText, statusText, provenance: provenanceLabel(row), live };
+  // The calendar-extension note explains why a row outside the installed calendar is shown at
+  // all; an identity join otherwise gets its own provenance line. Only while realtime backs it.
+  const backed = row.gtt.realtime === "fresh" || row.gtt.realtime === "stale" || row.gtt.realtime === "cancelled" || row.gtt.realtime === "skipped";
+  const note = row.gtt.calendar === "realtime-identity" ? row.gtt.note : backed && row.gtt.joinedBy === "identity" ? IDENTITY_JOIN_NOTE : undefined;
+  return { row, timeText, statusText, provenance: provenanceLabel(row), live, ...(note ? { note } : {}) };
 }

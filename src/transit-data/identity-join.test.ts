@@ -5,7 +5,7 @@ import path from 'node:path';
 import { Root } from 'protobufjs/light';
 import schema from '../data/gtfs-realtime-schema.json';
 import { composeBoard } from './board';
-import { joinFeed } from './identity-join';
+import { joinFeed, remapRefreshReason } from './identity-join';
 import { createMemoryReader, datasetMeta } from './reader';
 import { indexFeed, type RTFeed, type TripUpdate } from './realtime';
 import { INITIAL_REFRESH_STATE } from './refresh-policy';
@@ -35,7 +35,7 @@ test('replay: the 20261011 package joins 156 of 157 live 20261101 trips by ident
   assert.equal((await joinFeed(snapshot, old)).matchedTrips, 0, 'GTT re-issued every trip ID');
   const joined = await joinFeed(snapshot, old, remap);
   assert.equal(joined.identityMatched, 156);
-  assert.deepEqual(joined.rejected, { ambiguous: 0, mismatch: 0, noSchedule: 1 }, 'one genuinely changed schedule is not guessed');
+  assert.deepEqual(joined.rejected, { ambiguous: 0, mismatch: 0, noSchedule: 1, calendar: 0 }, 'one genuinely changed schedule is not guessed');
   assert.equal(joined.unknownTrips, 0);
 
   // Ground truth: the 20261101 package (bundled) has the live trips under their current IDs.
@@ -80,7 +80,7 @@ test('identity joins are exact or absent: date, start time, calendar and stop_se
   const ok = await joinFeed(snapshotOf(update('NEW-T1')), reader, remap);
   assert.equal(ok.identityMatched, 1); assert.equal(ok.byLocalTrip.get('T1')?.[0]?.via, 'identity');
   const cases: [TripUpdate, keyof typeof ok.rejected | 'unknown'][] = [
-    [update('NEW-OFF'), 'mismatch'], // GTT's current calendar does not run it that day
+    [update('NEW-OFF'), 'calendar'], // GTT's current calendar does not run it that day
     [update('NEW-T1', { stopTimeUpdate: [{ stopSequence: 42, arrival: { delay: 0 } }] }), 'mismatch'], // stop_sequence not in the local pattern
     [update('NEW-T1', { stopTimeUpdate: [{ stopSequence: 3, stopId: 'C', arrival: { delay: 0 } }] }), 'mismatch'], // seq 3 is stop B
     [update('NEW-T1', { trip: { tripId: 'NEW-T1', startTime: '08:00:00' } }), 'mismatch'], // no start_date: never guessed
@@ -95,7 +95,7 @@ test('identity joins are exact or absent: date, start time, calendar and stop_se
   }
 });
 
-test('two different local schedules with one identity are ambiguous; identical ones are not', async () => {
+test('identity variants: duplicates and timing conflicts are rejected; stop evidence can decide', async () => {
   const pkg = fixturePackage();
   const t = pkg.trips; const clone = (id: string, vector: number) => {
     const index = t.trip_id.indexOf('T1');
@@ -105,12 +105,36 @@ test('two different local schedules with one identity are ambiguous; identical o
   const reader = createMemoryReader(pkg, datasetMeta(pkg, fixtureManifest(encodePackage(pkg), pkg), 'bundled'));
   const remap = await remapWith([['NEW-T1', '4U', 0, '4A', 'NEW']]);
   assert.equal((await joinFeed(snapshotOf(update('NEW-T1')), reader, remap)).rejected.ambiguous, 1, 'both run locally: ambiguous');
-  const other = fixturePackage(); other.vectors.push([[0, 60, 60, 60], null]);
-  const index = other.trips.trip_id.indexOf('T1');
-  for (const key of Object.keys(other.trips) as (keyof typeof other.trips)[]) (other.trips[key] as (string | number)[]).push(key === 'trip_id' ? 'T1-RETIMED' : key === 'vector' ? other.vectors.length - 1 : key === 'service' ? other.services.findIndex(entry => entry[0] === 'HOL') : other.trips[key][index]!);
-  const retimed = createMemoryReader(other, datasetMeta(other, fixtureManifest(encodePackage(other), other), 'bundled'));
-  const result = await joinFeed(snapshotOf(update('NEW-T1')), retimed, remap);
-  assert.equal(result.identityMatched, 1, 'the locally running schedule wins over a non-running variant');
+  // Timing variants of one identity (08:03 vs 08:13 at stop C). GTT changed service assignments:
+  // the live service runs Saturdays only (defined for that day alone).
+  const variants = (running: string) => {
+    const pkg = fixturePackage();
+    pkg.services.push(['SAT', 32, '20261017', '20261017', [], []]);
+    pkg.vectors.push([[0, 120, 780, 240], null]);
+    const index = pkg.trips.trip_id.indexOf('T1');
+    pkg.trips.service[index] = pkg.services.findIndex(entry => entry[0] === running);
+    for (const key of Object.keys(pkg.trips) as (keyof typeof pkg.trips)[]) (pkg.trips[key] as (string | number)[]).push(
+      key === 'trip_id' ? 'T1-SAT' : key === 'vector' ? pkg.vectors.length - 1 : key === 'service' ? pkg.services.findIndex(entry => entry[0] === 'SAT') : pkg.trips[key][index]!);
+    return createMemoryReader(pkg, datasetMeta(pkg, fixtureManifest(encodePackage(pkg), pkg), 'bundled'));
+  };
+  const saturday = await remapWith([['NEW-T1', '4U', 0, '4A', 'NEWSAT']], { calendar: [{ serviceId: 'NEWSAT', mask: 32, start: '20261024', end: '20261024' }] });
+  const live = update('NEW-T1', { trip: { tripId: 'NEW-T1', startDate: '20261024', startTime: '08:00:00' } });
+  // T1 runs every day locally (it would cover Saturday too): the variants cannot be separated.
+  const conflict = await joinFeed(snapshotOf(live), variants('ALL'), saturday);
+  assert.equal(conflict.matchedTrips, 0, 'conflicting timing variants: no join, even though one runs locally');
+  assert.equal(conflict.rejected.ambiguous, 1);
+  // T1 runs Mon–Fri only: GTT's Saturday service is covered by the Saturday variant alone, which
+  // the installed calendar no longer runs — the evidence picks it instead of discarding it.
+  const decided = await joinFeed(snapshotOf(live), variants('WK'), saturday);
+  assert.equal(decided.byLocalTrip.get('T1-SAT')?.[0]?.via, 'identity');
+  assert.deepEqual(decided.extensions.map(entry => entry.trip.tripId), ['T1-SAT']);
+  // Stop evidence can also decide: a variant whose pattern lacks the reported stop_sequence is excluded.
+  const third = fixturePackage(); third.vectors.push([[0, 120, 780], null]);
+  const t1 = third.trips.trip_id.indexOf('T1');
+  for (const key of Object.keys(third.trips) as (keyof typeof third.trips)[]) (third.trips[key] as (string | number)[]).push(
+    key === 'trip_id' ? 'T1-SHORT' : key === 'vector' ? third.vectors.length - 1 : key === 'pattern' ? 4 : third.trips[key][t1]!);
+  const byStops = await joinFeed(snapshotOf(update('NEW-T1', { stopTimeUpdate: [{ stopSequence: 7, arrival: { delay: 60 } }] })), createMemoryReader(third, datasetMeta(third, fixtureManifest(encodePackage(third), third), 'bundled')), remap);
+  assert.equal(byStops.byLocalTrip.get('T1')?.[0]?.via, 'identity', 'stop_sequence 7 exists only in one variant');
 });
 
 test('an identity match outside the installed calendar extends the board, labelled as such', async () => {
@@ -128,4 +152,32 @@ test('an identity match outside the installed calendar extends the board, labell
   assert.match(row.gtt.note!, /fuori dal calendario installato/);
   const scheduledOnly = await composeBoard(reader, 'A', NOW, { refresh: INITIAL_REFRESH_STATE });
   assert.ok(!scheduledOnly.rows.some(candidate => candidate.gtt.tripId === 'HOL1'), 'never shown without the live match');
+});
+
+test('a failing remap never takes exact trip_id joins (or the board) down', async () => {
+  const reader = fixtureReader();
+  const broken = { ...createMemoryRemapStore(), lookup: async () => { throw new Error('SQLITE_CORRUPT'); } };
+  const exact = update('T1'); const unknown = update('UNKNOWN', { trip: { tripId: 'UNKNOWN', startDate: '20261021', startTime: '08:10:00' } });
+  const join = await joinFeed(snapshotOf(exact, unknown), reader, broken);
+  assert.equal(join.remapFailed, true);
+  assert.equal(join.byLocalTrip.get('T1')?.[0]?.via, 'trip_id');
+  assert.equal(join.matchedTrips, 1); assert.equal(join.unknownTrips, 1);
+  const board = await composeBoard(reader, 'B', NOW, { refresh: INITIAL_REFRESH_STATE, realtime: { snapshot: snapshotOf(exact, unknown), join } });
+  assert.equal(board.rows.find(row => row.gtt.tripId === 'T1')?.realtimeState, 'realtime-with-source-time');
+});
+
+test('remap refresh is requested for unknown IDs, calendar rejections and a stale remap in use', async () => {
+  const base = { byLocalTrip: new Map(), extensions: [], matchedTrips: 0, identityMatched: 0, unknownTrips: 0, rejected: { ambiguous: 0, mismatch: 0, noSchedule: 0, calendar: 0 } };
+  const day = 86_400_000; const now = 10 * day;
+  assert.equal(remapRefreshReason({ ...base, unknownTrips: 2 }, now, now, day), 'unknown-trips');
+  assert.equal(remapRefreshReason({ ...base, rejected: { ...base.rejected, calendar: 1 } }, now, now, day), 'stale', 'GTT kept IDs but extended calendars');
+  assert.equal(remapRefreshReason({ ...base, identityMatched: 5 }, now - 2 * day, now, day), 'stale');
+  assert.equal(remapRefreshReason({ ...base, identityMatched: 5 }, now - 3_600_000, now, day), undefined);
+  assert.equal(remapRefreshReason({ ...base, matchedTrips: 9 }, now - 30 * day, now, day), undefined, 'an unused remap is left alone');
+  // End to end: a remap whose calendar ends before the live date rejects by calendar and asks for revalidation.
+  const reader = fixtureReader();
+  const old = await remapWith([['NEW-T1', '4U', 0, '4A', 'NEW']], { calendar: [{ serviceId: 'NEW', mask: 127, start: '20261001', end: '20261020' }] });
+  const join = await joinFeed(snapshotOf(update('NEW-T1')), reader, old);
+  assert.equal(join.rejected.calendar, 1);
+  assert.equal(remapRefreshReason(join, now, now, day), 'stale');
 });

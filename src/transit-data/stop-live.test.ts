@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { rowPresentation } from '../components/departure-status';
 import type { GttBoardRow } from './board-model';
+import { romeCivilTimes } from './calendar';
 import { parseStopLive, stopLiveRows } from './stop-live';
 import { rome } from './test-support/fixture';
 
@@ -44,4 +45,17 @@ test('per-stop rows: declared realtime without source time, metro stays schedule
   assert.equal(view.timeText, '21:29', 'minute precision, not a countdown');
   assert.match(rowPresentation(row, AT + 5 * 60_000).statusText, /consultata 5 min fa/);
   assert.equal(rowPresentation(row, AT + 31 * 60_000).timeText, '—');
+});
+
+test('autumn DST fold: an ambiguous HH:MM resolves to the occurrence nearest the retrieval', () => {
+  assert.deepEqual(romeCivilTimes('20261025', 2, 25), [Date.parse('2026-10-25T00:25:00Z'), Date.parse('2026-10-25T01:25:00Z')]);
+  assert.deepEqual(romeCivilTimes('20260329', 2, 30), [], 'spring gap');
+  // Retrieved at 02:20 CET (the second 02:20): "02:25" is five minutes ahead, not an hour ago.
+  const retrieved = Date.parse('2026-10-25T01:20:00Z');
+  const snapshot = parseStopLive([{ Linea: '15', Bacino: 'U', PassaggiRT: ['02:25'] }], '472', retrieved);
+  assert.equal(snapshot.lines[0]!.realtime[0], Date.parse('2026-10-25T01:25:00Z'));
+  const rows = stopLiveRows(snapshot, board(), { now: retrieved, routes });
+  assert.equal(rows.length, 1, 'kept as upcoming');
+  // Retrieved at 02:20 CEST (the first 02:20): the first 02:25.
+  assert.equal(parseStopLive([{ Linea: '15', Bacino: 'U', PassaggiRT: ['02:25'] }], '472', Date.parse('2026-10-25T00:20:00Z')).lines[0]!.realtime[0], Date.parse('2026-10-25T00:25:00Z'));
 });

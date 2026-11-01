@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { rowPresentation } from "./departure-status";
+import { IDENTITY_JOIN_NOTE, rowPresentation } from "./departure-status";
 import type { GttBoardRow } from "../transit-data/board-model";
 
 const base: GttBoardRow = {
@@ -57,4 +57,13 @@ test("an aging cancellation report is shown with its age, then as no longer curr
   assert.match(expired.statusText, /^Cancellazione segnalata 40 min fa, non più attuale/);
   assert.equal(expired.provenance, "Programmato · GTT");
   assert.notEqual(expired.timeText, "—", "the scheduled time is shown again");
+});
+
+test("calendar-extension and identity-joined rows explain their provenance", () => {
+  const extension: GttBoardRow = { ...base, gtt: { ...base.gtt, joinedBy: "identity", calendar: "realtime-identity", note: "Corsa fuori dal calendario installato: orari del pacchetto, abbinati alla corsa in tempo reale GTT per linea, direzione, percorso e partenza." } };
+  const view = rowPresentation(extension, 1_030_000);
+  assert.equal(view.live, true);
+  assert.match(view.note ?? "", /fuori dal calendario installato/);
+  assert.equal(rowPresentation({ ...base, gtt: { ...base.gtt, joinedBy: "identity" } }, 1_030_000).note, IDENTITY_JOIN_NOTE);
+  assert.equal(rowPresentation(base, 1_030_000).note, undefined, "trip_id joins need no note");
 });

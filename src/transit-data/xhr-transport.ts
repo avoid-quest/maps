@@ -7,7 +7,7 @@ import { ZipRangeError, type RangeTransport } from './zip-range';
  * `withCredentials = false` makes React Native use OkHttp's NO_COOKIES jar: cookies are neither
  * sent nor stored. No custom headers beyond the range validators.
  */
-export const xhrRangeTransport: RangeTransport = (url, headers, accept) => new Promise((resolve, reject) => {
+export const xhrRangeTransport: RangeTransport = (url, headers, accept, maxBytes) => new Promise((resolve, reject) => {
   const xhr = new XMLHttpRequest();
   let settled = false;
   const fail = (error: Error) => { if (!settled) { settled = true; reject(error); } };
@@ -16,15 +16,23 @@ export const xhrRangeTransport: RangeTransport = (url, headers, accept) => new P
   xhr.withCredentials = false;
   xhr.timeout = 30_000;
   for (const [name, value] of Object.entries(headers)) xhr.setRequestHeader(name, value);
+  const tooLarge = () => { xhr.abort(); fail(new ZipRangeError('Risposta GTT più grande dell’intervallo richiesto.', 'limit')); };
   xhr.onreadystatechange = () => {
-    if (xhr.readyState === 2 && !accept.includes(xhr.status)) {
+    if (xhr.readyState !== 2) return;
+    if (!accept.includes(xhr.status)) {
       xhr.abort();
       fail(new ZipRangeError(`Risposta GTT inattesa (HTTP ${xhr.status}).`, xhr.status === 200 ? 'changed' : 'unsupported'));
+      return;
     }
+    // Refuse an oversized body before it is buffered; also enforced while receiving below.
+    const length = Number(xhr.getResponseHeader('content-length'));
+    if (Number.isFinite(length) && length > maxBytes) tooLarge();
   };
+  xhr.onprogress = event => { if (event.loaded > maxBytes) tooLarge(); };
   xhr.onload = () => {
     if (settled) return;
     if (!accept.includes(xhr.status)) { fail(new ZipRangeError(`Risposta GTT inattesa (HTTP ${xhr.status}).`, 'unsupported')); return; }
+    if (((xhr.response as ArrayBuffer | null)?.byteLength ?? 0) > maxBytes) { fail(new ZipRangeError('Risposta GTT più grande dell’intervallo richiesto.', 'limit')); return; }
     settled = true;
     resolve({ status: xhr.status, header: name => xhr.getResponseHeader(name) ?? undefined, body: new Uint8Array((xhr.response as ArrayBuffer | null) ?? new ArrayBuffer(0)) });
   };

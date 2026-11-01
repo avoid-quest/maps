@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { strToU8, zipSync } from 'fflate';
-import { createRemapService, createSqlRemapStore, createMemoryRemapStore, REMAP_POLICY } from './remap';
+import { createRemapService, createSqlRemapStore, createMemoryRemapStore, lazyRemapStore, REMAP_POLICY } from './remap';
 import { createBunDriver } from './test-support/sqlite-driver';
 import { crc32, csvRows, hex32, readCentralDirectory, readMembers, ZipRangeError, type RangeTransport } from './zip-range';
 
@@ -26,7 +26,7 @@ function archive(version: string, tripCount = 1500) {
 /** A static server: Range (suffix and a-b), ETag, If-None-Match and If-Range, like GTT's Apache. */
 function server(initial: Uint8Array) {
   let body = initial; let etag = '"v1"'; const log: { headers: Record<string, string>; status: number; bytes: number }[] = [];
-  const transport: RangeTransport = async (_url, headers, accept) => {
+  const transport: RangeTransport = async (_url, headers, accept, maxBytes) => {
     let status = 206; let slice = body;
     if (headers['If-None-Match'] === etag) status = 304;
     else if (headers['If-Range'] && headers['If-Range'] !== etag) status = 200;
@@ -37,9 +37,12 @@ function server(initial: Uint8Array) {
       else status = 200;
     }
     const start = status === 206 ? (slice.byteOffset - body.byteOffset) : 0;
-    // Like the XHR transport: an unexpected status is rejected at the headers, without the body.
-    log.push({ headers, status, bytes: accept.includes(status) && status !== 304 ? slice.length : 0 });
+    // Like the XHR transport: an unexpected status or oversized body is rejected at the headers.
+    const oversized = status !== 304 && slice.length > maxBytes;
+    const refused = !accept.includes(status) || oversized;
+    log.push({ headers, status, bytes: refused || status === 304 ? 0 : slice.length });
     if (!accept.includes(status)) throw new ZipRangeError(`HTTP ${status}`, status === 200 ? 'changed' : 'unsupported');
+    if (oversized) throw new ZipRangeError('too large', 'limit');
     return { status, body: status === 304 ? new Uint8Array() : slice, header: (name: string) => ({ etag, 'last-modified': 'Sun, 01 Nov 2026 02:26:59 GMT', 'content-range': `bytes ${start}-${start + slice.length - 1}/${body.length}` } as Record<string, string>)[name.toLowerCase()] };
   };
   return { transport, log, replace(next: Uint8Array, tag: string) { body = next; etag = tag; } };
@@ -99,8 +102,8 @@ test('remap: at most one attempt a day, conditional, never a full download, conf
   // The archive changes between the directory and member reads: If-Range would send 200, which is refused.
   activeCrc = undefined;
   site.replace(archive('20261102'), '"v3"');
-  const changing: typeof site.transport = async (url, headers, accept) => {
-    const response = await site.transport(url, headers, accept);
+  const changing: typeof site.transport = async (url, headers, accept, maxBytes) => {
+    const response = await site.transport(url, headers, accept, maxBytes);
     if (headers.Range?.startsWith('bytes=-')) site.replace(archive('20261103'), '"v4"');
     return response;
   };
@@ -114,4 +117,78 @@ test('remap respects the network preference and a missing transport', async () =
   const offline = createRemapService({ store: createMemoryRemapStore(), transport: server(archive('x')).transport, url: 'zip', networkAllowed: async () => false });
   assert.equal((await offline.refresh('manual')).outcome, 'skipped-network');
   assert.equal((await createRemapService({ store: createMemoryRemapStore(), url: 'zip' }).refresh('manual')).outcome, 'unsupported');
+});
+
+const view = (data: Uint8Array) => new DataView(data.buffer, data.byteOffset, data.byteLength);
+function eocdOffset(zip: Uint8Array) { for (let at = zip.length - 22; at >= 0; at--) if (view(zip).getUint32(at, true) === 0x06054b50) return at; throw new Error('no eocd'); }
+/** Rewrite the declared uncompressed size of one member in the central directory. */
+function declareSize(zip: Uint8Array, name: string, size: number) {
+  const out = zip.slice(); const eocd = eocdOffset(out); let at = view(out).getUint32(eocd + 16, true);
+  for (let index = 0; index < view(out).getUint16(eocd + 10, true); index++) {
+    const length = view(out).getUint16(at + 28, true);
+    if (new TextDecoder().decode(out.subarray(at + 46, at + 46 + length)) === name) view(out).setUint32(at + 24, size, true);
+    at += 46 + length + view(out).getUint16(at + 30, true) + view(out).getUint16(at + 32, true);
+  }
+  return out;
+}
+
+test('inflation is bounded: a member that inflates beyond its declared size aborts early', async () => {
+  // 16 MB of zeros compresses to ~16 KB; the directory claims 16,500 bytes.
+  const bomb = declareSize(zipSync({ 'trips.txt': new Uint8Array(16 * 1024 * 1024), 'feed_info.txt': strToU8('a\n') }, { level: 9 }), 'trips.txt', 16_500);
+  const { transport } = server(bomb);
+  const directory = await readCentralDirectory(transport, 'zip');
+  if (directory === 'not-modified') throw new Error('unexpected');
+  let received = 0; let largestChunk = 0;
+  await assert.rejects(readMembers(transport, 'zip', directory, ['trips.txt'], (_, chunk) => { received += chunk.length; largestChunk = Math.max(largestChunk, chunk.length); }),
+    (error: unknown) => error instanceof ZipRangeError && error.kind === 'limit');
+  assert.ok(received <= 16_500, `only the declared bytes reach the parser (${received})`);
+  assert.ok(largestChunk <= 1100 * 1024, 'no single step produces more than ~1 MB');
+  // Declared sizes beyond the limits are refused before any member is requested.
+  const huge = declareSize(archive('20261101'), 'trips.txt', 20 * 1024 * 1024);
+  const hugeServer = server(huge);
+  const hugeDirectory = await readCentralDirectory(hugeServer.transport, 'zip');
+  if (hugeDirectory === 'not-modified') throw new Error('unexpected');
+  await assert.rejects(readMembers(hugeServer.transport, 'zip', hugeDirectory, ['trips.txt'], () => undefined), (error: unknown) => error instanceof ZipRangeError && error.kind === 'limit');
+  assert.equal(hugeServer.log.length, 1, 'only the tail was fetched');
+  // CSV record and line limits.
+  assert.throws(() => csvRows(() => undefined, { maxRows: 2, maxLineLength: 100 })('h\n1\n2\n3\n', true), (error: unknown) => error instanceof ZipRangeError && error.kind === 'limit');
+  assert.throws(() => csvRows(() => undefined, { maxRows: 10, maxLineLength: 8 })('h\n123456789012\n', false), ZipRangeError);
+});
+
+test('a hostile end-of-directory or mismatched Content-Range is refused without large reads', async () => {
+  for (const [size, offset] of [[0xffffffff, 0], [0x7ffffff0, 0], [100, 0xfffffff0]] as const) {
+    const zip = archive('20261101'); const eocd = eocdOffset(zip);
+    view(zip).setUint32(eocd + 12, size, true); if (offset) view(zip).setUint32(eocd + 16, offset, true);
+    const site = server(zip);
+    await assert.rejects(readCentralDirectory(site.transport, 'zip'), ZipRangeError, `size ${size}`);
+    assert.equal(site.log.length, 1, 'no directory request beyond the tail');
+  }
+  const zip = archive('20261101'); const site = server(zip);
+  const lying: RangeTransport = async (url, headers, accept, maxBytes) => {
+    const response = await site.transport(url, headers, accept, maxBytes);
+    return { ...response, header: (name: string) => name.toLowerCase() === 'content-range' ? `bytes 0-${response.body.length - 1}/${zip.length}` : response.header(name) };
+  };
+  const directory = await readCentralDirectory(site.transport, 'zip');
+  if (directory === 'not-modified') throw new Error('unexpected');
+  await assert.rejects(readMembers(lying, 'zip', directory, ['trips.txt'], () => undefined), (error: unknown) => error instanceof ZipRangeError && error.kind === 'unsupported');
+  const short: RangeTransport = async (url, headers, accept, maxBytes) => ({ ...(await site.transport(url, headers, accept, maxBytes)), body: new Uint8Array(10) });
+  await assert.rejects(readMembers(short, 'zip', directory, ['trips.txt'], () => undefined), ZipRangeError, 'body length must match Content-Range');
+});
+
+test('a damaged remap database is discarded and recreated; storage failures never escape refresh', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gtt-remap-'));
+  const driver = createBunDriver(directory);
+  fs.writeFileSync(path.join(directory, 'gtt-remap.db'), 'not a database'.repeat(200));
+  const store = lazyRemapStore(async () => createSqlRemapStore(await driver.open('gtt-remap.db')), () => driver.remove('gtt-remap.db'));
+  assert.equal(await store.meta(), undefined, 'recreated empty');
+  const service = createRemapService({ store, transport: server(archive('20261101')).transport, url: 'zip' });
+  assert.equal((await service.refresh('manual')).outcome, 'updated');
+  assert.equal((await store.meta())?.feedVersion, '20261101');
+  let resets = 0;
+  const failing = { ...createMemoryRemapStore(), readState: async () => { throw new Error('SQLITE_IOERR'); }, reset: async () => { resets++; } };
+  const report = await createRemapService({ store: failing, transport: server(archive('x')).transport, url: 'zip' }).refresh('manual');
+  assert.equal(report.outcome, 'failed'); assert.equal(resets, 1);
+  const writeFails = { ...createMemoryRemapStore(), replace: async () => { throw new Error('SQLITE_FULL'); }, reset: async () => { resets++; } };
+  assert.equal((await createRemapService({ store: writeFails, transport: server(archive('y')).transport, url: 'zip' }).refresh('manual')).outcome, 'failed');
+  assert.equal(resets, 2, 'a storage failure while saving discards the partial remap');
 });

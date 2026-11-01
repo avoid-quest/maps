@@ -61,9 +61,17 @@ export function createTimetableService(deps: {
     status = { ...status, ...next };
     for (const listener of listeners) { try { listener(); } catch { /* observers cannot break data access */ } }
   };
-  async function save(refresh: RefreshState, extra: Partial<ScheduleStatus> = {}) {
-    update({ refresh, ...extra });
-    await store.writeState(refresh).catch(() => undefined);
+  type Preferences = Pick<RefreshState, 'wifiOnly' | 'stopLive'>;
+  /**
+   * Commit refresh bookkeeping. User preferences are never taken from a state captured before an
+   * await: they are merged from the current status at commit time, so a check that completes
+   * after the user changed a preference cannot restore the old value. Only the preference
+   * setters pass new values.
+   */
+  async function save(refresh: RefreshState, extra: Partial<ScheduleStatus> = {}, preferences: Partial<Preferences> = {}) {
+    const committed: RefreshState = { ...refresh, wifiOnly: status.refresh.wifiOnly, stopLive: status.refresh.stopLive, ...preferences };
+    update({ refresh: committed, ...extra });
+    await store.writeState(committed).catch(() => undefined);
   }
   const activeMeta = (fallback: DatasetMeta) => store.active()?.meta ?? fallback;
 
@@ -73,7 +81,8 @@ export function createTimetableService(deps: {
         const dataset = await store.open();
         // Evidence (validators, confirmation) belongs to the package it was obtained for.
         const refresh = bindActive(await store.readState(), dataset.meta.packageHash);
-        await save(refresh, { phase: 'ready', meta: dataset.meta });
+        // The persisted preferences are the source at startup.
+        await save(refresh, { phase: 'ready', meta: dataset.meta }, { wifiOnly: refresh.wifiOnly, stopLive: refresh.stopLive });
         return dataset;
       } catch (error) {
         opening = undefined;
@@ -164,8 +173,8 @@ export function createTimetableService(deps: {
       inFlight = run(reason).catch((): CheckOutcome => 'failed').finally(() => { inFlight = undefined; });
       return inFlight;
     },
-    async setWifiOnly(value) { await ready().catch(() => undefined); await save({ ...status.refresh, wifiOnly: value }); },
-    async setStopLive(value) { await ready().catch(() => undefined); await save({ ...status.refresh, stopLive: value }); },
+    async setWifiOnly(value) { await ready().catch(() => undefined); await save(status.refresh, {}, { wifiOnly: value }); },
+    async setStopLive(value) { await ready().catch(() => undefined); await save(status.refresh, {}, { stopLive: value }); },
     async updatesAllowed() {
       await ready().catch(() => undefined);
       const wifiOnly = status.refresh.wifiOnly;

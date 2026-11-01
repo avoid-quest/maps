@@ -243,3 +243,20 @@ test('Wi-Fi-only preference defers checks, also when the network type is unknown
   unknown.advance(REFRESH_POLICY.manualMinIntervalMs);
   assert.equal(await unknown.service.check('manual'), 'current', 'any-connection mode does not depend on the lookup');
 });
+
+test('a check completing after a preference change never restores the old preference', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gtt-service-'));
+  const pkg = fixturePackage(); const text = encodePackage(pkg); const manifest = fixtureManifest(text, pkg);
+  const store = createPackageStore({ driver: createBunDriver(path.join(directory, 'db')), files: createTestFiles(path.join(directory, 'files'), new Map()), sha256, bundled: { manifest, load: async () => text }, closeLater: db => void db.close() });
+  let release!: (response: Response) => void;
+  const fetch = (() => new Promise<Response>(resolve => { release = resolve; })) as unknown as typeof globalThis.fetch;
+  const service = createTimetableService({ store, fetch, mirrors: [{ base: BASE, layout: 'tree' }], now: () => rome('20261021', '08:00') });
+  await service.setStopLive(true);
+  const pending = service.check('manual');
+  await new Promise(resolve => setTimeout(resolve, 0));
+  await service.setStopLive(false);
+  release(new Response(JSON.stringify(manifest), { status: 200, headers: { ETag: '"x"' } }));
+  assert.equal(await pending, 'current');
+  assert.equal(service.status().refresh.stopLive, false, 'in memory');
+  assert.equal((await store.readState()).stopLive, false, 'persisted');
+});

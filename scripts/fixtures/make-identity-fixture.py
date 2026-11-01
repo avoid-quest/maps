@@ -86,7 +86,10 @@ subset = {
     "frequencies": [],
 }
 new_services = {new_trips[i]["service_id"] for i in live_ids if i in new_trips}
-dates = sorted({date for _, _, date in live})
+import datetime
+# The live dates plus the following fortnight: the calendar evidence a device compares.
+dates = sorted({(datetime.date(int(d[:4]), int(d[4:6]), int(d[6:])) + datetime.timedelta(days=offset)).strftime("%Y%m%d")
+                for _, _, d in live for offset in range(14)})
 fixture = {
     "about": "GTT data (Data source: GTT S.p.A. – Gruppo Torinese Trasporti, https://www.gtt.to.it); identity-join replay subset",
     "liveTrips": len(live), "oldPackage": subset,
