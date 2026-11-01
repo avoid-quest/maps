@@ -2,7 +2,7 @@ export * from '../domain/types';
 export { searchPlaces, searchLocalPlaces, searchLocalResult, SEARCH_CATEGORIES, categoryLabel } from './search';
 export { PLACE_BOUNDS, LOCAL_SEARCH_RADIUS_METERS, getPlaceCoverage } from './place-coverage';
 export { planRoute, planRoutes, romeDateTime, resolveTransitTime, type PlanRouteOptions } from './routing';
-export { getNearbyStops, getStop, getDepartures, getTransitAlerts } from './transit';
+export { getNearbyStops, getStop, getScheduledBoard, getStopBoard, getTransitAlerts } from './transit';
 export { matchJourneyStop } from './transit-stop-matching';
 export { loadSavedPlaces, savePlace, removeSavedPlace } from './favorites';
 export { distanceMeters, TURIN_CENTER } from './geo';

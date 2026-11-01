@@ -1,6 +1,5 @@
-import staticStops from '../data/gtt-stops.json';
-import manifest from '../data/manifest.json';
 import type { Coordinate, RouteLeg, RoutePlan, RouteStep, RouteStop, Stop, TransitTime, TravelMode } from '../domain/types';
+import { catalogStop, catalogVersion } from '../transit-data/stop-catalog';
 import { diagnostics } from './diagnostics';
 import { resolveTransitTime } from './transit-time';
 
@@ -293,12 +292,11 @@ function createSlot<T>(key: string, empty: T, parse: (raw: string) => T, seriali
   };
 }
 
-const installedStops = new Map<string, Stop>((staticStops as Stop[]).map(stop => [stop.id, stop]));
-
 export function createSavedTravel(options: StoreOptions = {}) {
   const now = options.now ?? Date.now;
-  const getStop = options.getStop ?? (id => installedStops.get(id));
-  const datasetVersion = options.datasetVersion ?? manifest.gtt.version;
+  // The installed (active) package's stops; saved stops record the package's feed version.
+  const getStop = options.getStop ?? catalogStop;
+  const datasetVersion = () => options.datasetVersion ?? catalogVersion().feedVersion;
   function onFailure(state: SavedTravelFailureEvent) {
     try { options.onFailure?.(state); } catch { /* Diagnostics must not change persistence outcomes. */ }
   }
@@ -351,7 +349,7 @@ export function createSavedTravel(options: StoreOptions = {}) {
         text(id, 128);
         const current = getStop(id);
         if (!current || current.id !== id) invalid('stop-unavailable');
-        next = savedStop({ ...current, datasetVersion });
+        next = savedStop({ ...current, datasetVersion: datasetVersion() });
       } catch (error) { failure = reason(error); }
       return stops.mutate(previous => {
         if (failure) invalid(failure);

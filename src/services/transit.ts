@@ -1,73 +1,34 @@
 import { Root } from 'protobufjs/light';
 import schema from '../data/gtfs-realtime-schema.json';
-import staticStops from '../data/gtt-stops.json';
-import staticLookup from '../data/gtt-trips.json';
-import manifest from '../data/manifest.json';
-import type { Coordinate, Departure, DepartureBoard, Stop, TransitAlertSnapshot } from '../domain/types';
+import type { Coordinate, Stop, TransitAlertSnapshot } from '../domain/types';
 import { transitAlertWarnings } from '../domain/transit-alert-freshness';
+import { composeBoard } from '../transit-data/board';
+import type { StopBoard } from '../transit-data/board-model';
+import { epochMs, indexFeed, type RealtimeSnapshot, type RTFeed } from '../transit-data/realtime';
+import type { TimetableReader } from '../transit-data/reader';
+import { timetableService } from '../transit-data/runtime';
+import { adoptCatalog, catalogStop, catalogStopRoutes, catalogStops } from '../transit-data/stop-catalog';
 import { distanceMeters } from './geo';
-import { checkAbort, fetchResponse, parseServiceData, requestQueue, ServiceError } from './network';
+import { checkAbort, fetchResponse, requestQueue, ServiceError } from './network';
 import { diagnostics } from './diagnostics';
+export type { RTFeed } from '../transit-data/realtime';
+
 const Feed = Root.fromJSON(schema).lookupType('transit_realtime.FeedMessage');
 const GTT = 'https://percorsieorari.gtt.to.it/das_gtfsrt/';
 const queue = requestQueue(1500);
-const stops = staticStops as Stop[];
-type Trip = [line: string, headsign: string, routeId: string, pattern: number];
-export interface TripLookup { patterns: Record<string, string>[]; trips: Record<string, Trip> }
-const lookup = staticLookup as unknown as TripLookup;
-interface EventTime { time?: number | string; delay?: number }
-interface StopUpdate { stopSequence?: number; stopId?: string; scheduleRelationship?: string; arrival?: EventTime; departure?: EventTime }
-interface Translation { translation?: { text?: string; language?: string }[] }
-interface Alert { headerText?: Translation; descriptionText?: Translation; url?: Translation; activePeriod?: { start?: number | string; end?: number | string }[]; informedEntity?: { stopId?: string; routeId?: string }[] }
-export interface RTFeed { header?: { gtfsRealtimeVersion?: string; timestamp?: number | string; incrementality?: string }; entity?: { id?: string; isDeleted?: boolean; tripUpdate?: { timestamp?: number | string; trip?: { tripId?: string; scheduleRelationship?: string }; stopTimeUpdate?: StopUpdate[] }; alert?: Alert }[] }
+/** Arrival boards poll the shared citywide feed at this cadence, only while a board is visible. */
+export const ARRIVALS_REFRESH_MS = 30_000;
+const SOURCE = 'GTT S.p.A. – Gruppo Torinese Trasporti';
+
 export function getNearbyStops(center: Coordinate, options: { limit?: number; radiusMeters?: number } = {}): Stop[] {
-  return stops.map(stop => ({ ...stop, distanceMeters: distanceMeters(center, stop.coordinate) }))
+  return catalogStops().map(stop => ({ ...stop, distanceMeters: distanceMeters(center, stop.coordinate) }))
     .filter(s => s.distanceMeters <= (options.radiusMeters ?? 1800)).sort((a, b) => a.distanceMeters - b.distanceMeters).slice(0, options.limit ?? 18);
 }
-export function getStop(stopId: string): Stop | undefined { return stops.find(s => s.id === stopId); }
-function epoch(time?: number | string): number | undefined { const n = Number(time); return Number.isFinite(n) && n > 0 ? n * 1000 : undefined; }
-/** A fresh download is not a fresh prediction: require entity AND feed timestamps. */
-export function predictionStatus(feedAt: number | undefined, entityAt: number | undefined, now: number): Departure['status'] {
-  if (!feedAt || !entityAt) return 'unknown';
-  if (feedAt > now + 60_000 || entityAt > now + 60_000) return 'unknown';
-  return now - Math.min(feedAt, entityAt) > 120_000 ? 'stale' : 'live';
-}
-export function departuresFromFeed(feed: RTFeed, stopId: string, now = Date.now(), index: TripLookup = lookup): DepartureBoard {
-  const sourceUpdatedAt = epoch(feed.header?.timestamp); const departures: Departure[] = []; const warnings: string[] = [];
-  if (feed.header?.incrementality === 'DIFFERENTIAL') throw new ServiceError('Formato aggiornamenti GTT non supportato. Riprova più tardi.', 'invalid');
-  let unmatched = 0;
-  for (const entity of feed.entity ?? []) {
-    const update = entity.tripUpdate; const tripId = update?.trip?.tripId;
-    if (!update || !tripId || entity.isDeleted) continue;
-    const trip = index.trips[tripId]; if (!trip) { unmatched++; continue; }
-    const pattern = index.patterns[trip[3]];
-    const tripCancelled = update.trip?.scheduleRelationship === 'CANCELED';
-    const entityAt = epoch(update.timestamp);
-    const updates = update.stopTimeUpdate ?? [];
-    let matchedCancellation = false;
-    for (const stopUpdate of updates) {
-      const resolvedStop = stopUpdate.stopId || (stopUpdate.stopSequence !== undefined ? pattern?.[String(stopUpdate.stopSequence)] : undefined);
-      if (resolvedStop !== stopId) continue;
-      const expectedAt = epoch(stopUpdate.arrival?.time ?? stopUpdate.departure?.time);
-      const cancelled = tripCancelled || stopUpdate.scheduleRelationship === 'SKIPPED';
-      if (expectedAt && (expectedAt < now - 60_000 || expectedAt > now + 4 * 3_600_000)) continue;
-      matchedCancellation ||= cancelled;
-      departures.push({ id: `${tripId}:${stopUpdate.stopSequence ?? stopId}`, stopId, line: trip[0], headsign: trip[1], expectedAt,
-        status: cancelled ? 'cancelled' : stopUpdate.scheduleRelationship === 'NO_DATA' || !expectedAt ? 'unknown' : predictionStatus(sourceUpdatedAt, entityAt, now),
-        sourceUpdatedAt: entityAt, source: 'GTT GTFS-Realtime' });
-    }
-    if (tripCancelled && !matchedCancellation && Object.values(pattern ?? {}).includes(stopId)) departures.push({ id: `${tripId}:cancelled`, stopId, line: trip[0], headsign: trip[1], status: 'cancelled', sourceUpdatedAt: entityAt, source: 'GTT GTFS-Realtime' });
-  }
-  if (!sourceUpdatedAt || now - sourceUpdatedAt > 120_000) warnings.push('Il feed GTT non è aggiornato: le previsioni potrebbero essere obsolete.');
-  if (unmatched) warnings.push(`${unmatched} corse non corrispondono al pacchetto orari installato. Potrebbe servire un aggiornamento dell’app.`);
-  if (!departures.length) warnings.push('Nessuna previsione disponibile per questa fermata. Non significa che non ci siano corse: consulta un viaggio programmato.');
-  if (departures.some(d => d.status === 'stale')) warnings.push('Le previsioni contrassegnate come obsolete non sono confermate in tempo reale.');
-  const date = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Rome', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(now)).replace(/-/g, '');
-  if (date > manifest.gtt.validTo) warnings.push('Il pacchetto statico GTT è scaduto. Aggiorna l’app prima di affidarti alle corrispondenze.');
-  return { departures: departures.sort((a, b) => (a.expectedAt ?? Infinity) - (b.expectedAt ?? Infinity)).slice(0, 40), fetchedAt: now, sourceUpdatedAt, warnings, source: 'GTT S.p.A. – Gruppo Torinese Trasporti' };
-}
+export function getStop(stopId: string): Stop | undefined { return catalogStop(stopId); }
+
 interface FeedSnapshot { readonly feed: RTFeed; readonly fetchedAt: number }
 const cache = new Map<string, FeedSnapshot>();
+/** One citywide retrieval per interval, shared by every consumer; the selected stop is never sent. */
 async function fetchFeed(file: string, maxAge: number, signal?: AbortSignal): Promise<FeedSnapshot> {
   checkAbort(signal); const stored = cache.get(file); const now = Date.now();
   if (stored && now >= stored.fetchedAt && now - stored.fetchedAt < maxAge) return stored;
@@ -93,26 +54,81 @@ async function fetchFeed(file: string, maxAge: number, signal?: AbortSignal): Pr
     }
   }, signal);
 }
-export async function getDepartures(stopId: string, options: { signal?: AbortSignal } = {}): Promise<DepartureBoard> {
-  if (!getStop(stopId)) throw new ServiceError('Fermata non presente nel pacchetto installato.', 'invalid');
-  const { feed, fetchedAt } = await fetchFeed('trip_update.aspx', 30_000, options.signal);
-  checkAbort(options.signal);
-  return parseServiceData('gtt-arrivals', () => ({ ...departuresFromFeed(feed, stopId), fetchedAt }));
+
+interface Joined { snapshot: RealtimeSnapshot; matched: Map<string, Promise<number>> }
+const joined = new WeakMap<FeedSnapshot, Joined>();
+/** Index the feed once, and count feed-wide trip joins once per installed package. */
+async function realtimeFor(feed: FeedSnapshot, reader: TimetableReader): Promise<{ snapshot: RealtimeSnapshot; matchedTrips: number }> {
+  let entry = joined.get(feed);
+  if (!entry) joined.set(feed, entry = { snapshot: indexFeed(feed.feed, feed.fetchedAt), matched: new Map() });
+  const { snapshot } = entry;
+  let matched = entry.matched.get(reader.meta.packageHash);
+  if (!matched) {
+    matched = reader.trips([...snapshot.byTrip.keys()]).then(trips => {
+      const count = [...snapshot.byTrip].reduce((sum, [tripId, updates]) => sum + (trips.has(tripId) ? updates.length : 0), 0);
+      const unmatched = snapshot.tripUpdates - count;
+      // Unmatched counts are diagnostics, not board content.
+      if (snapshot.tripUpdates && !count) diagnostics.record({ type: 'timetable', state: 'realtime-unmatched', count: unmatched });
+      else if (unmatched) diagnostics.record({ type: 'timetable', state: 'realtime-partial', count: unmatched });
+      return count;
+    });
+    entry.matched.set(reader.meta.packageHash, matched);
+  }
+  return { snapshot, matchedTrips: await matched };
 }
-function text(value?: Translation): string { return value?.translation?.find(t => t.language === 'it')?.text ?? value?.translation?.[0]?.text ?? ''; }
+
+async function activeReader(stopId: string): Promise<TimetableReader> {
+  let dataset;
+  try { dataset = await timetableService.current(); } catch { throw new ServiceError('Orari GTT non disponibili sul dispositivo.', 'unavailable'); }
+  void adoptCatalog(dataset.reader).catch(() => undefined);
+  if (!stopId || !await dataset.reader.stop(stopId)) throw new ServiceError('Fermata non presente nel pacchetto orari installato.', 'invalid');
+  return dataset.reader;
+}
+
+/** Realtime failed: the error carries the scheduled board so the UI keeps rows while the refresh backs off. */
+export class RealtimeUnavailableError extends ServiceError {
+  constructor(message: string, readonly board: StopBoard, kind: ServiceError['kind']) { super(message, kind); this.name = 'RealtimeUnavailableError'; }
+}
+
+/** Local scheduled rows only: no network, rendered immediately. */
+export async function getScheduledBoard(stopId: string, options: { signal?: AbortSignal; now?: number } = {}): Promise<StopBoard> {
+  const reader = await activeReader(stopId);
+  checkAbort(options.signal);
+  return composeBoard(reader, stopId, options.now ?? Date.now(), { refresh: timetableService.status().refresh });
+}
+
+/** Scheduled rows refined by the shared citywide TripUpdates feed. */
+export async function getStopBoard(stopId: string, options: { signal?: AbortSignal } = {}): Promise<StopBoard> {
+  const reader = await activeReader(stopId);
+  let feed: FeedSnapshot;
+  try { feed = await fetchFeed('trip_update.aspx', ARRIVALS_REFRESH_MS - 5_000, options.signal); } catch (error) {
+    checkAbort(options.signal);
+    const message = error instanceof Error ? error.message : 'Tempo reale non disponibile.';
+    const board = await composeBoard(reader, stopId, Date.now(), { refresh: timetableService.status().refresh, realtime: { error: message } });
+    throw new RealtimeUnavailableError(message, board, error instanceof ServiceError ? error.kind : 'network');
+  }
+  checkAbort(options.signal);
+  const realtime = await realtimeFor(feed, reader);
+  const board = await composeBoard(reader, stopId, Date.now(), { refresh: timetableService.status().refresh, realtime, nextRefreshAt: feed.fetchedAt + ARRIVALS_REFRESH_MS });
+  // A nonempty feed with zero joins means the installed package is older than GTT's trip IDs.
+  if (board.realtime.state === 'unmatched') void timetableService.check('mismatch');
+  return board;
+}
+
+function text(value?: { translation?: { text?: string; language?: string }[] }): string { return value?.translation?.find(t => t.language === 'it')?.text ?? value?.translation?.[0]?.text ?? ''; }
 export async function getTransitAlerts(stopId?: string, options: { signal?: AbortSignal } = {}): Promise<TransitAlertSnapshot> {
   const stop = stopId === undefined ? undefined : getStop(stopId);
   if (stopId !== undefined && !stop) throw new ServiceError('Fermata non presente nel pacchetto installato.', 'invalid');
   const { feed, fetchedAt } = await fetchFeed('alerts.aspx', 5 * 60_000, options.signal); const now = Date.now();
   checkAbort(options.signal);
-  const sourceUpdatedAt = epoch(feed.header?.timestamp);
+  const sourceUpdatedAt = epochMs(feed.header?.timestamp);
   const warnings = transitAlertWarnings(sourceUpdatedAt, now);
-  const routeIds = stop ? new Set(Object.values(lookup.trips).filter(t => stop.lines.includes(t[0])).map(t => t[2])) : undefined;
+  const routeIds = stopId ? new Set(catalogStopRoutes(stopId)) : undefined;
   const alerts = (feed.entity ?? []).flatMap(entity => {
     const alert = entity.alert; if (!alert || entity.isDeleted) return [];
-    if (alert.activePeriod?.length && !alert.activePeriod.some(p => (!epoch(p.start) || epoch(p.start)! <= now) && (!epoch(p.end) || epoch(p.end)! >= now))) return [];
+    if (alert.activePeriod?.length && !alert.activePeriod.some(p => (!epochMs(p.start) || epochMs(p.start)! <= now) && (!epochMs(p.end) || epochMs(p.end)! >= now))) return [];
     if (stopId && alert.informedEntity?.length && !alert.informedEntity.some(e => e.stopId === stopId || (!e.stopId && (!e.routeId || routeIds?.has(e.routeId))))) return [];
-    return [{ id: entity.id ?? text(alert.headerText), title: text(alert.headerText), description: text(alert.descriptionText), url: text(alert.url) || undefined, source: 'GTT S.p.A. – Gruppo Torinese Trasporti' }];
+    return [{ id: entity.id ?? text(alert.headerText), title: text(alert.headerText), description: text(alert.descriptionText), url: text(alert.url) || undefined, source: SOURCE }];
   }).slice(0, 30);
-  return { alerts, fetchedAt, sourceUpdatedAt, source: 'GTT S.p.A. – Gruppo Torinese Trasporti', warnings };
+  return { alerts, fetchedAt, sourceUpdatedAt, source: SOURCE, warnings };
 }

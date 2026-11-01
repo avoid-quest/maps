@@ -1,40 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Root } from 'protobufjs/light';
-import schema from '../data/gtfs-realtime-schema.json';
 import type { Place } from '../domain/types';
 import { deduplicatePlaces, searchLocalPlaces, searchPlaces } from './search';
-import { departuresFromFeed, predictionStatus, getNearbyStops, getDepartures, type RTFeed, type TripLookup } from './transit';
+import { getNearbyStops } from './transit';
 import { parseRoadRoute, parseTransitRoute, roadRouteURL, romeDateTime } from './routing';
 import { decodePolyline, TURIN_CENTER } from './geo';
 import { fetchJSON, requestQueue, ServiceError } from './network';
-const now = Date.UTC(2026, 9, 11, 14, 0); const sec = (n: number) => n / 1000;
-const index: TripLookup = { trips: { t: ['4', 'Falchera', '4U', 0] }, patterns: [{ '12': '6', '13': '10' }] };
-function feed(relationship?: string): RTFeed { return { header: { timestamp: sec(now) }, entity: [{ tripUpdate: { timestamp: sec(now - 30_000), trip: { tripId: 't' }, stopTimeUpdate: [{ stopSequence: 12, scheduleRelationship: relationship, arrival: { time: sec(now + 180_000) } }] } }] }; }
-test('GTFS-RT decoded protobuf joins actual stop_sequence, never public stop code', () => {
-  const type = Root.fromJSON(schema).lookupType('transit_realtime.FeedMessage');
-  const bytes = type.encode(type.fromObject({ ...feed(), header: { gtfsRealtimeVersion: '2.0', timestamp: sec(now) } })).finish();
-  const decoded = type.toObject(type.decode(bytes), { longs: Number, enums: String }) as RTFeed;
-  assert.equal(departuresFromFeed(decoded, '6', now, index).departures[0]?.line, '4');
-  assert.equal(departuresFromFeed(decoded, '10', now, index).departures.length, 0);
-});
-test('fresh feed does not turn stale/unknown entity into a live arrival', () => {
-  assert.equal(predictionStatus(now, now - 121_000, now), 'stale');
-  assert.equal(predictionStatus(now, undefined, now), 'unknown');
-  assert.equal(predictionStatus(now, now + 100_000, now), 'unknown');
-  assert.equal(predictionStatus(now, now - 30_000, now), 'live');
-});
-test('skipped, NO_DATA, and cancelled trips retain honest statuses', () => {
-  assert.equal(departuresFromFeed(feed('SKIPPED'), '6', now, index).departures[0]?.status, 'cancelled');
-  assert.equal(departuresFromFeed(feed('NO_DATA'), '6', now, index).departures[0]?.status, 'unknown');
-  const cancelled: RTFeed = { header: { timestamp: sec(now) }, entity: [{ tripUpdate: { timestamp: sec(now), trip: { tripId: 't', scheduleRelationship: 'CANCELED' } } }] };
-  assert.equal(departuresFromFeed(cancelled, '6', now, index).departures[0]?.status, 'cancelled');
-});
-test('unmatched trips and empty feed report absence, never scheduled-on-time fiction', () => {
-  const result = departuresFromFeed(feed(), '6', now, { trips: {}, patterns: [] });
-  assert.deepEqual(result.departures, []); assert.ok(result.warnings.some(w => w.includes('non corrispondono')));
-  assert.throws(() => departuresFromFeed({ header: { incrementality: 'DIFFERENTIAL' } }, '6', now, index));
-});
+const now = Date.UTC(2026, 9, 11, 14, 0);
 test('Italian search finds real independent local shops and food', () => {
   assert.ok(searchLocalPlaces('hamburger', TURIN_CENTER).length > 0);
   assert.ok(searchLocalPlaces('supermercato', TURIN_CENTER).some(p => /lidl/i.test(p.name)));
@@ -82,15 +54,3 @@ test('HTTP and offline failures are errors; local results are labelled fallback'
   } finally { global.fetch = original; }
 });
 
-test('valid 200 GTFS feed with zero entities is an empty board, not malformed data', async () => {
-  const original = global.fetch;
-  const type = Root.fromJSON(schema).lookupType('transit_realtime.FeedMessage');
-  const bytes = type.encode(type.fromObject({ header: { gtfsRealtimeVersion: '2.0', timestamp: Math.floor(Date.now() / 1000) }, entity: [] })).finish();
-  try {
-    global.fetch = async () => new Response(bytes as unknown as BodyInit);
-    const stop = getNearbyStops(TURIN_CENTER)[0]!;
-    const board = await getDepartures(stop.id);
-    assert.equal(board.departures.length, 0);
-    assert.ok(board.warnings.some(w => w.includes('Nessuna previsione')));
-  } finally { global.fetch = original; }
-});

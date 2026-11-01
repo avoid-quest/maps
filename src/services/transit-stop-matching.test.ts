@@ -1,16 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import staticStops from '../data/gtt-stops.json';
+import { catalogStops } from '../transit-data/stop-catalog';
 import type { Coordinate, RouteStop, Stop } from '../domain/types';
 import { createJourneyStopMatcher, matchJourneyStop } from './transit-stop-matching';
 
-const lingotto = (staticStops as Stop[]).find(stop => stop.code === '2603')!;
+const lingotto = catalogStops().find(stop => stop.code === '2603')!;
 const routeStop = (stop: Stop): RouteStop => ({ id: `mato:gtt:${stop.code}`, code: stop.code, name: stop.name, coordinate: stop.coordinate });
 
 test('public codes resolve the installed internal IDs, including the Lingotto/Ancina collision', () => {
   assert.equal(matchJourneyStop(routeStop(lingotto))?.id, '1765');
-  assert.match((staticStops as Stop[]).find(stop => stop.id === '2603')!.name, /ANCINA/);
-  const garrone = (staticStops as Stop[]).find(stop => stop.code === '488')!;
+  assert.match(catalogStops().find(stop => stop.id === '2603')!.name, /ANCINA/);
+  const garrone = catalogStops().find(stop => stop.code === '488')!;
   assert.equal(matchJourneyStop(routeStop(garrone))?.id, '3035');
 });
 
