@@ -1,4 +1,5 @@
 import { diagnostics, type DiagnosticProvider, type DiagnosticInput } from './diagnostics';
+import { decodeUtf8 } from './utf8';
 
 export const USER_AGENT = 'AvoidMaps/0.1 (https://github.com/avoid-quest/maps)';
 export class ServiceError extends Error {
@@ -81,7 +82,8 @@ export async function fetchResponse(url: string, options: RequestInit = {}, prov
 }
 export async function fetchJSON<T>(url: string, options?: RequestInit, provider: DiagnosticProvider = 'other'): Promise<T> {
   const response = await fetchResponse(url, options, provider);
-  try { return await response.json() as T; } catch {
+  // Decode UTF-8 explicitly: React Native's Response.json() reads buffered bodies as Latin-1.
+  try { return JSON.parse(decodeUtf8(await response.arrayBuffer())) as T; } catch {
     diagnostics.record({ type: 'service', state: 'invalid', provider });
     throw new ServiceError('Il servizio ha restituito dati non validi.', 'invalid');
   }
