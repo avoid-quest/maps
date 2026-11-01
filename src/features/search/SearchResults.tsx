@@ -15,12 +15,13 @@ export function SearchResults() {
   const { isSaved, openPlace } = usePlacesContext();
   const places = result.places;
   const reference = useDistanceReference();
-  const header = (
+  const header = (<>
     <View className="h-9 flex-row items-center gap-2 px-4">
       <View className="w-4">{searching ? <ActivityIndicator size="small" color={colors.textPrimary} /> : null}</View>
       <Text numberOfLines={1} accessibilityLiveRegion="polite" className="flex-1 text-sm text-secondary">{searching ? "Aggiorno i risultati…" : <><Num className="text-sm text-primary">{places.length}</Num> risultati{result.truncated ? <> · primi <Num className="text-sm text-secondary">{result.resultLimit}</Num></> : null}{policy === "local-only" ? " · solo locali" : ""}</>}</Text>
     </View>
-  );
+    {error && places.length ? <View className="px-4 pb-2"><Notice tone="danger" text={error} action="Riprova" onAction={retry} /></View> : null}
+  </>);
   const empty = searching ? <Loading label="Cerco nell’area…" />
     : error ? <View className="m-4"><Notice tone="danger" text={error} action="Riprova" onAction={retry} /></View>
       : <EmptyState
@@ -30,7 +31,6 @@ export function SearchResults() {
       />;
   const footer = (
     <View className="px-4 pb-6">
-      {error && places.length ? <Notice tone="danger" text={error} action="Riprova" onAction={retry} /> : null}
       <Disclosure title="Copertura e fonti">
         <Text className="text-sm leading-5 text-secondary">{result.coverage.radiusMeters !== null
           ? `Raggio ${formatDistance(result.coverage.radiusMeters)} · ${result.coverage.extent === "outside" ? "fuori dal pacchetto locale" : result.coverage.extent === "partial" ? "copertura locale parziale" : "nel pacchetto locale"}`

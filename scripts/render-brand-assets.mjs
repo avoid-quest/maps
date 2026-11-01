@@ -23,10 +23,11 @@ function compose(size, { background = null, scale = 1 } = {}) {
 const outputs = {
   // Legacy/web icon: the full square is the artwork; launchers apply their own mask.
   'icon.png': compose(1024, { background: '#000000', scale: 1 }),
-  // Adaptive foreground: 108 dp canvas, keep the disc inside the 66 dp safe zone.
-  'adaptive-foreground.png': compose(1024, { scale: 0.95 }),
+  // Adaptive layers: 108 dp canvas; the whole mark (horizon lines span 80% of its box) stays inside
+  // the 66 dp safe zone: 0.76 × 0.8 × 108 dp ≈ 65.7 dp, so no launcher mask clips the lines.
+  'adaptive-foreground.png': compose(1024, { scale: 0.76 }),
   // Android 13+ themed icon: alpha only; the launcher tints it.
-  'adaptive-monochrome.png': compose(1024, { scale: 0.95 }),
+  'adaptive-monochrome.png': compose(1024, { scale: 0.76 }),
   // Android 12+ splash icon: drawn inside a circular mask, so the mark only (no wordmark).
   'splash-icon.png': compose(1024, { scale: 0.9 }),
   'favicon.png': compose(48, { background: '#000000', scale: 1 }),

@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { View } from "react-native";
 import { useThemeColors } from "../../theme";
 import { EmptyState, Icon, ListRow, SheetFlatList } from "../../ui";
@@ -10,13 +11,14 @@ export function NearbyStops() {
   const colors = useThemeColors();
   const { nearbyStops, openStop } = useTransitContext();
   const reference = useDistanceReference();
+  // The column shows distances from the device (or the map centre); list the stops in that order.
+  const rows = useMemo(() => nearbyStops.map(stop => ({ stop, distance: distanceFrom(reference, stop.coordinate) }))
+    .sort((a, b) => a.distance.meters - b.distance.meters), [nearbyStops, reference]);
   return (
     <SheetFlatList
-      data={nearbyStops}
-      keyExtractor={stop => stop.id}
-      extraData={reference}
-      renderItem={({ item }) => {
-        const distance = distanceFrom(reference, item.coordinate);
+      data={rows}
+      keyExtractor={row => row.stop.id}
+      renderItem={({ item: { stop: item, distance } }) => {
         return <ListRow
           title={item.name}
           subtitle={`Fermata ${item.code} · ${item.lines.slice(0, 6).join(", ") || "GTT"}`}

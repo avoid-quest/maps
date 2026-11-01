@@ -18,10 +18,11 @@ export function Text({ className, ...props }: TextProps & { className?: string }
  * spaces, colons and units in Geist Sans so "64 m" and "23:33" stay tight (see numeric-runs.ts).
  */
 export function Num({ className, style, children, ...props }: TextProps & { className?: string }) {
-  const parts = Children.toArray(children).flatMap((child): ReactNode[] => typeof child === "string" || typeof child === "number"
-    ? numericRuns(String(child)).map((run, index) => run.numeric ? run.text : <NativeText key={`${index}:${run.text}`} className="font-sans">{run.text}</NativeText>)
+  // Keys combine the child and run positions so several string children never collide.
+  const parts = Children.toArray(children).flatMap((child, childIndex): ReactNode[] => typeof child === "string" || typeof child === "number"
+    ? numericRuns(String(child)).map((run, index) => run.numeric ? run.text : <NativeText key={`${childIndex}:${index}`} className="font-sans">{run.text}</NativeText>)
     : [child]);
-  return <NativeText className={`font-mono ${className ?? ""}`} style={[{ fontVariant: ["tabular-nums"] }, style]} {...props}>{parts}</NativeText>;
+  return <NativeText className={explicitFamily.test(className ?? "") ? className : `font-mono ${className ?? ""}`} style={[{ fontVariant: ["tabular-nums"] }, style]} {...props}>{parts}</NativeText>;
 }
 
 /** Large display text: Mona Sans, heavy and tight (letter-spacing about -0.04 em). */

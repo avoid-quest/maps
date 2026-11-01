@@ -28,7 +28,8 @@ export function PressableSurface({ surfaceStyle, className, contentClassName, ri
 }) {
   return (
     <View style={surfaceStyle} className={`overflow-hidden ${className ?? ""}`}>
-      <Pressable android_ripple={{ color: rippleColor, borderless }} className={contentClassName} {...pressable}>
+      {/* grow: when a row stretches the surface (a taller sibling), the content and its touch area fill it. */}
+      <Pressable android_ripple={{ color: rippleColor, borderless }} className={`grow ${contentClassName ?? ""}`} {...pressable}>
         {children}
       </Pressable>
     </View>

@@ -65,3 +65,11 @@ test('the viewport store stays local and tolerates storage failures', async () =
   await broken.save({ latitude: 45, longitude: 7 }, 12);
   assert.equal(await broken.clear(), false);
 });
+
+test('a fit away from the launch overview stops being labelled as the overview', async () => {
+  const { movedFromOverview } = await import('./useMapCamera');
+  assert.equal(movedFromOverview(TURIN_OVERVIEW.center, TURIN_OVERVIEW.zoom), false, 'the launch view itself');
+  assert.equal(movedFromOverview({ latitude: TURIN_OVERVIEW.center.latitude + 0.0002, longitude: TURIN_OVERVIEW.center.longitude }, TURIN_OVERVIEW.zoom + 0.1), false, 'settling jitter');
+  assert.equal(movedFromOverview({ latitude: 45.062, longitude: 7.678 }, 15), true, 'framed results');
+  assert.equal(movedFromOverview(TURIN_OVERVIEW.center, 14), true, 'zoomed in on the same centre');
+});

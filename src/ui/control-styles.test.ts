@@ -4,7 +4,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { AA_NON_TEXT, AA_TEXT, contrastRatio } from '../theme/contrast';
 import { palettes } from '../theme/palette';
-import { buttonColors, chipColors, floatingControlColors, rowDividerColors, segmentColors } from './control-styles';
+import { buttonColors, chipColors, floatingControlColors, rowDividerColors, segmentColors, switchColors } from './control-styles';
 
 const [light, dark] = [palettes.light.colors, palettes.dark.colors];
 
@@ -32,6 +32,12 @@ test('controls stay legible in both schemes: the white/black pill, chips, segmen
     assert.ok(contrastRatio(segmentColors(colors, true).foreground, colors.surfaceRaised) >= AA_TEXT);
     assert.ok(contrastRatio(segmentColors(colors, false).foreground, colors.surfaceMuted) >= AA_TEXT);
     assert.ok(contrastRatio(colors.textPrimary, floatingControlColors(colors, false).backgroundColor) >= AA_TEXT, 'floating icon');
+  }
+  for (const colors of [light, dark]) {
+    const off = switchColors(colors, false); const on = switchColors(colors, true);
+    assert.ok(contrastRatio(off.trackColor.false, colors.surface) >= AA_NON_TEXT, 'the off track is visible against the sheet');
+    assert.ok(contrastRatio(off.thumbColor, off.trackColor.false) >= AA_NON_TEXT, 'the off thumb is visible on its track');
+    assert.ok(contrastRatio(on.thumbColor, on.trackColor.true) >= AA_NON_TEXT, 'the on thumb is visible on its track');
   }
   assert.equal(buttonColors(dark, 'primary').backgroundColor, dark.action, 'dark primary is the white pill');
   assert.equal(buttonColors(light, 'primary').backgroundColor, light.action, 'light primary is the black pill');

@@ -23,8 +23,9 @@ test('components use semantic colour classes and the brand Text, never literal c
       if (/["'`\s]dark:[a-z]/.test(line)) problems.push(`${name}:${index + 1} dark: variant`);
       if (/theme\/tokens/.test(line)) problems.push(`${name}:${index + 1} legacy tokens import`);
       if (/<StatusBar\b/.test(line) && !name.endsWith('ThemeProvider.tsx')) problems.push(`${name}:${index + 1} StatusBar outside ThemeProvider`);
-      if (/import \{[^}]*\bText\b[^}]*\} from ['"]react-native['"]/.test(line) && !name.endsWith('ui/Text.tsx')) problems.push(`${name}:${index + 1} Text without the brand face (use src/ui/Text)`);
     });
+    // Whole-file check so multi-line imports are caught too.
+    if (/import \{[^}]*\bText\b[^}]*\} from ['"]react-native['"]/.test(text) && !name.endsWith('ui/Text.tsx')) problems.push(`${name} Text without the brand face (use src/ui/Text)`);
   }
   assert.deepEqual(problems, []);
 });

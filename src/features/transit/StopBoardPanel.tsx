@@ -50,7 +50,7 @@ export function StopBoardPanel({ stop, state, now, onLink, onDirections, actions
       {alerts.alerts.length ? alerts.alerts.map(alert => <View key={alert.id} className="gap-1 rounded-2xl bg-caution-subtle p-4">
         <Text className="text-base font-semibold text-primary">{alert.title}</Text>
         <Text className="text-sm leading-5 text-primary">{alert.description}</Text>
-        {alert.url ? <View className="self-start"><Button variant="quiet" icon="open-outline" onPress={() => onLink(alert.url!)}>Dettagli avviso</Button></View> : null}
+        {alert.url ? <View className="self-start"><Button variant="quiet" role="link" icon="open-outline" onPress={() => onLink(alert.url!)}>Dettagli avviso</Button></View> : null}
       </View>) : <Text className="text-sm leading-5 text-secondary">Nessun avviso alla consultazione.</Text>}
     </View> : null}
     <View className="px-4 pt-2"><Button variant="secondary" icon="walk-outline" onPress={onDirections}>Raggiungi la fermata</Button></View>
@@ -74,7 +74,7 @@ function DepartureRow({ departure, now, feedUpdatedAt }: { departure: Departure;
   const at = departure.expectedAt ?? departure.scheduledAt;
   const status = displayedDepartureStatus(departure, feedUpdatedAt, now);
   const minutes = status === 'live' && at != null && at >= now ? Math.max(0, Math.ceil((at - now) / 60000)) : null;
-  const spokenTime = status === 'cancelled' ? '' : at == null ? 'orario non disponibile' : minutes != null ? `tra ${minutes} minuti` : `alle ${journeyTime(at)}`;
+  const spokenTime = status === 'cancelled' ? '' : at == null ? 'orario non disponibile' : minutes != null ? `tra ${minutes} ${minutes === 1 ? 'minuto' : 'minuti'}` : `alle ${journeyTime(at)}`;
   return <View accessible accessibilityLabel={`Linea ${departure.line}, ${departure.headsign || 'direzione non indicata'}, ${statusLabels[status]}${spokenTime ? `, ${spokenTime}` : ''}`}
     style={hairlines.bottom} className="min-h-16 flex-row items-center gap-3 px-4 py-3">
     <TransitLineBadge line={departure.line} mode={transitModeFromLineName(departure.line)} />

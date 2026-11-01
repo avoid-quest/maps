@@ -6,7 +6,7 @@ import type { FeatureCollection, Point } from 'geojson';
 import { useTheme } from '../../theme';
 import { diagnostics } from '../../services/diagnostics';
 import type { MapCanvasProps } from './MapCanvas.types';
-import { createRouteFraming } from './map-presentation';
+import { createOnceFraming, createRouteFraming } from './map-presentation';
 import { lineLayout, markerLabelLayout, overlayPaint } from './map-overlay-style';
 
 /**
@@ -17,7 +17,7 @@ export default function MapCanvas({ center, zoom = 14.5, cameraRevision, routeFi
   const theme = useTheme();
   const paint = useMemo(() => overlayPaint(theme.map), [theme.map]);
   const framing = useRef(createRouteFraming());
-  const resultFraming = useRef(createRouteFraming());
+  const resultFraming = useRef(createOnceFraming());
   const map = useRef<MapRef>(null);
   const [loaded, setLoaded] = useState(false);
   /** Counts commanded camera moves, so an asynchronous re-centre never overrides a newer move. */
@@ -63,10 +63,12 @@ export default function MapCanvas({ center, zoom = 14.5, cameraRevision, routeFi
   return <View style={[styles.container, { backgroundColor: theme.map.background }]}>
     <Map ref={map} style={styles.container} mapStyle={theme.mapStyleJson} logo={false} attribution attributionPosition={{ top: attributionTop, left: attributionLeft }}
       onPress={event => onMapPress?.(event.nativeEvent.lngLat)}
+      // A user gesture outranks a pending padding re-centre (see `commands`).
+      onRegionWillChange={event => { if (event.nativeEvent.userInteraction) commands.current += 1; }}
       onRegionDidChange={event => {
         const { center: shown, zoom: shownZoom, userInteraction } = event.nativeEvent;
         onViewChanged?.(shown, shownZoom);
-        if (userInteraction) { framing.current.userMoved(routeFitKey); resultFraming.current.userMoved(frameKey); onRegionChanged?.(shown, shownZoom); }
+        if (userInteraction) { commands.current += 1; framing.current.userMoved(routeFitKey); resultFraming.current.userMoved(frameKey); onRegionChanged?.(shown, shownZoom); }
       }}
       onDidFailLoadingMap={() => { setMapError(true); diagnostics.record({ type: 'map', state: 'failed' }); }} onDidFinishLoadingMap={() => { setLoaded(true); setMapError(false); diagnostics.record({ type: 'map', state: 'loaded' }); }}>
       <Camera ref={camera} initialViewState={{ center, zoom }} />

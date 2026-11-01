@@ -13,7 +13,7 @@ export function ThemePreferenceControl() {
     <SegmentedControl accessibilityLabel="Aspetto" options={themePreferenceOptions} value={preference} disabled={!preferenceState.ready}
       onChange={value => { void setPreference(value); }} />
     {preferenceState.storage === 'unavailable'
-      ? <Text className="text-sm text-caution">{preferenceState.preferenceKnown ? 'Scelta attiva solo in questa sessione: non è stato possibile salvarla.' : 'Preferenza salvata non leggibile: segue il sistema finché non scegli.'}</Text>
+      ? <Text accessibilityLiveRegion="polite" className="text-sm text-caution">{preferenceState.preferenceKnown ? 'Scelta attiva solo in questa sessione: non è stato possibile salvarla.' : 'Preferenza salvata non leggibile: segue il sistema finché non scegli.'}</Text>
       : null}
   </View>;
 }

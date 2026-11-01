@@ -46,3 +46,20 @@ export function resultFrameBounds(points: readonly { latitude: number; longitude
   const padLatitude = Math.max(0, (MIN_SPAN_DEGREES - (north - south)) / 2);
   return [west - padLongitude, south - padLatitude, east + padLongitude, north + padLatitude];
 }
+
+/**
+ * One-shot framing for keys that only grow (submitted searches). Unlike route framing, an absent key
+ * does not reset it: leaving and returning to a search the user already framed (or panned) never
+ * moves the camera again.
+ */
+export function createOnceFraming() {
+  const consumed = new Set<string>();
+  return {
+    userMoved(key: string | undefined) { if (key) consumed.add(key); },
+    claim(key: string | undefined, ready: boolean) {
+      if (!key || !ready || consumed.has(key)) return false;
+      consumed.add(key);
+      return true;
+    },
+  };
+}

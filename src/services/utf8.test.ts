@@ -14,6 +14,8 @@ test('UTF-8 bodies keep accented, typographic and astral characters', () => {
   assert.equal(decodeUtf8(bytes, null), sample, 'the fallback decoder matches TextDecoder');
   assert.equal(decodeUtf8(new Uint8Array([0xef, 0xbb, 0xbf, ...bytes]), null), sample, 'a byte-order mark is ignored');
   assert.equal(decodeUtf8(new Uint8Array([0x61, 0xc3, 0x28, 0xe2, 0x82, 0x62, 0xff]), null), new TextDecoder().decode(new Uint8Array([0x61, 0xc3, 0x28, 0xe2, 0x82, 0x62, 0xff])), 'malformed input follows the WHATWG replacement rules');
+  const malformed = new Uint8Array(300_000).fill(0xff);
+  assert.equal(decodeUtf8(malformed, null), '\uFFFD'.repeat(300_000), 'long malformed runs flush instead of overflowing the argument list');
   const long = 'àèìòù'.repeat(5000);
   assert.equal(decodeUtf8(new TextEncoder().encode(long), null), long);
 });

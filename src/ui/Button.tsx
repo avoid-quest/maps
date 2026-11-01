@@ -10,10 +10,10 @@ export type { ButtonVariant };
 
 /**
  * One action per intent: `primary` is the brand pill (white on black, black on white), `secondary`
- * a hairline pill, `quiet` a text action inside content. Always at least 48 dp tall. Colours are
+ * an outlined pill (1 dp, at least 3:1 against the sheet), `quiet` a text action inside content. Always at least 48 dp tall. Colours are
  * on a surface separate from the ripple so a live theme switch repaints them (see PressableSurface).
  */
-export function Button({ children, icon, onPress, variant = "primary", disabled = false, loading = false, accessibilityLabel, accessibilityHint }: {
+export function Button({ children, icon, onPress, variant = "primary", disabled = false, loading = false, accessibilityLabel, accessibilityHint, role = "button" }: {
   children: ReactNode;
   icon?: IconName;
   onPress: () => void;
@@ -22,6 +22,8 @@ export function Button({ children, icon, onPress, variant = "primary", disabled 
   loading?: boolean;
   accessibilityLabel?: string;
   accessibilityHint?: string;
+  /** `link` for actions that leave the app, such as opening an alert's web page. */
+  role?: "button" | "link";
 }) {
   const colors = useThemeColors();
   const tone = buttonColors(colors, variant);
@@ -32,7 +34,7 @@ export function Button({ children, icon, onPress, variant = "primary", disabled 
       className="rounded-full"
       contentClassName={`min-h-12 flex-row items-center justify-center gap-2 ${variant === "quiet" ? "px-2" : "px-5"} py-2.5`}
       rippleColor={`${tone.foreground}26`}
-      accessibilityRole="button"
+      accessibilityRole={role}
       accessibilityLabel={accessibilityLabel}
       accessibilityHint={accessibilityHint}
       accessibilityState={{ disabled: inactive, busy: loading }}

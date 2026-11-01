@@ -108,14 +108,17 @@ test('writes stay ordered and a failed write keeps the session choice', async ()
   };
   const store = createThemePreferences();
   await store.initialize(storage);
+  // Drain every queued microtask with a macrotask instead of assuming a promise-chain depth.
+  const settle = () => new Promise<void>(resolve => setTimeout(resolve, 0));
   const first = store.setPreference('dark');
   const last = store.setPreference('light');
-  await Promise.resolve();
+  await settle();
   assert.equal(pending.length, 1, 'The second write waits for the first');
   assert.equal(store.getSnapshot().preference, 'light');
   pending[0]!.finish();
   assert.equal(await first, true);
   assert.equal(JSON.parse(persisted!).preference, 'dark');
+  await settle();
   assert.equal(pending.length, 2);
   pending[1]!.finish();
   assert.equal(await last, true);
