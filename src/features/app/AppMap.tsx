@@ -66,9 +66,9 @@ export function AppMap({ height, padding, attributionLeft, attributionTop }: {
         zoom={navigating ? 17 : camera.zoom}
         cameraRevision={camera.revision}
         onMapPress={navigating ? undefined : coordinate => planner.chooseOrigin(point(coordinate))}
-        onRegionChanged={(coordinate) => {
+        onRegionChanged={(coordinate, zoom) => {
           if (navigating) { camera.stopFollowing(); return; }
-          userPanned(point(coordinate));
+          userPanned(point(coordinate), zoom);
         }}
         onPressMarker={(id) => {
           if (navigating) return;

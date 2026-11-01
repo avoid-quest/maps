@@ -26,6 +26,9 @@ export default function MapCanvas({ center, zoom = 14.5, cameraRevision, routeFi
     return { type: 'Feature' as const, geometry: { type: 'Polygon' as const, coordinates: [[[west, south], [east, south], [east, north], [west, north], [west, south]]] }, properties: {} };
   }, [coverageBounds]);
   const data = useMemo<FeatureCollection<Point>>(() => ({ type: 'FeatureCollection', features: markers.map(marker => ({ type: 'Feature', id: marker.id, geometry: { type: 'Point', coordinates: marker.coordinate }, properties: { id: marker.id, kind: marker.kind, selected: marker.id === selectedMarkerId, label: marker.label ?? '' } })) }), [markers, selectedMarkerId]);
+  // The sheet's height changes the visible map: keep the camera's centre in the visible part.
+  const { top = 0, right = 0, bottom = 0, left = 0 } = cameraPadding ?? {};
+  useEffect(() => { void camera.current?.setStop({ padding: { top, right, bottom, left }, duration: 250, easing: 'ease' }).catch(() => undefined); }, [top, right, bottom, left]);
   useEffect(() => { if (followLocation !== false) camera.current?.easeTo({ center: [longitude, latitude], zoom, padding: padding.current, duration: 450 }); }, [longitude, latitude, zoom, followLocation, cameraRevision]);
   useEffect(() => {
     if (followLocation !== undefined || !framing.current.claim(routeFitKey, !!route?.coordinates.length) || !route) return;

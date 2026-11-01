@@ -12,7 +12,7 @@ const rank = (snap: SheetSnap) => SHEET_SNAPS.indexOf(snap);
 /** The empty search shows only its shortcut row; every other task peeks at its title plus a row or two. */
 export function peekContentHeight(tasks: TaskState, hasSearch: boolean): number {
   const search = searchRoot(tasks);
-  return search?.inputOpen && !hasSearch && !selectedPlace(tasks) && !hasTaskAboveRoot(tasks) ? 140 : 220;
+  return search?.inputOpen && !hasSearch && !selectedPlace(tasks) && !hasTaskAboveRoot(tasks) ? 152 : 220;
 }
 
 /**

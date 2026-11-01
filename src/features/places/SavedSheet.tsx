@@ -1,5 +1,6 @@
 import { savedTravel } from "../../services/saved-travel";
 import { EmptyState, SheetFlatList } from "../../ui";
+import { useDistanceReference } from "../map/useDistanceReference";
 import { usePlannerContext } from "../planner/usePlanner";
 import { SavedTravelPanel } from "../transit/SavedTravelPanel";
 import { useTransitContext } from "../transit/useTransit";
@@ -11,11 +12,13 @@ export function SavedSheet() {
   const { saved, openPlace } = usePlacesContext();
   const transit = useTransitContext();
   const planner = usePlannerContext();
+  const reference = useDistanceReference();
   return (
     <SheetFlatList
       data={saved}
       keyExtractor={place => place.id}
-      renderItem={({ item }) => <PlaceRow place={item} saved onPress={() => openPlace(item)} />}
+      renderItem={({ item }) => <PlaceRow place={item} saved reference={reference} onPress={() => openPlace(item)} />}
+      extraData={reference}
       ListHeaderComponent={
         <SavedTravelPanel
           snapshot={transit.savedTravel} journeyBusy={planner.journeyBusy} stopsBusy={transit.stopsBusy}

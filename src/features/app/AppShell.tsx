@@ -74,7 +74,9 @@ export function AppShell() {
         ) : <>
           <View pointerEvents="box-none" className="absolute left-3 right-3 top-20 flex-row items-start justify-between">
             <View className="flex-1" pointerEvents="none">
-              {location.locating ? <Text accessibilityLiveRegion="polite" className="self-start rounded-full bg-surface-raised px-3 py-2 text-sm text-secondary">Ricerca della posizione…</Text> : null}
+              {location.locating ? <Text accessibilityLiveRegion="polite" className="self-start rounded-full bg-surface-raised px-3 py-2 text-sm text-secondary">Ricerca della posizione…</Text>
+                : !location.coordinate && camera.view === "overview" ? <Text accessibilityLabel="Vista panoramica di Torino, non la tua posizione" className="self-start rounded-full bg-surface-raised px-3 py-2 text-sm text-secondary">Panoramica di Torino</Text>
+                  : null}
             </View>
             {location.locating ? (
               <View style={{ elevation: 3 }} accessible accessibilityLabel="Ricerca della posizione in corso" className="h-12 w-12 items-center justify-center rounded-full bg-surface-raised">

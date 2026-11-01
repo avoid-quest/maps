@@ -95,6 +95,9 @@ export default function MapCanvas(props: MapCanvasProps) {
     appliedScheme.current = theme.scheme;
     instance.setStyle(theme.mapStyle as unknown as StyleSpecification, { transformStyle: (previous, next) => withAppLayers(next, theme.map, previous) });
   }, [theme.scheme, theme.mapStyle, theme.map]);
+  // The sheet's height changes the visible map: keep the camera's centre in the visible part.
+  const { top = 0, right = 0, bottom = 0, left = 0 } = props.cameraPadding ?? {};
+  useEffect(() => { if (loaded) map.current?.easeTo({ padding: { top, right, bottom, left }, duration: 250 }); }, [loaded, top, right, bottom, left]);
   useEffect(() => { if (loaded && followLocation !== false) map.current?.easeTo({ center: [longitude, latitude], zoom, padding: latest.current.cameraPadding, duration: 450 }); }, [loaded, longitude, latitude, zoom, followLocation, cameraRevision]);
   useEffect(() => { if (loaded) syncData(); }, [loaded, syncData, props.coverageBounds, props.markers, props.selectedMarkerId, props.userLocation, props.route]);
   useEffect(() => {

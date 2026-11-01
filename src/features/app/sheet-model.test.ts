@@ -9,7 +9,7 @@ const stop: Stop = { id: 's', code: '470', name: 'Porta Nuova', coordinate: { la
 const run = (...actions: TaskAction[]): TaskState => actions.reduce(taskReducer, initialTaskState);
 
 test('snap heights are ordered, fixed per window and leave the search bar visible', () => {
-  for (const availableHeight of [480, 640, 760, 900]) for (const fontScale of [0.85, 1, 1.3, 2]) for (const peekContent of [140, 220]) {
+  for (const availableHeight of [480, 640, 760, 900]) for (const fontScale of [0.85, 1, 1.3, 2]) for (const peekContent of [152, 220]) {
     const { peek, half, full } = sheetHeights({ availableHeight, fontScale, peekContent });
     assert.ok(peek <= half && half <= full, `${availableHeight}/${fontScale}: ${peek} ${half} ${full}`);
     assert.ok(full <= Math.max(120, availableHeight - SHEET_TOP_RESERVE));
@@ -22,7 +22,7 @@ test('snap heights are ordered, fixed per window and leave the search bar visibl
 
 test('each task opens at a resting height that shows its primary content', () => {
   assert.equal(defaultSnap(run({ type: 'focusSearch' }), false), 'peek', 'empty search shows its shortcut row');
-  assert.equal(peekContentHeight(run({ type: 'focusSearch' }), false), 140);
+  assert.equal(peekContentHeight(run({ type: 'focusSearch' }), false), 152);
   assert.equal(defaultSnap(run({ type: 'editQuery' }), true), 'half', 'results share the screen with their pins');
   assert.equal(defaultSnap(run({ type: 'openPlace', place }), false), 'peek');
   assert.equal(defaultSnap(run({ type: 'openTab', tab: 'transit' }, { type: 'openStop', stop }), false), 'half', 'departures are above the fold');

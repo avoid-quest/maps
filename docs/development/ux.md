@@ -5,7 +5,8 @@ The map is the starting point. Search, discovery, transport and saved places are
 ## Launch and location
 
 - Start with an unselected map, a search field, a location control and access to transport, saved places and settings. Show result pins, category choices and result sheets after the corresponding action.
-- Use a broad geographic overview until a usable location is available. A fallback center is a viewport, never an inferred user position, favourite place or route origin labelled as the user's position.
+- Until a usable location is available, reopen the last map view stored on the device (rounded to about 100 m, removable in Privacy e fonti), else a Turin overview labelled **Panoramica di Torino**. A fallback center is a viewport, never an inferred user position, favourite place or route origin labelled as the user's position.
+- Locate centres the camera on the first fix it produces, including a fix that arrives after Android's permission dialog suspended the request. Panning, opening a place or stop, or searching withdraws that intent.
 - When location is already authorized, acquire a fresh foreground fix. Keep manual map browsing available during acquisition and after failure. Preserve an intentional map movement while a request is pending.
 - Distinguish permission denied, device location disabled, acquisition in progress, unavailable fix and stale or inaccurate navigation fixes. An absent coordinate alone does not establish that GPS is disabled. Pair failures with a relevant retry or settings action.
 - Request additional precision only for a task that needs it. Navigation requires its own fresh precise fix; a browsing coordinate or map center cannot satisfy that requirement.
@@ -16,6 +17,7 @@ The map is the starting point. Search, discovery, transport and saved places are
 - Clearing or closing a search returns to the unselected map. Map movement alone does not begin discovery; searching a changed area is explicit.
 - Route planning starts from a fresh position or a deliberately chosen origin. Cancelling origin selection returns to the destination; a fallback viewport never silently becomes the departure point.
 - Give one task the sheet at a time: results, place, stop, route planning or settings. Keep the map usable alongside it and provide a clear return to the map. Sheet titles and actions take precedence over explanatory text. Keep transport and saved shortcuts on the neutral map; task cards replace that chrome. Empty search uses a horizontal shortcut row.
+- List distances are measured from the device when its fix is under five minutes old; otherwise they say **dal centro mappa**. Show OpenStreetMap and Overture categories with Italian labels and a generic fallback, never a raw tag.
 - Show coverage boundaries, result limits and data warnings with the results they explain. Keep mandatory map attribution accessible. Preserve place provenance, source timestamps, and live, scheduled, stale and unavailable distinctions in their relevant detail views.
 - Keep Italian action names stable and direct. Use compact system typography and restrained surfaces; the geographic content supplies the visual detail. Maintain accessible text contrast and touch targets when reducing chrome.
 
@@ -24,6 +26,12 @@ The map is the starting point. Search, discovery, transport and saved places are
 Appearance offers **Sistema**, **Chiaro** and **Scuro**; Sistema is the default and follows Android's dark theme. The choice is stored on the device. An unreadable saved choice falls back to Sistema without overwriting it until the user chooses again. `src/theme` resolves the choice once. Components use semantic NativeWind colours (`bg-surface`, `bg-surface-raised`, `text-primary`, `text-secondary`, `border-divider`, `bg-action`/`text-on-action`, `text-caution`, `text-danger`, `text-success`, and transit `text-live`, `text-scheduled`, `text-stale`, `text-cancelled`), never literal hex classes or `dark:` variants. Native props, icons and map layers read the same values from `useTheme()`. Tests hold every text role to WCAG AA (4.5:1) on every surface in both palettes. Live, scheduled, stale and cancelled states keep their text labels; colour supports them but never carries them alone.
 
 The basemap follows the resolved appearance: OpenFreeMap Liberty in light, OpenFreeMap Dark with legibility overrides in dark. Both are bundled style documents ([notice](../../src/theme/map-styles/NOTICE.md)). Status bar icons, navigation bar buttons and the window background follow the same choice.
+
+## Sheet and shared components
+
+`src/ui/Sheet.tsx` is the only importer of the sheet library (`@gorhom/bottom-sheet`). The task sheet rests at **peek**, **half** or **full**; heights are fixed per task and window (`sheet-model.ts`), so loading content never moves it. Lists, stops and routes open at half, a place and the empty search peek, Privacy e fonti opens full. Drag, the header expand/collapse button and the handle (an adjustable control for TalkBack) move between the same snaps. Android Back lowers a sheet the user raised above its resting height, then unwinds the task stack. The header shows Close (to the map) and adds Back only when the task beneath is not the map. Camera padding follows the sheet's target height. Long lists use the sheet's virtualized list.
+
+Build screens from `src/ui`: Button (primary, secondary, quiet), IconButton (48 dp, required label), ListRow, Chip and SegmentedControl, SectionHeader, SheetHeader, Notice (info, caution, danger, success; icon and wording, never colour alone) and TransitLineBadge. Line badges use the operator's route colour when supplied, with an AA text fallback, and distinct shapes and glyphs for metro, tram, bus and rail. GTT departures carry only line names, so only the metro (`M1`) is classified. Body text is 16 sp; departure times are larger tabular numerals. In a stop sheet, departures come first and saving is an icon action.
 
 ## Stable geometry and camera intent
 

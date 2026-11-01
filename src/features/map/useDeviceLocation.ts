@@ -3,19 +3,26 @@ import type { Coordinate } from '../../domain/types';
 import { getAuthorizedLocation, getCurrentLocation } from '../../platform/location';
 import type { TaskModel } from '../app/useTaskModel';
 import { point } from './coordinates';
+import { createRecenterIntent } from './recenter-intent';
 import type { MapCamera } from './useMapCamera';
 
 export type LocationOutcome = { coordinate: Coordinate } | { error: unknown };
 export interface DeviceLocation {
   /** The last browsing fix; never a navigation-quality position. */
   coordinate: Coordinate | null;
+  /** When `coordinate` was received (device clock), for freshness decisions such as distances. */
+  fixedAt: number | null;
   locating: boolean;
   message: string;
   setMessage(message: string): void;
-  /** Supersedes any pending request, including a planner origin request. */
+  /** A user choice supersedes any pending request, including a planner origin request and a pending Locate centre. */
   cancel(): void;
-  /** Requests a fresh fix; resolves null when a later request or cancellation superseded it. */
-  acquire(): Promise<LocationOutcome | null>;
+  /**
+   * Requests a fresh fix; resolves null when a later request or cancellation superseded it.
+   * `recenter` centres the camera on the first fix this request leads to, including one that
+   * arrives after Android's permission dialog suspended the request.
+   */
+  acquire(options?: { recenter?: boolean }): Promise<LocationOutcome | null>;
   /** Adopts a position accepted elsewhere, such as the last guidance position. */
   accept(coordinate: Coordinate): void;
 }
@@ -27,35 +34,51 @@ export interface DeviceLocation {
 export function useDeviceLocation({ tasks, camera, appActive, navigationVisible }: {
   tasks: TaskModel; camera: MapCamera; appActive: boolean; navigationVisible: boolean;
 }): DeviceLocation {
-  const [coordinate, setCoordinate] = useState<Coordinate | null>(null);
+  const [fix, setFix] = useState<{ coordinate: Coordinate; at: number } | null>(null);
   const [locating, setLocating] = useState(false);
   const [message, setMessage] = useState('');
   const request = useRef(0);
+  const [recenter] = useState(createRecenterIntent);
   const { dispatch } = tasks;
-  const { adoptInitialFix } = camera;
-  const cancel = useCallback(() => {
+  const { adoptInitialFix, centerOnFix } = camera;
+  const record = useCallback((coordinate: Coordinate | null) => setFix(coordinate ? { coordinate, at: Date.now() } : null), []);
+  /** Lifecycle suspension: stops the request but keeps an explicit Locate's intent to centre. */
+  const suspend = useCallback(() => {
     request.current += 1;
     setLocating(false);
     dispatch({ type: 'locationRequestCancelled' });
   }, [dispatch]);
-  const acquire = useCallback(async (): Promise<LocationOutcome | null> => {
+  const cancel = useCallback(() => {
+    recenter.withdraw();
+    suspend();
+  }, [recenter, suspend]);
+  /** A fix from any request centres the camera when Locate is still pending, else only adopts an untouched camera. */
+  const place = useCallback((coordinate: Coordinate) => {
+    if (recenter.take() === 'center') centerOnFix(coordinate);
+    else adoptInitialFix(coordinate);
+  }, [recenter, centerOnFix, adoptInitialFix]);
+  const acquire = useCallback(async (options?: { recenter?: boolean }): Promise<LocationOutcome | null> => {
     const id = ++request.current;
+    if (options?.recenter) recenter.request();
     setLocating(true);
     try {
       const position = await getCurrentLocation();
       if (id !== request.current) return null;
       const next = point(position.coordinate);
-      setCoordinate(next);
+      record(next);
+      if (options?.recenter) place(next);
       return { coordinate: next };
     } catch (error) {
-      return id === request.current ? { error } : null;
+      if (id !== request.current) return null;
+      if (options?.recenter) recenter.failed();
+      return { error };
     } finally {
       if (id === request.current) setLocating(false);
     }
-  }, []);
+  }, [recenter, record, place]);
 
   useEffect(() => {
-    if (!appActive) { cancel(); setCoordinate(null); return; }
+    if (!appActive) { suspend(); record(null); return; }
     if (navigationVisible) return;
     let active = true;
     const id = request.current;
@@ -64,18 +87,19 @@ export function useDeviceLocation({ tasks, camera, appActive, navigationVisible 
       if (!active || !position) return;
       setMessage('');
       const next = point(position.coordinate);
-      setCoordinate(next);
-      if (id === request.current) adoptInitialFix(next);
+      record(next);
+      if (id === request.current) place(next);
     }).catch(error => {
       if (active && id === request.current) {
-        setCoordinate(null);
+        record(null);
+        if (recenter.pending) recenter.failed();
         setMessage(error instanceof Error ? error.message : 'Posizione non disponibile. Riprova dal pulsante posizione.');
       }
     }).finally(() => {
       if (active && id === request.current) setLocating(false);
     });
     return () => { active = false; };
-  }, [appActive, navigationVisible, cancel, adoptInitialFix]);
+  }, [appActive, navigationVisible, suspend, record, place, recenter]);
 
-  return { coordinate, locating, message, setMessage, cancel, acquire, accept: setCoordinate };
+  return { coordinate: fix?.coordinate ?? null, fixedAt: fix?.at ?? null, locating, message, setMessage, cancel, acquire, accept: record };
 }

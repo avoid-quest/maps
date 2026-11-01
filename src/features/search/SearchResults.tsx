@@ -2,6 +2,7 @@ import { ActivityIndicator, Text, View } from "react-native";
 import { useThemeColors } from "../../theme";
 import { Disclosure, EmptyState, Loading, Notice, SheetFlatList } from "../../ui";
 import { formatDistance } from "../../ui/format";
+import { useDistanceReference } from "../map/useDistanceReference";
 import { PlaceRow } from "../places/PlaceRow";
 import { usePlacesContext } from "../places/usePlaces";
 import { useSearchContext } from "./useSearch";
@@ -12,6 +13,7 @@ export function SearchResults() {
   const { result, searching, error, policy, retry } = useSearchContext();
   const { isSaved, openPlace } = usePlacesContext();
   const places = result.places;
+  const reference = useDistanceReference();
   const header = (
     <View className="h-9 flex-row items-center gap-2 px-4">
       <View className="w-4">{searching ? <ActivityIndicator size="small" color={colors.action} /> : null}</View>
@@ -41,7 +43,8 @@ export function SearchResults() {
     <SheetFlatList
       data={places}
       keyExtractor={place => place.id}
-      renderItem={({ item }) => <PlaceRow place={item} saved={isSaved(item.id)} onPress={() => openPlace(item)} />}
+      renderItem={({ item }) => <PlaceRow place={item} saved={isSaved(item.id)} reference={reference} onPress={() => openPlace(item)} />}
+      extraData={reference}
       ListHeaderComponent={header}
       ListEmptyComponent={empty}
       ListFooterComponent={footer}

@@ -32,7 +32,7 @@ export function ListRow({ title, subtitle, detail, meta, icon, leading, trailing
       {subtitle ? <Text className="text-sm leading-5 text-secondary" numberOfLines={2}>{subtitle}</Text> : null}
       {detail ? <Text className="text-sm leading-5 text-secondary" numberOfLines={1}>{detail}</Text> : null}
     </View>
-    {meta ? <Text className="text-sm text-secondary">{meta}</Text> : null}
+    {meta ? <Text numberOfLines={1} className="max-w-[40%] shrink-0 text-sm text-secondary">{meta}</Text> : null}
     {trailing}
     {onPress && kind !== "none" ? <Icon name={kind === "external" ? "open-outline" : "chevron-forward"} size={18} color={colors.textSecondary} /> : null}
   </>;
