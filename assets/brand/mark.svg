@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <!--
+    maps.avoid.quest mark: the avoid.quest sun disc cut by two horizon lines (https://avoid.quest/icon0.svg).
+    Adapted for launcher sizes: the lines sit on the lower part of the disc and are bolder and wider spaced
+    than the favicon so they survive at 48 dp. Each line extends beyond the disc in the disc colour and
+    becomes a cut (a transparent gap) inside it, as in the favicon. Colour comes from the context: the
+    mark is drawn in white; renders put it on black or use it as an alpha mask (themed icon).
+  -->
+  <defs>
+    <mask id="horizon-cuts" maskUnits="userSpaceOnUse" x="0" y="0" width="200" height="200">
+      <rect width="200" height="200" fill="#fff"/>
+      <path d="M20 134h160M36 146h128" stroke="#000" stroke-width="5"/>
+    </mask>
+    <mask id="outside-disc" maskUnits="userSpaceOnUse" x="0" y="0" width="200" height="200">
+      <rect width="200" height="200" fill="#fff"/>
+      <circle cx="100" cy="100" r="60" fill="#000"/>
+    </mask>
+  </defs>
+  <circle cx="100" cy="100" r="60" fill="#fff" mask="url(#horizon-cuts)"/>
+  <path d="M20 134h160M36 146h128" stroke="#fff" stroke-width="5" fill="none" mask="url(#outside-disc)"/>
+</svg>

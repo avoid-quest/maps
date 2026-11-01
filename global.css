@@ -2,27 +2,56 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Light fallbacks for semantic colours; ThemeProvider overrides them with vars(). Kept in sync by src/theme/palette.test.ts. */
+/* Semantic colours, kept in sync with src/theme/palette.ts by src/theme/palette.test.ts. On web ThemeProvider
+   also sets them inline so an in-app Chiaro/Scuro choice overrides the browser preference. */
 :root {
-  --color-surface: 250 251 252;
+  --color-chrome: 255 255 255;
+  --color-surface: 250 250 250;
   --color-surface-raised: 255 255 255;
-  --color-surface-muted: 238 241 244;
-  --color-text-primary: 26 29 35;
-  --color-text-secondary: 82 90 102;
-  --color-divider: 221 225 230;
-  --color-action: 29 91 214;
-  --color-on-action: 255 255 255;
-  --color-action-subtle: 230 238 252;
-  --color-caution: 138 80 0;
-  --color-caution-subtle: 253 241 220;
-  --color-danger: 180 35 24;
-  --color-danger-subtle: 252 233 231;
-  --color-success: 28 107 58;
-  --color-success-subtle: 228 243 233;
-  --color-live: 12 110 96;
-  --color-scheduled: 62 70 82;
-  --color-stale: 138 80 0;
-  --color-cancelled: 180 35 24;
+  --color-surface-muted: 244 244 245;
+  --color-text-primary: 9 9 11;
+  --color-text-secondary: 82 82 91;
+  --color-divider: 228 228 231;
+  --color-action: 9 9 11;
+  --color-on-action: 250 250 250;
+  --color-action-subtle: 228 228 231;
+  --color-caution: 146 64 14;
+  --color-caution-subtle: 254 243 199;
+  --color-danger: 185 28 28;
+  --color-danger-subtle: 254 226 226;
+  --color-success: 6 111 68;
+  --color-success-subtle: 220 252 231;
+  --color-live: 6 111 68;
+  --color-scheduled: 63 63 70;
+  --color-stale: 146 64 14;
+  --color-cancelled: 185 28 28;
+}
+
+/* Dark values. On Android/iOS NativeWind binds these root variables to the app colour scheme, which
+   ThemeProvider sets through Appearance, so every styled view updates on a live switch. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-chrome: 0 0 0;
+    --color-surface: 11 11 12;
+    --color-surface-raised: 17 17 19;
+    --color-surface-muted: 28 28 31;
+    --color-text-primary: 250 250 250;
+    --color-text-secondary: 161 161 170;
+    --color-divider: 39 39 42;
+    --color-action: 250 250 250;
+    --color-on-action: 9 9 11;
+    --color-action-subtle: 39 39 42;
+    --color-caution: 251 191 36;
+    --color-caution-subtle: 42 32 6;
+    --color-danger: 248 113 113;
+    --color-danger-subtle: 45 18 19;
+    --color-success: 61 220 151;
+    --color-success-subtle: 13 42 30;
+    --color-live: 61 220 151;
+    --color-scheduled: 212 212 216;
+    --color-stale: 251 191 36;
+    --color-cancelled: 248 113 113;
+  }
 }
 
 /* Attribution stays exposed above the task sheet. */
@@ -33,3 +62,10 @@
 .maplibregl-map .maplibregl-ctrl-attrib-button { width: 44px; height: 44px; background-repeat: no-repeat; background-position: center; }
 
 .maplibregl-map .maplibregl-ctrl-attrib.maplibregl-compact:not([open]) { width: 44px; padding: 0; border-radius: 22px; }
+
+/* Attribution follows the app appearance; the variables come from ThemeProvider. The [data-scheme]
+   prefix outranks maplibre-gl.css, which loads after this file. */
+[data-scheme] .maplibregl-ctrl.maplibregl-ctrl-attrib { background-color: rgb(var(--color-surface-raised) / 0.92); color: rgb(var(--color-text-primary)); }
+[data-scheme] .maplibregl-ctrl.maplibregl-ctrl-attrib a { color: rgb(var(--color-text-primary)); }
+[data-scheme] .maplibregl-ctrl-attrib .maplibregl-ctrl-attrib-button { background-color: transparent; }
+[data-scheme="dark"] .maplibregl-ctrl-attrib .maplibregl-ctrl-attrib-button { filter: invert(1); }

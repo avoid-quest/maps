@@ -5,9 +5,8 @@ import { createRequire } from 'node:module';
 import { AA_NON_TEXT, AA_TEXT, contrastRatio, parseHex, rgbChannels } from './contrast';
 import { themeVariables } from './css-variables';
 import { kebabTokenName, palettes, themeColorNames, type ThemeColors } from './palette';
-import { colors as legacyColors } from './tokens';
 
-const surfaces = ['surface', 'surfaceRaised', 'surfaceMuted'] as const;
+const surfaces = ['chrome', 'surface', 'surfaceRaised', 'surfaceMuted'] as const;
 const textRoles = ['textPrimary', 'textSecondary', 'action', 'caution', 'danger', 'success', 'live', 'scheduled', 'stale', 'cancelled'] as const;
 const pairs: [foreground: keyof ThemeColors, background: keyof ThemeColors][] = [
   ['onAction', 'action'],
@@ -15,6 +14,13 @@ const pairs: [foreground: keyof ThemeColors, background: keyof ThemeColors][] = 
   ['caution', 'cautionSubtle'], ['textPrimary', 'cautionSubtle'],
   ['danger', 'dangerSubtle'], ['textPrimary', 'dangerSubtle'],
   ['success', 'successSubtle'], ['textPrimary', 'successSubtle'],
+  // Notice actions on tinted notices, and the neutral transit line badge (surface text on a primary fill).
+  ['action', 'cautionSubtle'], ['action', 'dangerSubtle'], ['action', 'successSubtle'],
+  ['surface', 'textPrimary'],
+  // The primary pill (white on black chrome in dark, black in light) and its label.
+  ['onAction', 'action'],
+  // Live minutes and the live label on the subtle success fill used for verified notices.
+  ['live', 'successSubtle'], ['textPrimary', 'successSubtle'],
 ];
 
 test('contrast arithmetic matches WCAG reference values', () => {
@@ -56,13 +62,23 @@ for (const palette of Object.values(palettes)) {
   });
 }
 
+test('greyscale everywhere except meaning: only live/success, caution/stale and danger/cancelled carry hue', () => {
+  const saturation = (hex: string) => { const [r, g, b] = parseHex(hex); return Math.max(r, g, b) - Math.min(r, g, b); };
+  const meaningful = new Set(['caution', 'cautionSubtle', 'danger', 'dangerSubtle', 'success', 'successSubtle', 'live', 'stale', 'cancelled']);
+  for (const palette of Object.values(palettes)) for (const name of themeColorNames) {
+    if (!meaningful.has(name)) assert.ok(saturation(palette.colors[name]) <= 12, `${palette.scheme} ${name} is greyscale`);
+  }
+  assert.equal(palettes.dark.colors.live, '#3DDC97', 'signal green on dark surfaces');
+});
+
 test('both palettes define the same opaque tokens and the light scheme is lighter', () => {
   for (const palette of Object.values(palettes)) {
     assert.deepEqual(Object.keys(palette.colors), themeColorNames);
     for (const value of [...Object.values(palette.colors), ...Object.values(palette.map)]) parseHex(value);
   }
   assert.ok(contrastRatio(palettes.light.colors.surface, '#000000') > contrastRatio(palettes.dark.colors.surface, '#000000'));
-  assert.notEqual(palettes.dark.colors.surface.toUpperCase(), '#000000', 'dark surfaces are neutral, not pure black');
+  assert.notEqual(palettes.dark.colors.surface.toUpperCase(), '#000000', 'dark surfaces are near-black, distinct from the pure black chrome');
+  assert.equal(palettes.dark.colors.chrome, '#000000');
 });
 
 test('Tailwind semantic colours cover every token through its CSS variable', () => {
@@ -73,15 +89,17 @@ test('Tailwind semantic colours cover every token through its CSS variable', () 
   for (const scheme of ['light', 'dark'] as const) assert.deepEqual(Object.keys(themeVariables(scheme)).sort(), [...declared.keys()].map(name => `--color-${name}`).sort());
 });
 
-test('global.css light fallbacks match the light palette', () => {
+const declaredIn = (block: string) => Object.fromEntries([...block.matchAll(/(--color-[a-z-]+):\s*([^;]+);/g)].map(match => [match[1], match[2]!.trim()]));
+
+test('global.css root variables match both palettes, so native styles follow a live scheme switch', () => {
   const css = readFileSync(new URL('../../global.css', import.meta.url), 'utf8');
-  const root = /:root\s*\{([^}]*)\}/.exec(css)?.[1] ?? '';
-  const declared = Object.fromEntries([...root.matchAll(/(--color-[a-z-]+):\s*([^;]+);/g)].map(match => [match[1], match[2]!.trim()]));
-  assert.deepEqual(declared, themeVariables('light'));
+  const light = /^:root\s*\{([^}]*)\}/m.exec(css)?.[1] ?? '';
+  const dark = /@media \(prefers-color-scheme: dark\)\s*\{\s*:root\s*\{([^}]*)\}/.exec(css)?.[1] ?? '';
+  assert.deepEqual(declaredIn(light), themeVariables('light'));
+  assert.deepEqual(declaredIn(dark), themeVariables('dark'));
 });
 
-test('legacy tokens remain available for existing importers', () => {
-  assert.deepEqual(Object.keys(legacyColors).sort(), ['amber', 'blue', 'ink', 'line', 'muted', 'paleBlue', 'paper', 'surface', 'teal']);
-  assert.equal(legacyColors.blue, palettes.light.colors.action);
-  assert.equal(legacyColors.ink, palettes.light.colors.textPrimary);
+test('native views read root variables, never an inline vars() context that memoized views miss', () => {
+  const provider = readFileSync(new URL('./ThemeProvider.tsx', import.meta.url), 'utf8');
+  assert.match(provider, /if \(Platform\.OS !== 'web'\) return undefined;/);
 });

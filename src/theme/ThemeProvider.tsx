@@ -7,7 +7,7 @@ import * as SystemUI from 'expo-system-ui';
 import { vars } from 'nativewind';
 import type { StyleSpecification } from '@maplibre/maplibre-react-native';
 import { themeVariables } from './css-variables';
-import { mapStyleFor, mapStyleJsonFor } from './map-style';
+import { mapColorsFor, mapStyleFor, mapStyleJsonFor } from './map-style';
 import { palettes, type ColorScheme, type MapColors, type ThemeColors } from './palette';
 import { systemChromeFor } from './system-chrome';
 import { resolveColorScheme, themePreferences, type ThemePreference, type ThemePreferenceSnapshot, type ThemePreferenceStorage, type ThemePreferenceStore } from './theme-preference';
@@ -25,16 +25,23 @@ export interface Theme {
 }
 
 function themeFor(scheme: ColorScheme, preferenceState: ThemePreferenceSnapshot, setPreference: Theme['setPreference']): Theme {
-  return { preference: preferenceState.preference, scheme, colors: palettes[scheme].colors, map: palettes[scheme].map, mapStyle: mapStyleFor(scheme), mapStyleJson: mapStyleJsonFor(scheme), preferenceState, setPreference };
+  return { preference: preferenceState.preference, scheme, colors: palettes[scheme].colors, map: mapColorsFor(scheme), mapStyle: mapStyleFor(scheme), mapStyleJson: mapStyleJsonFor(scheme), preferenceState, setPreference };
 }
 
 /** Outside a provider (isolated previews, tests) components render the light palette. */
 const fallbackTheme = themeFor('light', { ready: false, preferenceKnown: false, preference: 'system', storage: 'unavailable' }, async () => false);
 const ThemeContext = createContext<Theme>(fallbackTheme);
 
-// NativeWind identifies vars() results by object identity on native: create once and pass unmodified.
+/**
+ * Where semantic colours come from. Native: the `:root` and `prefers-color-scheme: dark` blocks in
+ * global.css, which NativeWind binds to the colour scheme set through `Appearance` (SystemChrome below).
+ * Every styled view subscribes to that, so a live switch repaints memoized rows and floating controls
+ * too; inline `vars()` only reached views that happened to re-render. Web: inline custom properties,
+ * so an in-app Chiaro/Scuro choice can override the browser preference.
+ */
 const schemeVariables: Partial<Record<ColorScheme, ReturnType<typeof vars>>> = {};
 function variablesFor(scheme: ColorScheme) {
+  if (Platform.OS !== 'web') return undefined;
   return (schemeVariables[scheme] ??= vars(themeVariables(scheme)));
 }
 

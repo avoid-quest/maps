@@ -1,6 +1,6 @@
 # Android builds and installation
 
-The application is an Expo native app. MapLibre requires a compiled native build; Expo Go cannot run it. Android uses MapLibre's `default` platform location engine, with foreground approximate or precise permission. Search and manual map browsing work without location access. Version 0.1.8 introduced an explicit Android navigation session using precise platform GPS, a location foreground service and an installed offline Italian voice. Complete physical GPS/voice/service acceptance remains outstanding; read [navigation implementation and acceptance](navigation.md) before describing screen-off guidance as tested.
+The application is an Expo native app. MapLibre requires a compiled native build; Expo Go cannot run it. Android uses MapLibre's `default` platform location engine, with foreground approximate or precise permission. Search and manual map browsing work without location access. Version 0.1.8 introduced an explicit Android navigation session using precise platform positioning, a location foreground service and an installed offline Italian voice. Complete physical GPS/voice/service acceptance remains outstanding; read [navigation implementation and acceptance](navigation.md) before describing screen-off guidance as tested.
 
 ## Local prerequisites
 
@@ -60,7 +60,7 @@ Emulator checks prove Android packaging and runtime behaviour, not physical-devi
 
 ## Position availability
 
-Location permission authorizes a request; it does not guarantee a current fix. MapLibre's default Android engine requests platform positioning, including the network provider when available alongside GPS. A Google-free system may have no working Wi-Fi/cell positioning provider, so indoor browsing can time out even with precise permission and location enabled. Navigation separately requires a fresh GPS fix within its accuracy policy; an old cached position cannot start guidance.
+Location permission authorizes a request; it does not guarantee a current fix. MapLibre's default Android engine requests platform positioning, including the network provider when available alongside GPS. A Google-free system may have no working Wi-Fi/cell positioning provider, so indoor browsing can time out even with precise permission and location enabled. Navigation listens to platform GPS and, when available, the platform fused (Android 12+) and network providers, and admits only fresh fixes within its per-mode accuracy policy; a cached position older than 15 seconds cannot start guidance.
 
 Foreground browsing checks existing permission on launch and resume without prompting. Explicit Locate can request permission. Provider status is sampled before acquisition and after timeout: local diagnostics distinguish disabled services, GPS only, network only, both enabled, another active platform provider, and no enabled provider. These fixed codes contain no coordinates or device identifiers. An enabled provider does not establish that it can return a fix. Older native binaries without the status method continue acquisition with generic timeout wording; rebuild the APK to expose provider status.
 
@@ -69,6 +69,10 @@ Indoor timeouts after earlier successful fixes do not establish which platform p
 ## Dependency review
 
 The initial SDK 54 lockfile was checked with `npm audit` and compatible fixes applied. The web-only MapLibre renderer was updated to 6.13.0 and protobufjs to 8.8.0 to remove critical advisories; the native MapLibre package remains pinned separately. For the original v0.1.0 lockfile on 2026-10-11, npm reported 44 advisory paths (26 high, 16 moderate, 2 low), mostly inherited build/CLI CSS, image, glob, signing and source-map tooling. `npm audit fix --force` proposes incompatible framework changes, so those changes were not applied mechanically. Treat untrusted build input and development servers accordingly; this is not a claim that the entire dependency graph is vulnerability-free. These historical counts do not describe the later Bun lockfile. Recheck the active lockfile with `bun audit` when updating Expo or its toolchain.
+
+Brand assets add three Expo modules: `expo-font` (config plugin embeds the bundled Geist and Mona Sans TTFs as Android XML font families), `expo-splash-screen` (black splash with the brand mark; AndroidX `core-splashscreen`), and `expo-asset` (declares web `@font-face` URLs). Their Android dependencies are AndroidX and React Native only; none pulls Google Play services. `@resvg/resvg-js` is a development-only renderer for `scripts/render-brand-assets.mjs` and is not part of the app. After changing the mark, run the script and commit the PNGs; `node scripts/render-brand-assets.mjs --check` fails when they are stale. Fonts and their OFL-1.1 texts are listed in [`assets/fonts/README.md`](../../assets/fonts/README.md).
+
+The task sheet uses `@gorhom/bottom-sheet` 5.2.14, a JavaScript library (with `@gorhom/portal`) on the pinned Reanimated 4.1.1, react-native-worklets 0.5.1 and Gesture Handler 2.28. Its v5.2.8 example app pins the same SDK 54 / React Native 0.81.5 new-architecture stack. It adds no native module, permission or Google dependency. Gesture, keyboard and TalkBack behaviour still require a device check after each upgrade.
 
 ## Browser preview
 
