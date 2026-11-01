@@ -43,7 +43,37 @@ Avoid sending every GPS update to the route server. Compute progress on the exis
 
 See [the earlier transit probes](turin-transit-data.md): GTT static/realtime feeds are keyless; reuse is limited by the documented non-commercial and attribution terms. MATO's GraphQL returned a working itinerary, but public API reuse terms/quotas/SLA remain unverified. Do not present it as an assured long-term planning contract.
 
-Transitous is another public-service candidate, but its [API policy](https://transitous.org/api/) requires open-source published applications for ongoing use (with a narrow prototype allowance), identifying requests, attribution, and contact for potentially intensive endpoints including routing. No contact occurred and Turin completeness was not benchmarked. It is not an invisible automatic failover.
+Transitous is not an invisible automatic failover; its verified, explicitly invoked role is described below.
+
+## Transitous: rail station boards and explicit stop fallback
+
+Verified 2026-11-01 against the [API policy](https://transitous.org/api/), [privacy policy](https://transitous.org/privacy/), [sources page](https://transitous.org/sources/) and the MOTIS OpenAPI specification linked from the policy ([v2.10.2](https://raw.githubusercontent.com/motis-project/motis/refs/tags/v2.10.2/openapi.yaml); the production server also returned the newer `departureTimestampReason`/`arrivalTimestampReason` fields documented on MOTIS `master`).
+
+**Policy.** Transitous is a volunteer, best-effort MOTIS 2 service for open-source, non-commercial projects. Requirements: published source; an HTTP User-Agent on every request with the application name, client version and a contact (e-mail or website); a visible link to https://transitous.org/sources/ and compliance with the listed source conditions, including OpenStreetMap attribution; coordination in the project's Matrix channel for heavy use. More than about 720 requests per 24 hours of `/plan`, `/one-to-many` or `/one-to-all`, many users and automated requests are the named high-cost cases. Commercial use is not allowed. Staging and internal hosts must not be used by applications.
+
+**Privacy.** Server logs store IP address, request time, requested URL and User-Agent for up to two days. The URL contains whatever the request sends, so the app sends only the selected stop/station/trip identifier or the typed search text plus fixed parameters identical for every user. It never sends the device position, a place bias, language preference or device data. The User-Agent is `AvoidMaps/<version> (+https://github.com/avoid-quest/maps)`.
+
+**Endpoints used** (all `GET https://api.transitous.org`, keyless, JSON):
+
+| Endpoint | Parameters sent | Purpose |
+|---|---|---|
+| `/api/v6/stoptimes` | `stopId`, `n=12` (`arriveBy=true` for arrivals) | Rail pilot station board |
+| `/api/v6/stoptimes` | `stopId`, `n=10`, `radius=0`, `exactRadius=true` | Explicit GTT stop fallback; restricts results to the selected pole |
+| `/api/v6/trip` | `tripId`, `detailedLegs=false` | Intermediate stops of a selected trip, without geometry |
+| `/api/v1/geocode` | `text`, `type=STOP`, `numResults=8`, fixed Turin box `min`/`max` | Stop search by typed name |
+| `/api/v6/map/stops` | ~300 m box around a bundled public stop | Mapping maintenance only |
+
+`/plan` is not used, so the 720/day coordination threshold does not apply to this integration. Requests are serialized with one-second spacing; a 429 blocks the provider queue for 60 seconds; identical requests within 60 seconds return the cached snapshot; nothing polls automatically.
+
+**Measured behaviour (one bounded sample each).** Responses took 0.22–0.54 s. Porta Susa returned Trenitalia FR/RV/SFM/ICN departures, several with `realTime=true` and `PREDICTED` times (for example +2 and +7 minutes), plus an SNCF TGV through MOTIS's same-name station equivalence. Porta Nuova returned 20 departures, none with realtime data, which is consistent with predictions starting after a train leaves its origin. A GTT tram stop returned `PREDICTED` and `NO_RT_DATA` rows and one `INCONSISTENT_RT` row whose time MOTIS adjusted while reporting `realTime=false`. No event in the samples was cancelled. Platforms appeared only as `track` without a separate `scheduledTrack`.
+
+**Interpretation rules.** MOTIS publishes no feed or entity timestamp. A `realTime=true` row is therefore labelled “Dichiarato in tempo reale · aggiornamento origine non disponibile”; age is never derived from retrieval time. `NO_RT_DATA` is a timetable time, not punctuality. `INCONSISTENT_RT` or a contradiction between `realTime` and the timestamp reason is unknown. `cancelled`/`tripCancelled` distinguish a skipped stop from a cancelled trip. A `track` without `scheduledTrack` is shown as published, not as a confirmed platform change.
+
+**Identifiers.** Transitous GTT stop IDs are `it-Piemonte-Gruppo-Torinese-Trasporti_<GTT stop_id>`, with the GTT `stop_code` as `stopCode`; the fallback derives the ID locally and rejects a response whose stop ID, code or coordinate (150 m) does not match the bundled stop. Rail pilot stations use `it-trenitalia_*` IDs verified by one regional `map/stops` request and a `stoptimes` request per station; see `src/data/transitous-rail-stations.json`. Torino Dora, Zappata and San Paolo had no rail stop in Transitous and are excluded.
+
+**Attribution.** The sources page lists both Turin datasets as published by BusOne: “BusOne (https://busone.app) and Trenitalia” (`it_trenitalia.gtfs.zip`) and “BusOne (https://busone.app) and GTT” (`it_Piemonte-Gruppo-Torinese-Trasporti.gtfs.zip`), free only for non-commercial use by individuals, nonprofits and NGOs, with original source terms continuing to apply. Rows from other datasets keep their dataset identifier and refer to the sources page.
+
+**Data quirks.** Ciriè is published as “Ciri” (stop `it-trenitalia_00090` and SFM headsigns). The app corrects only that exact whole string within the Trenitalia dataset and keeps the supplied text. Other names are shown as supplied, including mixed case and abbreviations such as “Torino Reb.Foss.”.
 
 ## Optional account-based services
 

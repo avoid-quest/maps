@@ -2,6 +2,8 @@
 
 Research date: **2026-10-11**. Endpoint probes were bounded anonymous HTTPS requests; the three GTT real-time feeds were sampled once at about **13:29 UTC / 15:29 Europe/Rome**. Counts below describe that snapshot, not guaranteed coverage, uptime or prediction accuracy. Large downloads stayed outside the repository. This note evaluates regional transit sources for an Android application with local data processing and direct public-data access; each source retains its documented usage terms.
 
+Update 2026-11-01: Transitous (MOTIS) returned Trenitalia SFM/regional departures with declared realtime for Turin stations and GTT stop times with realtime via BusOne. It is the online provider for a bounded rail-station pilot and an explicitly invoked fallback for GTT stop boards; MATO is not used for these. Endpoints, policy, identifiers and interpretation rules are in [online services](online-services.md#transitous-rail-station-boards-and-explicit-stop-fallback).
+
 ## Findings that affect the decision
 
 1. **A useful Turin transit system is feasible without a paid API or a hosted server.** GTT supplies directly downloadable static GTFS plus three working GTFS-Realtime feeds: predicted arrivals, vehicle positions and service alerts. Anonymous requests succeeded, and sampled predictions joined perfectly to the same day's static timetable. This is substantially more useful than merely finding bus dots on a map. [GTT static][gtt-static], [trip updates][gtt-tu], [vehicles][gtt-vp], [alerts][gtt-sa]
