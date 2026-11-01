@@ -9,8 +9,10 @@ export const REALTIME_STATE_LABELS: Record<TransitRealtimeState, string> = {
   unknown: 'Stato in tempo reale non determinabile',
 };
 
-export function realtimeStateLabel(row: Pick<TransitBoardRow, 'realtimeState' | 'tripCancelled' | 'timeBasis'>): string {
+export function realtimeStateLabel(row: Pick<TransitBoardRow, 'realtimeState' | 'tripCancelled' | 'timeBasis'> & Partial<Pick<TransitBoardRow, 'sourceUpdatedAt'>>): string {
   if (row.realtimeState === 'cancelled') return row.tripCancelled ? 'Corsa cancellata' : 'Fermata soppressa per questa corsa';
+  // "In tempo reale" requires a real source timestamp; never let the state alone imply one.
+  if (row.realtimeState === 'realtime-with-source-time' && !Number.isFinite(row.sourceUpdatedAt)) return REALTIME_STATE_LABELS['declared-realtime-no-source-time'];
   if (row.realtimeState === 'unknown' && row.timeBasis === 'inconsistent') return 'Dati in tempo reale incoerenti · orario non confermato';
   return REALTIME_STATE_LABELS[row.realtimeState];
 }

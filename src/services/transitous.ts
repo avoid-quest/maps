@@ -174,13 +174,15 @@ function parseStopTime(record: JsonObject, { event, retrievedAt }: { event: 'dep
   const destination = fixName(isObject(record.tripTo) ? text(record.tripTo.name) : undefined, upstream.dataset).name;
   const line = text(record.routeShortName); const tripNumber = text(record.tripShortName);
   const tripRef = text(record.tripId);
-  const stopId = text(place.stopId) ?? '';
+  // Without its own stop identity an event cannot be joined to the requested stop or station.
+  const stopId = text(place.stopId); const stopName = text(place.name);
+  if (!stopId || !stopName) return undefined;
   return {
     id: `transitous:${tripRef ?? `row-${index}`}:${stopId}:${event}`,
     provider: 'transitous', upstream, event, ...modeOf(record.mode),
     line, tripNumber: tripNumber && tripNumber !== line ? tripNumber : undefined, displayName: text(record.displayName),
     headsign: headsign.name, headsignAsSupplied: headsign.asSupplied, destination,
-    stop: { id: stopId, name: text(place.name) ?? '', coordinate: coordinateOf(place) },
+    stop: { id: stopId, name: stopName, coordinate: coordinateOf(place) },
     // A cancelled event has no meaningful realtime time; keep the timetable only.
     scheduledAt: scheduledAt ?? (state === 'scheduled' ? providerTimeAt : undefined),
     predictedAt: state === 'declared-realtime-no-source-time' ? providerTimeAt : undefined,
@@ -193,7 +195,8 @@ function parseStopTime(record: JsonObject, { event, retrievedAt }: { event: 'dep
 
 export function parseTrip(json: unknown, context: { tripRef: string; retrievedAt: number }): Omit<TransitTripDetails, 'nextRefreshAt' | 'attributions' | 'sourcesUrl' | 'warnings'> & { warnings: string[] } {
   if (!isObject(json) || !Array.isArray(json.legs)) invalid();
-  const leg = json.legs.find((value): value is JsonObject => isObject(value) && text(value.tripId) !== undefined);
+  // Only the leg of the requested trip may be labelled as that trip.
+  const leg = json.legs.find((value): value is JsonObject => isObject(value) && text(value.tripId) === context.tripRef);
   if (!leg || !isObject(leg.from) || !isObject(leg.to)) invalid();
   const upstream = upstreamOf(leg);
   const places = [leg.from, ...(Array.isArray(leg.intermediateStops) ? leg.intermediateStops : []), leg.to];
@@ -272,14 +275,25 @@ function attributionsFor(sources: TransitUpstreamSource[]): string[] {
   return [`Transitous (${TRANSITOUS_SOURCES_URL})`, ...known, ...(unknown ? [`Altre fonti originali: ${TRANSITOUS_SOURCES_URL}`] : [])];
 }
 
-function boardWarnings(rows: TransitBoardRow[], dropped: number, elsewhere: number): string[] {
+const RAIL_MODES = new Set<TransitBoardMode>(['rail-suburban', 'rail-regional', 'rail-long-distance', 'rail-high-speed', 'rail-night', 'rail']);
+/**
+ * A rail board shows trains plus buses run within the Trenitalia dataset (rail-replacement or integrated
+ * Trenitalia services at the station, observed live at Porta Susa). Other operators' non-rail rows are excluded.
+ */
+function railScope(row: TransitBoardRow): boolean {
+  return RAIL_MODES.has(row.mode) || row.upstream.dataset === TRENITALIA_DATASET;
+}
+
+function boardWarnings(rows: TransitBoardRow[], counts: { dropped: number; elsewhere: number; outOfScope: number }): string[] {
   const warnings: string[] = [];
   if (!rows.length) warnings.push('Transitous non ha restituito corse per questa fermata. Non significa che non ci siano corse.');
-  if (dropped) warnings.push(`${dropped} corse scartate perché incomplete.`);
-  if (elsewhere) warnings.push(`${elsewhere} corse scartate perché riferite a un’altra fermata.`);
-  if (rows.length && !rows.some(row => row.realtimeState === 'declared-realtime-no-source-time' || row.realtimeState === 'cancelled')) {
-    warnings.push('Nessun dato in tempo reale: sono mostrati solo orari programmati.');
-  }
+  if (counts.dropped) warnings.push(`${counts.dropped} corse scartate perché incomplete.`);
+  if (counts.elsewhere) warnings.push(`${counts.elsewhere} corse scartate perché riferite a un’altra fermata.`);
+  if (counts.outOfScope) warnings.push(`${counts.outOfScope} corse non ferroviarie escluse da questa bacheca treni.`);
+  // Timetable-only is a positive claim: make it only when every row is classified as scheduled.
+  if (rows.length && rows.every(row => row.realtimeState === 'scheduled')) warnings.push('Nessun dato in tempo reale: sono mostrati solo orari programmati.');
+  const unknown = rows.filter(row => row.realtimeState === 'unknown').length;
+  if (unknown) warnings.push(`Stato in tempo reale non determinabile per ${unknown} ${unknown === 1 ? 'corsa' : 'corse'}.`);
   return warnings;
 }
 
@@ -341,15 +355,16 @@ export function createTransitousClient(options: TransitousClientOptions) {
    * Keep only events at the requested stop (or an accepted equivalent) that are not already past.
    * An event is past only when every known time is older than the grace period.
    */
-  function snapshot(parsed: ParsedStopTimes, event: 'departure' | 'arrival', retrievedAt: number, stop: TransitBoardSnapshot['stop'], atStop: (row: TransitBoardRow) => boolean, extraWarnings: string[] = []): TransitBoardSnapshot {
+  function snapshot(parsed: ParsedStopTimes, event: 'departure' | 'arrival', retrievedAt: number, stop: TransitBoardSnapshot['stop'], atStop: (row: TransitBoardRow) => boolean, extraWarnings: string[] = [], inScope: (row: TransitBoardRow) => boolean = () => true): TransitBoardSnapshot {
     const local = parsed.rows.filter(atStop);
-    const rows = local
+    const scoped = local.filter(inScope);
+    const rows = scoped
       .filter(row => Math.max(row.predictedAt ?? -Infinity, row.scheduledAt ?? -Infinity, row.providerTimeAt ?? -Infinity) >= retrievedAt - PAST_GRACE_MS)
       .sort((a, b) => (a.predictedAt ?? a.scheduledAt ?? a.providerTimeAt ?? Infinity) - (b.predictedAt ?? b.scheduledAt ?? b.providerTimeAt ?? Infinity));
     return {
       provider: 'transitous', event, stop, rows, retrievedAt, nextRefreshAt: retrievedAt + TRANSITOUS_MIN_REFRESH_MS,
       attributions: attributionsFor(rows.map(row => row.upstream)), sourcesUrl: TRANSITOUS_SOURCES_URL,
-      warnings: [...extraWarnings, ...boardWarnings(rows, parsed.dropped, parsed.rows.length - local.length)],
+      warnings: [...extraWarnings, ...boardWarnings(rows, { dropped: parsed.dropped, elsewhere: parsed.rows.length - local.length, outOfScope: local.length - scoped.length })],
     };
   }
 
@@ -370,7 +385,7 @@ export function createTransitousClient(options: TransitousClientOptions) {
         // or a stop within the station radius, and drop anything else.
         const atStation = (row: TransitBoardRow) => row.stop.id === station.transitousStopId
           || (!!row.stop.coordinate && distanceMeters(row.stop.coordinate, station.coordinate) <= STATION_MATCH_METERS);
-        return snapshot(parsed, event, retrievedAt, { id: station.transitousStopId, name: station.name, coordinate: station.coordinate }, atStation);
+        return snapshot(parsed, event, retrievedAt, { id: station.transitousStopId, name: station.name, coordinate: station.coordinate }, atStation, [], railScope);
       }, opts.signal, 'Stazione non trovata su Transitous.');
     },
 

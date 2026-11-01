@@ -391,8 +391,9 @@ test('stop lookup around a public stop sends only a small box around that stop',
   });
 });
 
+const TRIP_26481 = '20261101_19:07_it-trenitalia_0083_720083_0_v_72-26481-34C1-0083_v_72-26481-34C1-0083';
 test('trip summary comes from parsed stop events, not the endpoint-only leg flag', () => {
-  const tripRef = 'trip';
+  const tripRef = TRIP_26481;
   const endpointsScheduled = clone(trip26481);
   const leg = endpointsScheduled.legs[0]! as Record<string, unknown> & { from: Record<string, unknown>; to: Record<string, unknown>; intermediateStops: Record<string, unknown>[] };
   leg.realTime = false; leg.from.departureTimestampReason = 'NO_RT_DATA'; leg.to.arrivalTimestampReason = 'NO_RT_DATA';
@@ -422,4 +423,67 @@ test('trip summary comes from parsed stop events, not the endpoint-only leg flag
 
   const real = parseTrip(trip26481, { tripRef, retrievedAt: 1 });
   assert.equal(real.realtimeState, 'declared-realtime-no-source-time'); assert.equal(real.endpointRealtimeFlag, true);
+});
+
+test('board warnings claim timetable-only results only when every row is scheduled', async () => {
+  const allUnknown = clone(portaSusa);
+  for (const st of allUnknown.stopTimes) st.place.departure = 'garbage';
+  await withFetch(() => json(allUnknown), async () => {
+    const board = await clientAt(SUSA_AT).getRailStationBoard(PORTA_SUSA);
+    assert.ok(board.rows.every(r => r.realtimeState === 'unknown' || r.realtimeState === 'scheduled'));
+    assert.ok(!board.warnings.includes('Nessun dato in tempo reale: sono mostrati solo orari programmati.'));
+    const unknown = board.rows.filter(r => r.realtimeState === 'unknown').length;
+    assert.ok(unknown > 0); assert.ok(board.warnings.includes(`Stato in tempo reale non determinabile per ${unknown} corse.`));
+  });
+  const mixed = clone(portaNuova);
+  mixed.stopTimes[0]!.place.departureTimestampReason = 'INCONSISTENT_RT';
+  await withFetch(() => json(mixed), async () => {
+    const board = await clientAt(at('2026-11-01T19:19:00Z')).getRailStationBoard(getRailPilotStation('torino-porta-nuova')!);
+    assert.deepEqual(board.warnings, ['Stato in tempo reale non determinabile per 1 corsa.']);
+  });
+});
+
+test('a sourced-realtime state without a source timestamp is never labelled as live', () => {
+  const base = { realtimeState: 'realtime-with-source-time' as const, tripCancelled: false, timeBasis: 'predicted' as const };
+  assert.equal(realtimeStateLabel(base), 'Dichiarato in tempo reale · aggiornamento origine non disponibile');
+  assert.equal(realtimeStateLabel({ ...base, sourceUpdatedAt: Number.NaN }), 'Dichiarato in tempo reale · aggiornamento origine non disponibile');
+  assert.equal(realtimeStateLabel({ ...base, sourceUpdatedAt: 1_700_000_000_000 }), 'In tempo reale');
+});
+
+test('events without their own stop identity are dropped', () => {
+  const data = clone(portaSusa);
+  delete (data.stopTimes[0]!.place as { stopId?: string }).stopId;
+  data.stopTimes[1]!.place.name = '  ';
+  const parsed = parseStopTimes(data, { event: 'departure', retrievedAt: 1 });
+  assert.equal(parsed.dropped, 2); assert.equal(parsed.rows.length, 10);
+});
+
+test('trip details must belong to the requested trip', async () => {
+  assert.throws(() => parseTrip(trip26481, { tripRef: 'another-trip', retrievedAt: 1 }), { kind: 'invalid' });
+  await withFetch(() => json(trip26481), async () => {
+    await assert.rejects(createTransitousClient({ userAgent: UA, queue: direct }).getTripDetails('another-trip'), { kind: 'invalid' });
+  });
+});
+
+test('rail boards keep trains and Trenitalia buses but exclude other operators\' non-rail rows', async () => {
+  const data = clone(portaSusa) as { stopTimes: Record<string, unknown>[]; place: unknown };
+  const gttBus = clone(gttQuestura.stopTimes[2]!) as Record<string, unknown> & { place: Record<string, unknown> };
+  Object.assign(gttBus.place, { stopId: 'it-trenitalia_00222', name: 'TORINO PORTA SUSA', lat: 45.074102, lon: 7.667251, scheduledDeparture: '2026-11-01T19:30:00Z', departure: '2026-11-01T19:30:00Z' });
+  const trenitaliaBus = clone(data.stopTimes[5]!);
+  Object.assign(trenitaliaBus, { mode: 'BUS', routeShortName: 'BUS', tripShortName: 'TO315', displayName: 'BUS TO315', tripId: 'bus-to315' });
+  data.stopTimes.push(gttBus, trenitaliaBus);
+  await withFetch(() => json(data), async () => {
+    const board = await clientAt(SUSA_AT).getRailStationBoard(PORTA_SUSA);
+    assert.ok(!board.rows.some(r => r.upstream.operator === 'GTT Servizio Urbano'));
+    const bus = board.rows.find(r => r.displayName === 'BUS TO315')!;
+    assert.equal(bus.mode, 'bus'); assert.equal(bus.upstream.operator, 'TRENITALIA');
+    assert.ok(board.warnings.includes('1 corse non ferroviarie escluse da questa bacheca treni.'));
+  });
+});
+
+test('nearest station lookup ignores non-positive or fractional limits safely', () => {
+  const center = { latitude: 45.0741, longitude: 7.6672 };
+  assert.deepEqual(nearestRailPilotStations(center, { limit: -1, radiusMeters: 50_000 }), []);
+  assert.equal(nearestRailPilotStations(center, { limit: 1.9, radiusMeters: 50_000 }).length, 1);
+  assert.deepEqual(nearestRailPilotStations(center, { limit: Number.NaN }), []);
 });

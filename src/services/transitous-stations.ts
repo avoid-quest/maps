@@ -29,5 +29,5 @@ export function nearestRailPilotStations(center: Coordinate, options: { radiusMe
   return RAIL_PILOT_STATIONS.map(station => ({ ...station, distanceMeters: distanceMeters(center, station.coordinate) }))
     .filter(station => station.distanceMeters <= (options.radiusMeters ?? 1500))
     .sort((a, b) => a.distanceMeters - b.distanceMeters)
-    .slice(0, options.limit ?? 3);
+    .slice(0, Math.max(0, Math.floor(options.limit ?? 3)));
 }
