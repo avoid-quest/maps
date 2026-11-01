@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { ActivityIndicator, Text, View } from 'react-native';
 import type { Departure, Stop } from '../../domain/types';
 import { transitAlertWarnings } from '../../domain/transit-alert-freshness';
@@ -8,14 +9,17 @@ import { displayedDepartureStatus } from './departure-status';
 import type { useStopBoard } from './useStopBoard';
 
 type BoardState = ReturnType<typeof useStopBoard>;
-export function StopBoardPanel({ stop, state, now, onLink, onDirections }: {
+export function StopBoardPanel({ stop, state, now, onLink, onDirections, actions }: {
   stop: Stop; state: BoardState; now: number; onLink: (url: string) => void; onDirections: () => void;
+  /** Secondary stop actions shown as icons beside refresh, such as saving the stop. */
+  actions?: ReactNode;
 }) {
   const { board, alerts, arrivalsLoading, alertsLoading, arrivalsError, alertsError, refreshArrivals, refreshAlerts } = state;
   return <View className="gap-3">
     <View className="flex-row items-center gap-2 px-4">
       <Text className="flex-1 text-sm text-secondary">Fermata {stop.code}{stop.distanceMeters ? ` · ${journeyDistance(stop.distanceMeters)}` : ''}</Text>
       <IconButton icon="refresh-outline" label="Aggiorna arrivi" disabled={arrivalsLoading} onPress={refreshArrivals} />
+      {actions}
     </View>
     {arrivalsLoading ? <BoardLoading label={board ? 'Aggiorno gli arrivi…' : 'Cerco i prossimi arrivi…'} /> : null}
     {arrivalsError ? <View className="px-4"><Notice tone="danger" text={`${arrivalsError}${board ? ' Ultimi arrivi conservati.' : ''}`} action="Riprova arrivi" onAction={refreshArrivals} /></View> : null}

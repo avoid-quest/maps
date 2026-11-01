@@ -1,10 +1,9 @@
-import { ScrollView, Text, View } from "react-native";
-import { useThemeColors } from "../../theme";
-import { IconButton } from "../../ui";
+import { View } from "react-native";
+import { AppSheet, IconButton, SheetHeader, SheetScrollView, type SheetHeights, type SheetSnap } from "../../ui";
 import { PlaceDetail } from "../places/PlaceDetail";
 import { SavedSheet } from "../places/SavedSheet";
 import { PlannerSheet } from "../planner/PlannerSheet";
-import { RouteActions } from "../planner/RouteActions";
+import { ROUTE_ACTIONS_HEIGHT, RouteActions } from "../planner/RouteActions";
 import { categoryTitle } from "../search/categories";
 import { CategoryShortcuts } from "../search/CategoryShortcuts";
 import { SearchResults } from "../search/SearchResults";
@@ -13,7 +12,8 @@ import { SettingsSheet } from "../settings/SettingsSheet";
 import { NearbyStops } from "../transit/NearbyStops";
 import { StopSheet } from "../transit/StopSheet";
 import { useSheet } from "./sheet";
-import { topTask, type Task } from "./task-model";
+import { sheetHeaderNavigation, toggledSnap } from "./sheet-model";
+import { detailKey, topTask, type Task } from "./task-model";
 import { useShellActions } from "./useShellActions";
 import { useTaskState } from "./useTaskModel";
 
@@ -29,43 +29,47 @@ function taskTitle(task: Task, search: Search): string {
   }
 }
 
+/** Lists own a virtualized scroller; other tasks scroll as one document. */
 function TaskContent({ task, search, now }: { task: Task; search: Search; now: number }) {
   switch (task.kind) {
-    case "settings": return <SettingsSheet />;
-    case "planner": return <PlannerSheet task={task} now={now} />;
-    case "place": return <PlaceDetail place={task.place} />;
-    case "journeyStop": case "stop": return <StopSheet stop={task.stop} now={now} />;
+    case "search": return search.hasSearch ? <SearchResults /> : <SheetScrollView><CategoryShortcuts /></SheetScrollView>;
     case "transit": return <NearbyStops />;
     case "saved": return <SavedSheet />;
-    case "search": return search.hasSearch ? <SearchResults /> : <CategoryShortcuts />;
+    case "settings": return <SheetScrollView><SettingsSheet /></SheetScrollView>;
+    case "planner": return <SheetScrollView><PlannerSheet task={task} now={now} /></SheetScrollView>;
+    case "place": return <SheetScrollView><PlaceDetail place={task.place} /></SheetScrollView>;
+    case "journeyStop": case "stop": return <SheetScrollView><StopSheet stop={task.stop} now={now} /></SheetScrollView>;
     case "browse": return null;
   }
 }
 
 /** The single task card: one task owns the sheet at a time. */
-export function TaskSheet({ height, wide, fontScale, now }: { height: number; wide: boolean; fontScale: number; now: number }) {
-  const colors = useThemeColors();
+export function TaskSheet({ snap, resting, heights, now }: { snap: SheetSnap; resting: SheetSnap; heights: SheetHeights; now: number }) {
   const tasks = useTaskState();
   const sheet = useSheet();
   const search = useSearchContext();
   const { closeTask, closeTopTask } = useShellActions();
   const top = topTask(tasks);
+  const navigation = sheetHeaderNavigation(tasks);
+  const expandTo = toggledSnap(snap, resting);
+  const header = (
+    <SheetHeader
+      title={taskTitle(top, search)}
+      onBack={navigation.back ? closeTopTask : undefined}
+      onClose={closeTask}
+      closeLabel="Chiudi e torna alla mappa"
+      actions={
+        <IconButton icon={snap === "full" ? "chevron-down" : "chevron-up"}
+          label={snap === "full" ? "Riduci scheda" : "Espandi scheda"} onPress={() => sheet.request(expandTo)} />
+      }
+    />
+  );
   return (
-    <View testID="map-sheet" style={{ position: "absolute", left: 12, right: wide ? undefined : 12, bottom: 8, width: wide ? 410 : undefined, height, borderColor: colors.divider, borderWidth: 1, borderRadius: 20, overflow: "hidden" }} className="bg-surface">
-      <View style={{ height: Math.max(56, 48 * fontScale) }} className="flex-row items-center border-b border-divider px-2">
-        <IconButton icon="arrow-back" label="Indietro" onPress={closeTopTask} />
-        <Text accessibilityRole="header" numberOfLines={2} className="min-w-0 flex-1 text-base leading-5 font-semibold text-primary">{taskTitle(top, search)}</Text>
-        <IconButton icon={sheet.expanded ? "chevron-down" : "chevron-up"} label={sheet.expanded ? "Riduci scheda" : "Espandi scheda"} onPress={sheet.toggle} />
-        <IconButton icon="close" label="Chiudi scheda" onPress={closeTask} />
-      </View>
-      <ScrollView
-        ref={sheet.scrollRef}
-        keyboardShouldPersistTaps="handled"
-        contentContainerStyle={{ paddingBottom: 24 }}
-      >
+    <AppSheet testID="map-sheet" snap={snap} heights={heights} onSnapChange={sheet.request} header={header}
+      footer={top.kind === "planner" ? <RouteActions task={top} /> : undefined} footerHeight={top.kind === "planner" ? ROUTE_ACTIONS_HEIGHT : 0}>
+      <View key={detailKey(tasks)} style={{ flex: 1 }}>
         <TaskContent task={top} search={search} now={now} />
-      </ScrollView>
-      {top.kind === "planner" ? <RouteActions task={top} /> : null}
-    </View>
+      </View>
+    </AppSheet>
   );
 }

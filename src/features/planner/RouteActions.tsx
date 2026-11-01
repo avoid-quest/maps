@@ -6,6 +6,8 @@ import { useMapContext } from "../map/useMapModel";
 import { useNavigationContext } from "../navigation/useNavigation";
 import { usePlannerContext } from "./usePlanner";
 
+export const ROUTE_ACTIONS_HEIGHT = 72;
+
 /** Summary and Avvia, anchored outside the scrolling details. */
 export function RouteActions({ task }: { task: PlannerTask }) {
   const planner = usePlannerContext();
@@ -15,7 +17,7 @@ export function RouteActions({ task }: { task: PlannerTask }) {
   const originPending = task.originStep === "locating";
   const pickingOrigin = task.originStep === "picking";
   return (
-    <View testID="route-actions" style={{ height: 72, flexShrink: 0 }} className="flex-row items-center gap-2 border-t border-divider bg-surface px-3">
+    <View testID="route-actions" style={{ height: ROUTE_ACTIONS_HEIGHT }} className="flex-row items-center gap-2 border-t border-divider bg-surface px-3">
       <View className="flex-1">
         <Text numberOfLines={1} accessibilityLiveRegion="polite" style={{ fontVariant: ["tabular-nums"] }} className="text-lg font-semibold text-primary">{originPending || (routing && !route) ? "Calcolo del percorso…" : pickingOrigin ? "Tocca la partenza" : route ? `${formatDuration(route.durationSeconds)} · ${formatDistance(route.distanceMeters)}` : error ? "Percorso non disponibile" : "Anteprima del percorso"}</Text>
         <Text numberOfLines={1} className="text-sm text-secondary">{routing && route ? "Aggiornamento…" : error && route ? "Aggiornamento non riuscito · percorso precedente" : planner.savedJourneyVisible ? "Viaggio salvato · da aggiornare" : retainedSelection ? "Selezione da aggiornare" : navigation.supported ? "Anteprima" : "Navigazione su Android"}</Text>

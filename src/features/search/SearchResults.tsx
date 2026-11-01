@@ -1,6 +1,6 @@
 import { ActivityIndicator, Text, View } from "react-native";
 import { useThemeColors } from "../../theme";
-import { Disclosure, EmptyState, Loading, Notice } from "../../ui";
+import { Disclosure, EmptyState, Loading, Notice, SheetFlatList } from "../../ui";
 import { formatDistance } from "../../ui/format";
 import { PlaceRow } from "../places/PlaceRow";
 import { usePlacesContext } from "../places/usePlaces";
@@ -12,32 +12,41 @@ export function SearchResults() {
   const { result, searching, error, policy, retry } = useSearchContext();
   const { isSaved, openPlace } = usePlacesContext();
   const places = result.places;
-  return (
-    <>
-      <View className="h-9 flex-row items-center gap-2 px-4">
-        <View className="w-4">{searching ? <ActivityIndicator size="small" color={colors.action} /> : null}</View>
-        <Text numberOfLines={1} accessibilityLiveRegion="polite" className="flex-1 text-sm text-secondary">{searching ? "Aggiorno i risultati…" : `${places.length} risultati${result.truncated ? ` · primi ${result.resultLimit}` : ""}${policy === "local-only" ? " · solo locali" : ""}`}</Text>
-      </View>
-      {searching && !places.length ? (
-        <Loading label="Cerco nell’area…" />
-      ) : error ? (
-        <View className="m-4"><Notice tone="danger" text={error} action="Riprova" onAction={retry} /></View>
-      ) : places.length ? (
-        places.map(place => <PlaceRow key={place.id} place={place} saved={isSaved(place.id)} onPress={() => openPlace(place)} />)
-      ) : (
-        <EmptyState
-          icon="search-outline"
-          title={result.coverage.extent === "outside" ? "Fuori dal pacchetto locale" : "Nessuna corrispondenza"}
-          description={result.coverage.extent === "outside" ? "Dati locali non disponibili qui. Sposta la mappa." : policy === "local-only" ? "Prova un altro nome o attiva la ricerca online nelle impostazioni." : "Prova un altro nome. I dati possono essere incompleti."}
-        />
-      )}
-      <View className="px-4"><Disclosure title="Copertura e fonti">
+  const header = (
+    <View className="h-9 flex-row items-center gap-2 px-4">
+      <View className="w-4">{searching ? <ActivityIndicator size="small" color={colors.action} /> : null}</View>
+      <Text numberOfLines={1} accessibilityLiveRegion="polite" className="flex-1 text-sm text-secondary">{searching ? "Aggiorno i risultati…" : `${places.length} risultati${result.truncated ? ` · primi ${result.resultLimit}` : ""}${policy === "local-only" ? " · solo locali" : ""}`}</Text>
+    </View>
+  );
+  const empty = searching ? <Loading label="Cerco nell’area…" />
+    : error ? <View className="m-4"><Notice tone="danger" text={error} action="Riprova" onAction={retry} /></View>
+      : <EmptyState
+        icon="search-outline"
+        title={result.coverage.extent === "outside" ? "Fuori dal pacchetto locale" : "Nessuna corrispondenza"}
+        description={result.coverage.extent === "outside" ? "Dati locali non disponibili qui. Sposta la mappa." : policy === "local-only" ? "Prova un altro nome o attiva la ricerca online nelle impostazioni." : "Prova un altro nome. I dati possono essere incompleti."}
+      />;
+  const footer = (
+    <View className="px-4 pb-6">
+      {error && places.length ? <Notice tone="danger" text={error} action="Riprova" onAction={retry} /> : null}
+      <Disclosure title="Copertura e fonti">
         <Text className="text-sm leading-5 text-secondary">{result.coverage.radiusMeters !== null
           ? `Raggio ${formatDistance(result.coverage.radiusMeters)} · ${result.coverage.extent === "outside" ? "fuori dal pacchetto locale" : result.coverage.extent === "partial" ? "copertura locale parziale" : "nel pacchetto locale"}`
           : `Nomi nel pacchetto locale${result.coverage.centerInside ? "" : " · centro fuori copertura"}${policy === "local-and-online" ? "; Photon online" : ""}`}</Text>
         {result.warnings.map((warning, index) => <Notice key={index} tone="caution" text={warning} />)}
         <Text className="text-sm leading-5 text-secondary">Luoghi da OpenStreetMap e Overture. Le informazioni possono essere incomplete.</Text>
-      </Disclosure></View>
-    </>
+      </Disclosure>
+    </View>
+  );
+  return (
+    <SheetFlatList
+      data={places}
+      keyExtractor={place => place.id}
+      renderItem={({ item }) => <PlaceRow place={item} saved={isSaved(item.id)} onPress={() => openPlace(item)} />}
+      ListHeaderComponent={header}
+      ListEmptyComponent={empty}
+      ListFooterComponent={footer}
+      keyboardShouldPersistTaps="handled"
+      initialNumToRender={12}
+    />
   );
 }
