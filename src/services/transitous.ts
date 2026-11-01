@@ -286,7 +286,11 @@ function railScope(row: TransitBoardRow): boolean {
 
 function boardWarnings(rows: TransitBoardRow[], counts: { dropped: number; elsewhere: number; outOfScope: number }): string[] {
   const warnings: string[] = [];
-  if (!rows.length) warnings.push('Transitous non ha restituito corse per questa fermata. Non significa che non ci siano corse.');
+  const excluded = counts.dropped + counts.elsewhere + counts.outOfScope;
+  // An empty board after filtering is not "nothing returned": say why the received courses are missing.
+  if (!rows.length) warnings.push(excluded
+    ? 'Nessuna corsa da mostrare: le corse ricevute sono state escluse (vedi sotto). Non significa che non ci siano corse.'
+    : 'Transitous non ha restituito corse per questa fermata. Non significa che non ci siano corse.');
   if (counts.dropped) warnings.push(`${counts.dropped} corse scartate perché incomplete.`);
   if (counts.elsewhere) warnings.push(`${counts.elsewhere} corse scartate perché riferite a un’altra fermata.`);
   if (counts.outOfScope) warnings.push(`${counts.outOfScope} corse non ferroviarie escluse da questa bacheca treni.`);
