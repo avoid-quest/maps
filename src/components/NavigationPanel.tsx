@@ -29,7 +29,7 @@ export function NavigationPanel({ snapshot, busy, error, following, onRecenter, 
   const waiting = busy === 'start' || snapshot.status === 'waiting-for-fix' || snapshot.status === 'routing' || snapshot.status === 'rerouting';
   const remainingSeconds = snapshot.mode !== 'transit' ? snapshot.durationRemainingSeconds : undefined;
   const arrival = remainingSeconds != null && snapshot.location ? new Date(snapshot.location.timestamp + remainingSeconds * 1000).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }) : null;
-  const text = navigationPresentation(snapshot, now, arrival);
+  const text = navigationPresentation(snapshot, now, arrival, busy === 'start');
   const { terminal, guiding, paused, searching } = text;
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), searching ? 1_000 : 15_000); return () => clearInterval(timer); }, [searching]);
   const transit = snapshot.transit;

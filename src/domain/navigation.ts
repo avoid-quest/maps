@@ -52,7 +52,7 @@ export interface NavigationSnapshot {
     departureAt?: number; arrivalAt?: number; timingStatus: 'scheduled' | 'prediction' | 'cancelled' | 'unknown'; fetchedAt: number;
     canConfirmWalking: boolean; canConfirmBoarding: boolean; canConfirmAlighting: boolean;
     sourceLegIndices?: number[]; proximityAvailable?: boolean;
-    /** Planned end of the whole journey and the next boarding still ahead (absent once aboard). */
+    /** Planned end of the whole journey and the next boarding still ahead (while aboard: the next connection). */
     journeyArrivalAt?: number; nextBoardingAt?: number;
     confirmation?: TransitConfirmation;
   };
@@ -137,7 +137,8 @@ export interface NavigationPresentation {
 }
 
 /** All navigation panel wording, derived from the native snapshot alone so it is unit-testable. */
-export function navigationPresentation(snapshot: NavigationSnapshot, now: number, arrival: string | null = null): NavigationPresentation {
+/** [starting]: a Start command is in flight (permission prompt, service promotion) before any session snapshot. */
+export function navigationPresentation(snapshot: NavigationSnapshot, now: number, arrival: string | null = null, starting = false): NavigationPresentation {
   const terminal = snapshot.status === 'arrived' || snapshot.status === 'interrupted' || snapshot.status === 'error';
   const transitMode = snapshot.mode === 'transit';
   const cues = snapshot.locationUsable === true;
@@ -159,9 +160,13 @@ export function navigationPresentation(snapshot: NavigationSnapshot, now: number
   else if (transitMode && snapshot.status === 'waiting-for-fix') header = 'Avvio del viaggio';
   else header = statuses[snapshot.status];
 
-  const waiting = snapshot.status === 'waiting-for-fix' || snapshot.status === 'routing' || snapshot.status === 'rerouting';
+  // Routing already has an accepted fix: only the position wait (or a Start in flight) asks to wait for it.
+  const fallback = notFound ? 'Riprova o interrompi la navigazione'
+    : snapshot.status === 'waiting-for-fix' || (starting && snapshot.status === 'idle') ? 'Attendi la posizione precisa'
+      : snapshot.status === 'routing' ? 'Calcolo del percorso in corso'
+        : snapshot.status === 'rerouting' ? 'Ricalcolo del percorso in corso' : 'In attesa di indicazioni';
   const instruction = terminal ? (snapshot.status === 'arrived' && snapshot.instruction ? snapshot.instruction : statuses[snapshot.status])
-    : snapshot.instruction ?? (notFound ? 'Riprova o interrompi la navigazione' : waiting ? 'Attendi la posizione precisa' : 'In attesa di indicazioni');
+    : snapshot.instruction ?? fallback;
 
   let quality: string;
   const best = snapshot.bestRejectedAccuracyMeters ?? accuracy;

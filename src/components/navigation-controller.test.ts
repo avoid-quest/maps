@@ -370,6 +370,31 @@ test('foreground-required and invalid command failures get specific messages and
   assert.deepEqual(recorded, ['start-requested', 'foreground-required']);
 });
 
+test('invalid and unknown command codes get fixed diagnostics; unknown codes are shown only as safe identifiers', async () => {
+  const recorded: string[] = [];
+  const failure = (code: string) => Object.assign(new Error('raw native text with /private/path'), { code });
+  let code = 'invalid';
+  const { controller } = fixture({ startNavigation: async () => { throw failure(code); } }, state => recorded.push(state));
+  await Promise.resolve();
+  await controller.start(options);
+  assert.match(controller.getSnapshot().error ?? '', /non validi/);
+  code = 'ERR_ARGUMENT_CAST';
+  await controller.start(options);
+  assert.equal(controller.getSnapshot().error, 'Operazione non riuscita (codice ERR_ARGUMENT_CAST). Controlla lo stato della navigazione e riprova.');
+  code = 'not a code: /secret';
+  await controller.start(options);
+  assert.ok(!(controller.getSnapshot().error ?? '').includes('secret'));
+  assert.deepEqual(recorded, ['start-requested', 'invalid', 'start-requested', 'native-error', 'start-requested', 'native-error']);
+});
+
+test('a provider-disabled session records location-disabled', async () => {
+  const recorded: string[] = [];
+  const { emit } = fixture({}, state => recorded.push(state));
+  await Promise.resolve();
+  emit({ ...snapshot(5, 'location-degraded'), problem: 'location-disabled' });
+  assert.deepEqual(recorded, ['degraded', 'location-disabled']);
+});
+
 test('explicit transit confirmations remain usable without GPS, and Stop rejects late confirmation responses', async () => {
   const confirmation = deferred<NavigationSnapshot>();
   const { controller, emit, calls } = fixture({ confirmTransitStep: async (_id, action) => { calls.push(action); return confirmation.promise; } });

@@ -6,7 +6,7 @@ const diagnosticStatuses: Partial<Record<NavigationSnapshot['status'], Navigatio
   'waiting-for-fix': 'waiting-for-fix', routing: 'routing', navigating: 'active', 'location-degraded': 'degraded', 'off-route': 'off-route', rerouting: 'rerouting', arrived: 'arrived', stopped: 'stopped', interrupted: 'interrupted',
 };
 const diagnosticProblems: Partial<Record<NonNullable<NavigationSnapshot['problem']>, NavigationDiagnostic>> = {
-  'location-permission': 'denied', 'engine-unavailable': 'engine-unavailable', 'service-unavailable': 'service-unavailable',
+  'location-permission': 'denied', 'location-disabled': 'location-disabled', 'engine-unavailable': 'engine-unavailable', 'service-unavailable': 'service-unavailable',
   'location-inaccurate': 'location-inaccurate', 'location-stale': 'location-stale', 'location-unavailable': 'location-unavailable',
   'route-unavailable': 'route-unavailable', 'route-invalid': 'route-invalid', 'route-network': 'route-network', 'route-timeout': 'route-timeout', 'route-not-started': 'route-not-started', 'rate-limit': 'rate-limit', 'reroute-limit': 'reroute-limit', 'transit-replan-needed': 'transit-replan-needed', 'native-error': 'native-error',
 };
@@ -24,8 +24,10 @@ export interface NavigationState {
 }
 const commandDiagnostics: Partial<Record<string, NavigationDiagnostic>> = {
   'location-permission': 'denied', 'navigation-unavailable': 'service-unavailable', 'service-unavailable': 'service-unavailable',
-  'engine-unavailable': 'engine-unavailable', 'foreground-required': 'foreground-required',
+  'engine-unavailable': 'engine-unavailable', 'foreground-required': 'foreground-required', invalid: 'invalid',
 };
+/** Only short fixed identifiers are ever shown; raw native messages never are. */
+const SAFE_CODE = /^[A-Za-z][A-Za-z0-9_-]{0,39}$/;
 function failureMessage(error: unknown): string {
   if (errorCode(error) === 'foreground-required') return 'Avvio non riuscito perché l’app non era in primo piano. Tienila aperta e riprova.';
   if (errorCode(error) === 'invalid') return 'Destinazione o viaggio non validi. Scegli di nuovo il percorso.';
@@ -33,7 +35,8 @@ function failureMessage(error: unknown): string {
   if (errorCode(error) === 'navigation-unavailable') return 'La navigazione richiede la versione Android con il modulo di navigazione.';
   if (errorCode(error) === 'engine-unavailable') return 'Il motore di navigazione non è disponibile. Interrompi la sessione e riapri l’app.';
   if (errorCode(error) === 'service-unavailable') return 'Android non ha avviato il servizio di navigazione. Mantieni l’app visibile e riprova.';
-  return 'Operazione non riuscita. Controlla lo stato della navigazione e riprova.';
+  const code = error && typeof error === 'object' && 'code' in error && typeof error.code === 'string' && SAFE_CODE.test(error.code) ? error.code : null;
+  return `Operazione non riuscita${code ? ` (codice ${code})` : ''}. Controlla lo stato della navigazione e riprova.`;
 }
 /** Commands and native events meet here, including events arriving before command responses. */
 export function createNavigationController(platform: NavigationPlatform, record: (state: NavigationDiagnostic) => void = () => {}) {

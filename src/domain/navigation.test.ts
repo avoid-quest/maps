@@ -84,3 +84,19 @@ test('an expired journey or missed boarding is flagged immediately during access
   const text = navigationPresentation({ ...following, locationUsable: false }, now);
   assert.equal(text.guiding, true); assert.equal(text.signal, null);
 });
+
+test('routing and rerouting say the route is being calculated; only the wait asks for a position', () => {
+  const located = { ...road, location: { latitude: 45, longitude: 7, accuracyMeters: 10, timestamp: now } };
+  assert.equal(navigationPresentation({ ...located, status: 'routing' }, now).instruction, 'Calcolo del percorso in corso');
+  assert.equal(navigationPresentation({ ...located, status: 'rerouting' }, now).instruction, 'Ricalcolo del percorso in corso');
+  assert.equal(navigationPresentation({ ...road, status: 'waiting-for-fix' }, now).instruction, 'Attendi la posizione precisa');
+  // Start in flight before any session snapshot keeps the position-wait wording next to the spinner.
+  assert.equal(navigationPresentation(idleNavigation, now, null, true).instruction, 'Attendi la posizione precisa');
+  assert.equal(navigationPresentation(idleNavigation, now).instruction, 'In attesa di indicazioni');
+});
+
+test('a missed connection while aboard is flagged', () => {
+  const transit = { phase: 'ride' as const, legIndex: 0, legCount: 3, timingStatus: 'scheduled' as const, fetchedAt: now,
+    canConfirmWalking: false, canConfirmBoarding: false, canConfirmAlighting: true, journeyArrivalAt: now + 600_000, nextBoardingAt: now - 300_000 };
+  assert.match(navigationPresentation({ ...idleNavigation, sessionId: 's', mode: 'transit', status: 'navigating', transit }, now).transitWarning ?? '', /già partita/);
+});
