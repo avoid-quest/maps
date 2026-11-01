@@ -1,4 +1,4 @@
-import { realtimeStateLabel } from "../../domain/transit-board";
+import { realtimeStateLabel, REALTIME_STATE_LABELS } from "../../domain/transit-board";
 import { agedRow, LABELS, preciseEnoughForCountdown, provenanceLabel, type GttBoardRow } from "../../transit-data/board-model";
 import { journeyTime } from "../planner/journey-presentation";
 
@@ -85,4 +85,16 @@ export function rowPresentation(input: GttBoardRow, now: number): RowPresentatio
   // Both notes describe a live match: once the realtime behind the row has expired, neither applies.
   const note = !backed ? undefined : row.gtt.calendar === "realtime-identity" ? row.gtt.note : row.gtt.joinedBy === "identity" ? IDENTITY_JOIN_NOTE : undefined;
   return { row, timeText, statusText, provenance: provenanceLabel(row), live, ...(note ? { note } : {}) };
+}
+
+/**
+ * The written lines under a row's destination. A timetable-only row would otherwise say the same thing
+ * twice ("Orario programmato · nessun dato in tempo reale" and "Programmato · GTT"); it gets one quiet
+ * line that still states the absence of realtime in words.
+ */
+export function rowStatusLines(view: RowPresentation): { status?: string; provenance: string } {
+  if (view.statusText === REALTIME_STATE_LABELS.scheduled && view.provenance === LABELS.scheduled) {
+    return { provenance: `Programmato, senza tempo reale · GTT` };
+  }
+  return { status: view.statusText, provenance: view.provenance };
 }

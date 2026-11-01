@@ -75,3 +75,13 @@ test("departed rows disappear at render time; notes need live data behind them",
   const extension: GttBoardRow = { ...base, gtt: { ...base.gtt, joinedBy: "identity", calendar: "realtime-identity", note: "Corsa fuori dal calendario installato" } };
   assert.equal(rowPresentation(extension, 1_000_000 + 31 * 60_000).note, undefined, "no live-match note once the realtime expired");
 });
+
+test('a timetable-only row reads as one quiet line that still says there is no realtime', async () => {
+  const { rowStatusLines } = await import('./departure-status');
+  const scheduledView = { statusText: 'Orario programmato · nessun dato in tempo reale', provenance: 'Programmato · GTT' } as Parameters<typeof rowStatusLines>[0];
+  assert.deepEqual(rowStatusLines(scheduledView), { provenance: 'Programmato, senza tempo reale · GTT' });
+  const live = { statusText: 'Partenza prevista · in orario', provenance: 'Tempo reale · GTT' } as Parameters<typeof rowStatusLines>[0];
+  assert.deepEqual(rowStatusLines(live), { status: 'Partenza prevista · in orario', provenance: 'Tempo reale · GTT' }, 'other rows keep both lines');
+  const reported = { statusText: 'Cancellazione segnalata 3 min fa, non più attuale · Programmato 12:30', provenance: 'Programmato · GTT' } as Parameters<typeof rowStatusLines>[0];
+  assert.equal(rowStatusLines(reported).status, reported.statusText, 'an expired report keeps its explanation');
+});

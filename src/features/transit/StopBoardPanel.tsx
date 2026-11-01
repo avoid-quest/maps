@@ -10,7 +10,7 @@ import { Button, Display, Divider, EmptyState, IconButton, Notice, Num, SectionH
 import { detailDistance } from '../map/distance-reference';
 import { useDistanceReference } from '../map/useDistanceReference';
 import { journeyDate, journeyTime } from '../planner/journey-presentation';
-import { rowPresentation, visibleRows } from './departure-status';
+import { rowPresentation, rowStatusLines, visibleRows } from './departure-status';
 import type { useStopBoard } from './useStopBoard';
 
 type BoardState = ReturnType<typeof useStopBoard>;
@@ -109,18 +109,19 @@ function stateClass(row: GttBoardRow, live: boolean): string {
 function DepartureRow({ row, now }: { row: GttBoardRow; now: number }) {
   const hairlines = useHairlines();
   const view = rowPresentation(row, now);
+  const lines = rowStatusLines(view);
   const countdown = view.live ? /^(\d+) min$/.exec(view.timeText)?.[1] : undefined;
   // Colour follows the aged row, the same one the written state describes.
   const tone = stateClass(view.row, view.live);
   const line = row.line ?? '—';
   const spokenTime = view.timeText === '—' ? '' : countdown != null ? `tra ${countdown} minuti` : /^\d|^~/.test(view.timeText) ? `alle ${view.timeText.replace('~', 'circa ')}` : view.timeText;
-  return <View accessible accessibilityLabel={`${row.line ? `Linea ${row.line}` : 'Linea non indicata'}, ${row.headsign || 'direzione non indicata'}, ${view.statusText}, ${view.provenance}${spokenTime ? `, ${spokenTime}` : ''}${view.note ? `. ${view.note}` : ''}`}
+  return <View accessible accessibilityLabel={`${row.line ? `Linea ${row.line}` : 'Linea non indicata'}, ${row.headsign || 'direzione non indicata'}, ${lines.status ? `${lines.status}, ` : ''}${lines.provenance}${spokenTime ? `, ${spokenTime}` : ''}${view.note ? `. ${view.note}` : ''}`}
     style={hairlines.bottom} className="min-h-16 flex-row items-center gap-3 px-4 py-3">
     <TransitLineBadge line={line} mode={row.line ? transitModeFromLineName(row.line) : undefined} />
     <View className="min-w-0 flex-1">
       <Text numberOfLines={2} className="text-base font-medium leading-5 text-primary">{row.headsign || 'Direzione non indicata'}</Text>
-      <Text className={`mt-0.5 text-sm ${tone}`}>{view.statusText}</Text>
-      <Text className="mt-0.5 text-sm text-secondary">{view.provenance}</Text>
+      {lines.status ? <Text className={`mt-0.5 text-sm ${tone}`}>{lines.status}</Text> : null}
+      <Text className="mt-0.5 text-sm text-secondary">{lines.provenance}</Text>
       {view.note ? <Text className="mt-0.5 text-sm leading-5 text-secondary">{view.note}</Text> : null}
     </View>
     <View className="min-w-14 flex-row items-baseline justify-end gap-1">
