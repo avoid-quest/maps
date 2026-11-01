@@ -341,7 +341,58 @@ test('diagnostics retain only session transitions and fixed failures across posi
   emit({ ...snapshot(30, 'location-degraded'), problem: 'location-stale' });
   emit({ ...snapshot(31, 'error'), problem: 'engine-unavailable' });
   emit({ ...snapshot(32, 'error'), problem: 'engine-unavailable' });
-  assert.deepEqual(recorded, ['start-requested', 'active', 'degraded', 'engine-unavailable']);
+  assert.deepEqual(recorded, ['start-requested', 'waiting-for-fix', 'active', 'degraded', 'location-stale', 'engine-unavailable']);
+});
+
+test('a settled start wait records one fixed start-timeout code without coordinates', async () => {
+  const recorded: string[] = [];
+  const { controller, emit } = fixture({}, state => recorded.push(state));
+  await Promise.resolve();
+  await controller.start(options);
+  const waiting = { ...snapshot(3, 'waiting-for-fix'), lastFixAccuracyMeters: 38, requiredAccuracyMeters: 35, fixProvider: 'gps' as const };
+  for (let revision = 3; revision < 10; revision++) emit({ ...waiting, revision, lastFixAccuracyMeters: 36 + revision });
+  const settled = { ...waiting, revision: 10, status: 'location-degraded' as const, problem: 'location-inaccurate' as const, startTimedOut: true, bestRejectedAccuracyMeters: 38, canRetry: true };
+  emit(settled);
+  emit({ ...settled, revision: 11, lastFixAccuracyMeters: 41 });
+  emit({ ...snapshot(12, 'routing') });
+  assert.deepEqual(recorded, ['start-requested', 'waiting-for-fix', 'degraded', 'location-inaccurate', 'start-timeout', 'routing']);
+  assert.ok(recorded.every(state => !/\d/.test(state)));
+});
+
+test('foreground-required and invalid command failures get specific messages and fixed diagnostics', async () => {
+  const recorded: string[] = [];
+  const failure = (code: string) => Object.assign(new Error('raw native text'), { code });
+  const { controller } = fixture({ startNavigation: async () => { throw failure('foreground-required'); } }, state => recorded.push(state));
+  await Promise.resolve();
+  await controller.start(options);
+  assert.match(controller.getSnapshot().error ?? '', /primo piano/);
+  assert.ok(!(controller.getSnapshot().error ?? '').includes('raw native text'));
+  assert.deepEqual(recorded, ['start-requested', 'foreground-required']);
+});
+
+test('invalid and unknown command codes get fixed diagnostics; unknown codes are shown only as safe identifiers', async () => {
+  const recorded: string[] = [];
+  const failure = (code: string) => Object.assign(new Error('raw native text with /private/path'), { code });
+  let code = 'invalid';
+  const { controller } = fixture({ startNavigation: async () => { throw failure(code); } }, state => recorded.push(state));
+  await Promise.resolve();
+  await controller.start(options);
+  assert.match(controller.getSnapshot().error ?? '', /non validi/);
+  code = 'ERR_ARGUMENT_CAST';
+  await controller.start(options);
+  assert.equal(controller.getSnapshot().error, 'Operazione non riuscita (codice ERR_ARGUMENT_CAST). Controlla lo stato della navigazione e riprova.');
+  code = 'not a code: /secret';
+  await controller.start(options);
+  assert.ok(!(controller.getSnapshot().error ?? '').includes('secret'));
+  assert.deepEqual(recorded, ['start-requested', 'invalid', 'start-requested', 'native-error', 'start-requested', 'native-error']);
+});
+
+test('a provider-disabled session records location-disabled', async () => {
+  const recorded: string[] = [];
+  const { emit } = fixture({}, state => recorded.push(state));
+  await Promise.resolve();
+  emit({ ...snapshot(5, 'location-degraded'), problem: 'location-disabled' });
+  assert.deepEqual(recorded, ['degraded', 'location-disabled']);
 });
 
 test('explicit transit confirmations remain usable without GPS, and Stop rejects late confirmation responses', async () => {
@@ -375,4 +426,17 @@ test('mounted subscribers receive lost and recovered confidence while the transi
   assert.deepEqual(origins, [options.destination, null, options.destination]);
   assert.deepEqual(problems, Array(3).fill('transit-replan-needed'));
   assert.deepEqual(calls, ['read']); // Recovery events never retry admission or start a route request.
+});
+
+test('an ignored Start is recorded and a stale command error can be dismissed', async () => {
+  const recorded: string[] = [];
+  const { controller, emit } = fixture({ startNavigation: async () => { throw Object.assign(new Error('x'), { code: 'invalid' }); } }, state => recorded.push(state));
+  await Promise.resolve();
+  await controller.start(options);
+  assert.ok(controller.getSnapshot().error);
+  controller.dismissError();
+  assert.equal(controller.getSnapshot().error, null);
+  emit({ ...snapshot(9, 'navigating') });
+  await controller.start(options);
+  assert.deepEqual(recorded, ['start-requested', 'invalid', 'active', 'start-ignored']);
 });

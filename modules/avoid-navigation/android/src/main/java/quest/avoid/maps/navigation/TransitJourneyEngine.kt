@@ -15,6 +15,7 @@ data class TransitUpdate(
 /** Follows the selected itinerary locally. GPS never establishes boarding or alighting. */
 class TransitJourneyEngine(
   plan: Map<String, Any?>,
+  private val accuracyLimitMeters: Double = RoadGuidancePolicy.fix("transit").maximumGuidanceAccuracyMeters,
   private val nowMs: () -> Long = System::currentTimeMillis,
 ) {
   private data class Point(val latitude: Double, val longitude: Double)
@@ -44,9 +45,8 @@ class TransitJourneyEngine(
 
   init {
     require(plan["mode"] == "transit") { "Invalid transit mode" }
-    val admissionTime = nowMs()
-    val age = admissionTime - fetchedAt
-    require(fetchedAt > 0 && age in 0..120_000) { "Transit plan must be refreshed" }
+    // Plan age is shown and offered for refresh; it never blocks manual following (product decision).
+    require(fetchedAt > 0 && nowMs() - fetchedAt >= 0) { "Invalid transit retrieval time" }
     val rawLegs = plan["legs"] as? List<*> ?: throw IllegalArgumentException("Missing transit legs")
     require(rawLegs.size in 1..64) { "Invalid transit leg count" }
     var pointCount = 0
@@ -76,16 +76,9 @@ class TransitJourneyEngine(
       require(after.departure >= before.arrival) { "Overlapping transit legs" }
       require(!after.interline || (before.transit && after.transit)) { "Invalid interline connection" }
     }
-    require(legs.last().arrival >= admissionTime - 120_000) { "Transit itinerary has already ended" }
-    val firstBoardingIndex = legs.indexOfFirst { it.transit }
-    if (firstBoardingIndex >= 0) {
-      // Starting at the verified origin still requires the full initial walk. Provider departure
-      // timestamps already incorporate any prediction; a fresh download does not make them future.
-      val accessDurationMs = legs.take(firstBoardingIndex).sumOf { it.arrival - it.departure }
-      require(legs[firstBoardingIndex].departure >= admissionTime + accessDurationMs - 120_000) {
-        "Initial transit boarding is no longer feasible"
-      }
-    }
+    // Departed or finished legs remain followable: the rider may already be on the way, and the
+    // interface shows the consultation age and passed times with a refresh offer. Only a cancelled
+    // leg (rejected above) requires replanning.
     require(!legs.first().interline) { "Invalid initial interline connection" }
     legCount = legs.size
     val grouped = mutableListOf<MutableList<Leg>>()
@@ -100,8 +93,11 @@ class TransitJourneyEngine(
 
   fun snapshot(): TransitUpdate = update()
 
+  /** GPS loss suspends advisory proximity; manual confirmations stay available. */
+  fun positionLost(): TransitUpdate { position = null; return update() }
+
   fun onLocation(latitude: Double, longitude: Double, accuracyMeters: Double): TransitUpdate {
-    if (!NavigationGeometry.valid(latitude, longitude) || FixPolicy.problem(0, accuracyMeters, true) != null) {
+    if (!NavigationGeometry.valid(latitude, longitude) || FixPolicy.problem(0, accuracyMeters, true, accuracyLimitMeters) != null) {
       position = null
       return update()
     }
@@ -207,6 +203,9 @@ class TransitJourneyEngine(
       "headsign" to segment.first.headsign, "from" to segment.first.from, "to" to segment.last.to,
       "departureAt" to segment.first.departure, "arrivalAt" to segment.last.arrival,
       "timingStatus" to segment.timing, "fetchedAt" to fetchedAt, "source" to source,
+      // Planned journey end and the next boarding still ahead, so an expired or missed service is
+      // flagged during access walking too, not only while boarding.
+      "journeyArrivalAt" to segments.last().last.arrival, "nextBoardingAt" to nextBoardingAt(),
       "canConfirmBoarding" to boarding, "canConfirmAlighting" to alighting, "canConfirmWalking" to walking,
       "confirmation" to when { boarding -> "board"; alighting -> "alight"; walking -> "walk-complete"; else -> null },
       "proximityAvailable" to (!complete && target() != null && (boarding || !segment.ambiguousEnd)),
@@ -216,6 +215,14 @@ class TransitJourneyEngine(
     fields["distanceToManeuverMeters"] = if (complete) null else distance(target())
     return TransitUpdate(fields, announcement, complete)
   }
+
+  /** Next boarding still ahead; while aboard, the following connection (so a missed transfer is flagged). */
+  fun nextBoardingAt(): Long? = when (phase) {
+    "complete" -> null
+    "ride", "alight" -> segments.drop(segmentIndex + 1).firstOrNull { it.transit }?.first?.departure
+    else -> segments.drop(segmentIndex).firstOrNull { it.transit }?.first?.departure
+  }
+  val journeyArrivalAt: Long get() = segments.last().last.arrival
 
   private fun target(): Point? = if (phase == "complete") null else segments[segmentIndex].let {
     if (phase == "board") it.first.start else it.last.end

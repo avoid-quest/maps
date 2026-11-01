@@ -27,10 +27,197 @@ class RerouteBudget {
 }
 
 object FixPolicy {
-  fun problem(ageMs: Long, accuracyMeters: Double, hasAccuracy: Boolean): String? = when {
-    ageMs < 0 || ageMs > RoadGuidancePolicy.maximumFixAgeMillis -> "location-stale"
-    !hasAccuracy || !accuracyMeters.isFinite() || accuracyMeters <= 0 || accuracyMeters > RoadGuidancePolicy.maximumHorizontalAccuracyMeters.toDouble() -> "location-inaccurate"
+  fun problem(ageMs: Long, accuracyMeters: Double, hasAccuracy: Boolean, accuracyLimitMeters: Double,
+    maximumAgeMs: Long = RoadGuidancePolicy.maximumFixAgeMillis): String? = when {
+    ageMs < 0 || ageMs > maximumAgeMs -> "location-stale"
+    !hasAccuracy || !accuracyMeters.isFinite() || accuracyMeters <= 0 || accuracyMeters > accuracyLimitMeters -> "location-inaccurate"
     else -> null
+  }
+}
+
+/**
+ * Start watchdog and guidance hysteresis for one session. Pure and clock-injected so the JVM tests
+ * cover the same transitions the device runs. [T] is the platform fix retained for a reduced start.
+ */
+class FixAdmission<T>(private val policy: ModeFixPolicy, nowMs: Long, startedImmediately: Boolean = false) {
+  enum class Outcome { ACCEPTED, RECOVERING, REJECTED, DEGRADED, DUPLICATE }
+  /** [reducedPrecision]: accepted, but worse than the mode's normal guidance accuracy; shown, never hidden. */
+  data class Result(val outcome: Outcome, val problem: String? = null, val reducedStart: Boolean = false,
+    val reducedPrecision: Boolean = false)
+  sealed interface Tick {
+    /** Reduced start from the retained best fix. */
+    data class ReducedStart<T>(val fix: T, val accuracyMeters: Double) : Tick
+    /** Settled terminal waiting state; emitted once per wait. */
+    data class StartTimeout(val problem: String, val bestRejectedAccuracyMeters: Double?) : Tick
+    data class Degraded(val problem: String) : Tick
+  }
+  private data class Candidate<T>(val fix: T, val accuracy: Double, val capturedAtMs: Long, val ageMs: Long)
+
+  var started = startedImmediately; private set
+  /** Only an accepted guidance-quality fix makes the position usable. */
+  var confident = false; private set
+  var waitingSinceMs = nowMs; private set
+  /** Distinct fresh samples seen during the current start wait. */
+  var fixesSeen = 0; private set
+  var duplicatesSkipped = 0; private set
+  var bestRejectedAccuracyMeters: Double? = null; private set
+  var startTimedOut = false; private set
+  private var candidate: Candidate<T>? = null
+  /** Consecutive distinct rejected guidance samples (diagnostics). */
+  var consecutiveRejected = 0; private set
+  private var consecutiveAccepted = 0
+  private var lastAcceptedAtMs: Long? = null
+  private var lastSampleNanos: Long? = null
+  private var lastSampleAccuracy = Double.NaN
+  private var lastSampleUsable = false
+
+  /**
+   * [sampleElapsedNanos] is the fix's own monotonic sample time. Samples within the duplicate window
+   * of the previous one (GPS and fused re-delivering one measurement) or older than it count once:
+   * they can neither inflate counts, degrade nor complete recovery. The one exception is a strictly
+   * more accurate sample replacing a rejected one in the same window (e.g. network then GPS): it is
+   * evaluated, but a rejection is not counted twice.
+   */
+  fun onFix(nowMs: Long, sampleElapsedNanos: Long, ageMs: Long, accuracyMeters: Double, hasAccuracy: Boolean, fix: T,
+    implausible: Boolean = false): Result {
+    val previous = lastSampleNanos
+    val sampleAccuracy = if (hasAccuracy && accuracyMeters.isFinite() && accuracyMeters > 0) accuracyMeters else Double.NaN
+    var replacing = false
+    if (previous != null && sampleElapsedNanos - previous < policy.duplicateSampleWindowMillis * 1_000_000L) {
+      val better = sampleElapsedNanos >= previous && !lastSampleUsable && !sampleAccuracy.isNaN() &&
+        (lastSampleAccuracy.isNaN() || sampleAccuracy < lastSampleAccuracy)
+      if (!better) { duplicatesSkipped++; return Result(Outcome.DUPLICATE) }
+      replacing = true
+    }
+    // The replacement becomes the anchor too, so a later copy of it is still recognised.
+    lastSampleNanos = sampleElapsedNanos
+    lastSampleAccuracy = sampleAccuracy
+    val result = evaluate(nowMs, ageMs, accuracyMeters, hasAccuracy, fix, implausible, replacing)
+    lastSampleUsable = result.outcome == Outcome.ACCEPTED || result.outcome == Outcome.RECOVERING
+    return result
+  }
+
+  private fun evaluate(nowMs: Long, ageMs: Long, accuracyMeters: Double, hasAccuracy: Boolean, fix: T,
+    implausible: Boolean, replacing: Boolean): Result {
+    val fresh = ageMs in 0..policy.maximumFixAgeMillis
+    if (!started) {
+      if (!fresh) return Result(Outcome.REJECTED, "location-stale")
+      if (!replacing) fixesSeen++
+      val problem = if (implausible) "location-inaccurate" else FixPolicy.problem(ageMs, accuracyMeters, hasAccuracy, policy.startAccuracyMeters, policy.maximumFixAgeMillis)
+      if (problem == null) return begin(nowMs, reduced = false, accuracyMeters)
+      // An implausible jump is not a weak signal: keep it out of the reported best accuracy.
+      if (!implausible && hasAccuracy && accuracyMeters.isFinite() && accuracyMeters > 0) {
+        bestRejectedAccuracyMeters = minOf(bestRejectedAccuracyMeters ?: accuracyMeters, accuracyMeters)
+        if (!implausible && accuracyMeters <= policy.reducedStartAccuracyMeters) {
+          if (reducedStartDue(nowMs)) return begin(nowMs, reduced = true, accuracyMeters)
+          val best = candidate
+          if (best == null || accuracyMeters <= best.accuracy) candidate = Candidate(fix, accuracyMeters, nowMs, ageMs)
+        }
+      }
+      return Result(Outcome.REJECTED, problem)
+    }
+    val problem = if (implausible) "location-inaccurate" else FixPolicy.problem(ageMs, accuracyMeters, hasAccuracy, policy.maximumGuidanceAccuracyMeters, policy.maximumFixAgeMillis)
+    if (problem == null) {
+      consecutiveRejected = 0
+      lastAcceptedAtMs = nowMs
+      val reduced = accuracyMeters > policy.normalGuidanceAccuracyMeters
+      if (confident) return Result(Outcome.ACCEPTED, reducedPrecision = reduced)
+      consecutiveAccepted++
+      if (consecutiveAccepted < policy.recoverAfterAcceptedFixes) return Result(Outcome.RECOVERING, reducedPrecision = reduced)
+      confident = true; consecutiveAccepted = 0
+      return Result(Outcome.ACCEPTED, reducedPrecision = reduced)
+    }
+    // A better replacement sample that is still rejected must not count the same moment twice.
+    if (replacing) return Result(Outcome.REJECTED, problem)
+    consecutiveAccepted = 0
+    consecutiveRejected++
+    val last = lastAcceptedAtMs
+    if (confident && (consecutiveRejected >= policy.degradeAfterRejectedFixes || (last != null && nowMs - last >= policy.degradeAfterMillis))) {
+      confident = false
+      return Result(Outcome.DEGRADED, problem)
+    }
+    return Result(Outcome.REJECTED, problem)
+  }
+
+  fun onTick(nowMs: Long): Tick? {
+    if (!started) {
+      val best = candidate
+      if (best != null && reducedStartDue(nowMs)) {
+        candidate = null
+        if (best.ageMs + (nowMs - best.capturedAtMs) <= policy.maximumFixAgeMillis) {
+          begin(nowMs, reduced = true, best.accuracy)
+          return Tick.ReducedStart(best.fix, best.accuracy)
+        }
+      }
+      if (!startTimedOut && nowMs - waitingSinceMs >= policy.startTimeoutMillis) {
+        startTimedOut = true
+        // Stale seeds never count as seen: no fresh fix means the device found no position at all.
+        val problem = if (fixesSeen == 0) "location-unavailable" else "location-inaccurate"
+        return Tick.StartTimeout(problem, bestRejectedAccuracyMeters)
+      }
+      return null
+    }
+    val last = lastAcceptedAtMs
+    if (confident && last != null && nowMs - last >= policy.degradeAfterMillis) {
+      confident = false; consecutiveRejected = 0
+      return Tick.Degraded("location-stale")
+    }
+    return null
+  }
+
+  /**
+   * External loss (permission, all providers disabled). Guidance pauses until the recovery count; a
+   * retained reduced-start candidate is discarded, so only a fix received after positioning returns
+   * can start the session.
+   */
+  fun lose() { confident = false; consecutiveAccepted = 0; candidate = null }
+
+  /** Explicit Retry before any start fix or route: the start wait begins again. */
+  fun restartWaiting(nowMs: Long) {
+    started = false; confident = false; waitingSinceMs = nowMs; fixesSeen = 0
+    bestRejectedAccuracyMeters = null; startTimedOut = false; candidate = null
+    consecutiveRejected = 0; consecutiveAccepted = 0; lastAcceptedAtMs = null
+    // A new wait starts a new sample history: the first retry fix is evaluated and counted.
+    lastSampleNanos = null; lastSampleAccuracy = Double.NaN; lastSampleUsable = false
+  }
+
+  private fun reducedStartDue(nowMs: Long) = nowMs - waitingSinceMs >= policy.reducedStartAfterMillis
+  private fun begin(nowMs: Long, reduced: Boolean, accuracyMeters: Double): Result {
+    started = true; confident = true; lastAcceptedAtMs = nowMs
+    consecutiveRejected = 0; consecutiveAccepted = 0; candidate = null; startTimedOut = false
+    return Result(Outcome.ACCEPTED, reducedStart = reduced, reducedPrecision = accuracyMeters > policy.normalGuidanceAccuracyMeters)
+  }
+}
+
+/**
+ * Off-route state judged only by tight fixes. Coarse fixes, and location loss followed by a coarse
+ * recovery, can neither declare nor clear deviation; a new route or a tight on-route fix clears it.
+ */
+class DeviationLatch(private val fixesBeforeReroute: Int = 3) {
+  var offRoute = false; private set
+  private var tightOffRouteFixes = 0
+  /** Returns true when a reroute is due (the caller still applies the reroute budget). */
+  fun update(judged: Boolean, deviation: Boolean): Boolean {
+    if (!judged) return false
+    offRoute = deviation
+    tightOffRouteFixes = if (deviation) tightOffRouteFixes + 1 else 0
+    return deviation && tightOffRouteFixes >= fixesBeforeReroute
+  }
+  /** Location loss pauses the count but keeps an established deviation. */
+  fun pause() { tightOffRouteFixes = 0 }
+  fun reset() { offRoute = false; tightOffRouteFixes = 0 }
+}
+
+/** Fences a Start/Resume command across its foreground wait: a Stop issued meanwhile wins. */
+internal class StartFence {
+  private val generation = java.util.concurrent.atomic.AtomicLong()
+  fun invalidate() { generation.incrementAndGet() }
+  /** Returns null when a Stop or a newer Start arrived while [wait] was suspended. */
+  suspend fun <R> run(wait: suspend () -> Unit, start: suspend () -> R): R? {
+    val token = generation.incrementAndGet()
+    wait()
+    if (token != generation.get()) return null
+    return start()
   }
 }
 
