@@ -61,3 +61,15 @@ test('pressables and dividers take colours from the palette inline, never from N
   }
   assert.deepEqual(problems, []);
 });
+
+test('ripples never share a view with a themed fill or border (live switch regression on Android)', () => {
+  // RN 0.81 drops redraws of a view's background colour once android_ripple sets a feedback underlay.
+  const offenders = sources(src).filter(file => !file.endsWith('ui/PressableSurface.tsx') && /android_ripple/.test(readFileSync(file, 'utf8')))
+    .map(file => relative(src, file));
+  assert.deepEqual(offenders, [], 'use PressableSurface for pressables with ripple feedback');
+  const surface = readFileSync(join(src, 'ui/PressableSurface.tsx'), 'utf8');
+  const inner = /<Pressable\b[^>]*>/.exec(surface)?.[0] ?? '';
+  assert.ok(inner.includes('android_ripple') && !/\bstyle=|backgroundColor|border(?:Color|Width)/.test(inner), 'the rippling Pressable carries no colours');
+  const metro = readFileSync(new URL('../../metro.config.js', import.meta.url), 'utf8');
+  assert.match(metro, /inlineRem: 16/, 'native rem is 16 so text-base is 16 sp and h-12 is 48 dp');
+});

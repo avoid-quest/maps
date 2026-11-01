@@ -2,6 +2,7 @@ import { Pressable, StyleSheet, View } from "react-native";
 import { useThemeColors } from "../theme/ThemeProvider";
 import { chipColors, segmentColors } from "./control-styles";
 import { Icon, type IconName } from "./Icon";
+import { PressableSurface } from "./PressableSurface";
 import { Text } from "./Text";
 
 /** A compact choice or shortcut: a hairline pill; selection is the filled brand pill plus weight. */
@@ -11,18 +12,19 @@ export function Chip({ label, icon, selected = false, onPress, accessibilityLabe
   const colors = useThemeColors();
   const tone = chipColors(colors, selected);
   return (
-    <Pressable
+    <PressableSurface
+      surfaceStyle={{ backgroundColor: tone.backgroundColor, borderColor: tone.borderColor, borderWidth: StyleSheet.hairlineWidth }}
+      className="rounded-full"
+      contentClassName="min-h-12 flex-row items-center gap-2 px-4"
+      rippleColor={`${colors.textPrimary}1F`}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
       accessibilityState={{ selected }}
       onPress={onPress}
-      android_ripple={{ color: `${colors.textPrimary}1F` }}
-      style={{ backgroundColor: tone.backgroundColor, borderColor: tone.borderColor, borderWidth: StyleSheet.hairlineWidth }}
-      className="min-h-12 flex-row items-center gap-2 overflow-hidden rounded-full px-4"
     >
       {icon ? <Icon name={icon} size={18} color={tone.foreground} /> : null}
       <Text style={{ color: tone.foreground }} className={`text-sm ${selected ? "font-semibold" : "font-medium"}`}>{label}</Text>
-    </Pressable>
+    </PressableSurface>
   );
 }
 
