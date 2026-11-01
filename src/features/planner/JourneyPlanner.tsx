@@ -1,7 +1,9 @@
 import { useReducer, useState } from 'react';
-import { Keyboard, Pressable, Text, TextInput, View } from 'react-native';
+import { Keyboard, Pressable, TextInput, View } from 'react-native';
+import { Text } from '../../ui/Text';
 import type { RouteLeg, RoutePlan, RouteStop, Stop, TransitTime } from '../../domain/types';
-import { Button, Disclosure, Icon, Notice } from '../../ui/Controls';
+import { useThemeColors } from '../../theme';
+import { Button, Chip, Disclosure, Icon, Notice, Num, SegmentedControl, TransitLineBadge, transitModeFromLeg, useHairlines } from '../../ui';
 import { matchJourneyStop } from '../../services/transit-stop-matching';
 import {
   createTransitTimeDraft, draftTransitTime, italianDate, journeyDate, journeyDistance, journeyDuration,
@@ -17,6 +19,8 @@ export function TransitTimeForm({ value, onSubmit, disabled }: {
 }) {
   const [{ kind, date, time }, updateDraft] = useReducer(transitTimeDraftReducer, value, createTransitTimeDraft);
   const [error, setError] = useState('');
+  const colors = useThemeColors();
+  const hairlines = useHairlines();
   function submit() {
     try {
       const next = draftTransitTime(kind, date.trim(), time.trim());
@@ -30,37 +34,19 @@ export function TransitTimeForm({ value, onSubmit, disabled }: {
   }
   return (
     <View className="gap-3">
-      <View className="flex-row flex-wrap gap-2">
-        {timeModes.map(item => (
-          <Pressable
-            key={item.kind}
-            accessibilityRole="button"
-            accessibilityState={{ selected: item.kind === kind }}
-            onPress={() => { updateDraft({ type: 'kind', kind: item.kind, now: new Date() }); setError(''); }}
-            className={`min-h-12 grow items-center justify-center rounded-xl border px-3 py-2 ${item.kind === kind ? 'border-[#2359D7] bg-[#ECF2FF]' : 'border-[#E2E8F0] bg-white'}`}
-          >
-            <Text className={`text-sm font-semibold ${item.kind === kind ? 'text-[#2359D7]' : 'text-[#59667A]'}`}>{item.label}</Text>
-          </Pressable>
-        ))}
-      </View>
+      <SegmentedControl accessibilityLabel="Orario del viaggio" options={timeModes.map(item => ({ value: item.kind, label: item.label }))} value={kind}
+        onChange={next => { updateDraft({ type: 'kind', kind: next, now: new Date() }); setError(''); }} />
       {kind !== 'now' ? (
         <>
           <View className="flex-row gap-2">
             {[{ label: 'Oggi', days: 0 }, { label: 'Domani', days: 1 }].map(item => (
-              <Pressable
-                key={item.label}
-                accessibilityRole="button"
-                accessibilityState={{ selected: date === italianDate(nextRomeDate(item.days)) }}
-                onPress={() => { updateDraft({ type: 'date', value: italianDate(nextRomeDate(item.days)) }); setError(''); }}
-                className="min-h-11 justify-center px-3"
-              >
-                <Text className="font-semibold text-[#2359D7]">{item.label}</Text>
-              </Pressable>
+              <Chip key={item.label} label={item.label} selected={date === italianDate(nextRomeDate(item.days))}
+                onPress={() => { updateDraft({ type: 'date', value: italianDate(nextRomeDate(item.days)) }); setError(''); }} />
             ))}
           </View>
           <View className="flex-row flex-wrap gap-3">
             <View className="min-w-36 flex-1 gap-1">
-              <Text className="text-sm text-[#59667A]">Data (gg/mm/aaaa)</Text>
+              <Text className="text-sm text-secondary">Data (gg/mm/aaaa)</Text>
               <TextInput
                 accessibilityLabel="Data del viaggio, giorno mese anno"
                 value={date}
@@ -69,11 +55,13 @@ export function TransitTimeForm({ value, onSubmit, disabled }: {
                 autoCorrect={false}
                 inputMode="text"
                 maxLength={10}
-                className="min-h-12 min-w-0 rounded-xl border border-[#CBD5E1] px-3 py-2 text-base text-[#17243C]"
+                placeholderTextColor={colors.textSecondary}
+                style={hairlines.box}
+                className="min-h-12 min-w-0 rounded-xl px-3 py-2 font-mono text-base text-primary"
               />
             </View>
             <View className="min-w-24 flex-1 gap-1">
-              <Text className="text-sm text-[#59667A]">Ora (HH:mm)</Text>
+              <Text className="text-sm text-secondary">Ora (HH:mm)</Text>
               <TextInput
                 accessibilityLabel="Ora del viaggio, ore e minuti"
                 value={time}
@@ -84,14 +72,16 @@ export function TransitTimeForm({ value, onSubmit, disabled }: {
                 maxLength={5}
                 returnKeyType="search"
                 onSubmitEditing={disabled ? undefined : submit}
-                className="min-h-12 min-w-0 rounded-xl border border-[#CBD5E1] px-3 py-2 text-base text-[#17243C]"
+                placeholderTextColor={colors.textSecondary}
+                style={hairlines.box}
+                className="min-h-12 min-w-0 rounded-xl px-3 py-2 font-mono text-base text-primary"
               />
             </View>
           </View>
         </>
       ) : null}
-      <Text className="text-xs leading-5 text-[#59667A]">Ora italiana</Text>
-      {error ? <Notice danger text={error} /> : null}
+      <Text className="text-sm leading-5 text-secondary">Ora italiana</Text>
+      {error ? <Notice tone="danger" text={error} /> : null}
       <Button onPress={submit} disabled={disabled}>Cerca percorsi</Button>
     </View>
   );
@@ -102,6 +92,17 @@ function stopLabel(stop: RouteStop | undefined, fallback: string) {
 }
 function legLabel(leg: RouteLeg) {
   return leg.transitLeg ? (leg.line ? `Linea ${leg.line}` : 'Mezzo pubblico') : leg.mode === 'walk' ? 'A piedi' : leg.mode === 'bicycle' ? 'In bici' : leg.mode === 'car' ? 'In auto' : 'Tratta';
+}
+/** The plan's transit lines as badges in boarding order; walking-only plans say so in words. */
+function LegBadges({ plan }: { plan: RoutePlan }) {
+  const legs = plan.legs.filter(leg => leg.transitLeg);
+  if (!legs.length) return <Text className="text-sm leading-5 text-primary">A piedi fino alla destinazione</Text>;
+  return <View accessible accessibilityLabel={legs.map(legLabel).join(', poi ')} className="flex-row flex-wrap items-center gap-1.5">
+    {legs.map((leg, index) => <View key={leg.id} className="flex-row items-center gap-1.5">
+      {index ? <Text className="text-sm text-secondary">›</Text> : null}
+      {leg.line ? <TransitLineBadge line={leg.line} mode={transitModeFromLeg(leg.mode)} /> : <Text className="text-sm text-primary">{legLabel(leg)}</Text>}
+    </View>)}
+  </View>;
 }
 function transferLabel(plan: RoutePlan) {
   if (!plan.legs.some(leg => leg.transitLeg)) return plan.legs.every(leg => leg.mode === 'walk') ? 'Solo a piedi' : 'Senza mezzi pubblici';
@@ -116,23 +117,25 @@ export function JourneyResults({ plans, selected, onSelect, onRefresh, loading, 
   plans: RoutePlan[]; selected: RoutePlan; onSelect: (id: string) => void; onRefresh: () => void;
   loading: boolean; error: string; now: number; query: TransitTime; saved?: boolean; retained?: boolean; onOpenStop?: (stop: Stop) => void;
 }) {
+  const colors = useThemeColors();
+  const hairlines = useHairlines();
   const age = Math.max(0, Math.floor((now - selected.fetchedAt) / 60_000));
   const stale = saved || retained || now - selected.fetchedAt > 120_000;
   return (
     <View className="gap-4">
-      <Text className="text-sm font-semibold leading-5 text-[#17243C]">{saved ? savedJourneyTimeLabel(query, selected.fetchedAt) : transitTimeLabel(query)}</Text>
-      {error ? <Notice danger text={`${error} Percorso precedente conservato.`} /> : null}
+      <Text className="text-sm font-semibold leading-5 text-primary">{saved ? savedJourneyTimeLabel(query, selected.fetchedAt) : transitTimeLabel(query)}</Text>
+      {error ? <Notice tone="danger" text={`${error} Percorso precedente conservato.`} /> : null}
       {retained ? <Notice text="Percorso precedente da aggiornare. Scegli un’alternativa aggiornata." /> : null}
       <View className="gap-2">
-        <Text className="text-xs leading-5 text-[#59667A]">
-          Consultato il {journeyDate(selected.fetchedAt)} alle {journeyTime(selected.fetchedAt)}
+        <Text className="text-sm leading-5 text-secondary">
+          Consultato il {journeyDate(selected.fetchedAt)} alle <Num className="text-sm text-secondary">{journeyTime(selected.fetchedAt)}</Num>
           {age === 0 ? ' (meno di 1 min fa).' : ` (${age} min fa).`}{stale ? ' Da aggiornare.' : ''}
         </Text>
-        <Button secondary icon={saved && query.kind === 'now' ? undefined : 'refresh-outline'} loading={loading} onPress={onRefresh}>
+        <Button variant="secondary" icon={saved && query.kind === 'now' ? undefined : 'refresh-outline'} loading={loading} onPress={onRefresh}>
           {loading ? 'Aggiornamento…' : saved && query.kind === 'now' ? 'Ricalcola adesso' : 'Aggiorna'}
         </Button>
       </View>
-      <View className="gap-2">
+      <View style={hairlines.top}>
         {plans.map((plan, index) => (
           <Pressable
             key={plan.id}
@@ -140,23 +143,25 @@ export function JourneyResults({ plans, selected, onSelect, onRefresh, loading, 
             accessibilityLabel={`Percorso ${index + 1}, ${timeRange(plan)}, ${journeyDuration(plan.durationSeconds)}, ${transferLabel(plan)}${plan.id === selected.id ? ', selezionato' : ''}${plan.legs.some(leg => leg.timingStatus === 'cancelled') ? ', include una corsa cancellata' : ''}`}
             accessibilityState={{ selected: plan.id === selected.id }}
             onPress={() => onSelect(plan.id)}
-            className={`gap-2 rounded-xl border px-4 py-3 ${plan.id === selected.id ? 'border-[#2359D7] bg-[#ECF2FF]' : 'border-[#E2E8F0] bg-white'}`}
+            // Board rows separated by hairlines; the selected option is outlined in the accent and checked.
+            style={[hairlines.bottom, plan.id === selected.id ? { borderWidth: 1.5, borderColor: colors.action, borderBottomWidth: 1.5, borderBottomColor: colors.action, borderRadius: 12 } : null]}
+            className="gap-2 px-3 py-3"
           >
             <View className="flex-row items-start gap-2">
               <View className="min-w-0 flex-1 gap-1">
-                {plan.departureAt != null ? <Text className="text-xs text-[#59667A]">{journeyDate(plan.departureAt)}</Text> : null}
-                <Text className="text-lg font-bold text-[#17243C]">{timeRange(plan)}</Text>
-                <Text className="text-sm text-[#59667A]">{journeyDuration(plan.durationSeconds)} · {transferLabel(plan)}</Text>
+                {plan.departureAt != null ? <Text className="text-sm text-secondary">{journeyDate(plan.departureAt)}</Text> : null}
+                <Num className="text-lg font-semibold text-primary">{timeRange(plan)}</Num>
+                <Text className="text-sm text-secondary"><Num className="text-sm text-secondary">{journeyDuration(plan.durationSeconds)}</Num> · {transferLabel(plan)}</Text>
               </View>
-              {plan.id === selected.id ? <Icon name="checkmark-circle" color="#2359D7" size={21} /> : null}
+              {plan.id === selected.id ? <SelectedMark /> : null}
             </View>
-            <Text className="text-sm leading-5 text-[#17243C]">{plan.legs.filter(leg => leg.transitLeg).map(legLabel).join(' → ') || 'A piedi fino alla destinazione'}</Text>
-            {plan.legs.some(leg => leg.timingStatus === 'cancelled') ? <Text className="text-sm font-semibold text-[#9B391B]">Include una corsa cancellata</Text> : null}
+            <LegBadges plan={plan} />
+            {plan.legs.some(leg => leg.timingStatus === 'cancelled') ? <Text className="text-sm font-semibold text-cancelled">Include una corsa cancellata</Text> : null}
           </Pressable>
         ))}
       </View>
       <Disclosure title={retained ? 'Tratte del percorso precedente' : 'Tratte'}>
-        <Text className="text-xs leading-5 text-[#59667A]">A piedi {journeyDuration(selected.walkingDurationSeconds)} ({journeyDistance(selected.walkingDistanceMeters)}) · Attese {selected.waitingDurationSeconds ? journeyDuration(selected.waitingDurationSeconds) : 'nessuna'} · Ora italiana</Text>
+        <Text className="text-sm leading-5 text-secondary">A piedi {journeyDuration(selected.walkingDurationSeconds)} ({journeyDistance(selected.walkingDistanceMeters)}) · Attese {selected.waitingDurationSeconds ? journeyDuration(selected.waitingDurationSeconds) : 'nessuna'} · Ora italiana</Text>
       {selected.legs.map((leg, index) => {
         const previous = selected.legs[index - 1];
         const next = selected.legs[index + 1];
@@ -166,23 +171,23 @@ export function JourneyResults({ plans, selected, onSelect, onRefresh, loading, 
         const overnight = leg.departureAt != null && leg.arrivalAt != null && journeyDate(leg.departureAt) !== journeyDate(leg.arrivalAt);
         return (
           <View key={leg.id} className="gap-3">
-            {wait > 0 ? <Text className="border-l-2 border-[#CBD5E1] pl-3 text-sm leading-5 text-[#59667A]">{leg.interlineWithPreviousLeg ? 'Sosta a bordo' : 'Attesa'}: {journeyDuration(wait)} a {previous?.toStop?.name ?? previous?.to ?? leg.from}</Text> : null}
-            <View className={`gap-3 border-l-2 pl-3 ${leg.transitLeg ? 'border-[#2359D7]' : 'border-[#CBD5E1]'}`}>
+            {wait > 0 ? <Text style={{ borderLeftWidth: 2, borderLeftColor: colors.divider }} className="pl-3 text-sm leading-5 text-secondary">{leg.interlineWithPreviousLeg ? 'Sosta a bordo' : 'Attesa'}: {journeyDuration(wait)} a {previous?.toStop?.name ?? previous?.to ?? leg.from}</Text> : null}
+            <View style={{ borderLeftWidth: 2, borderLeftColor: leg.transitLeg ? colors.action : colors.divider }} className="gap-3 pl-3">
               <View className="gap-1">
-                <Text className="text-base font-bold text-[#17243C]">{legLabel(leg)}</Text>
-                {leg.transitLeg ? <Text className="text-sm leading-5 text-[#17243C]">{leg.headsign ? `Direzione ${leg.headsign}` : 'Direzione non fornita dal servizio'}</Text> : <Text className="text-sm text-[#59667A]">{journeyDuration(leg.durationSeconds)} · {journeyDistance(leg.distanceMeters)}</Text>}
+                {leg.transitLeg && leg.line ? <TransitLineBadge line={leg.line} mode={transitModeFromLeg(leg.mode)} /> : <Text className="text-base font-bold text-primary">{legLabel(leg)}</Text>}
+                {leg.transitLeg ? <Text className="text-sm leading-5 text-primary">{leg.headsign ? `Direzione ${leg.headsign}` : 'Direzione non fornita dal servizio'}</Text> : <Text className="text-sm text-secondary">{journeyDuration(leg.durationSeconds)} · {journeyDistance(leg.distanceMeters)}</Text>}
               </View>
               <View className="gap-1">
-                <Text className="text-sm font-semibold text-[#2359D7]">{journeyTime(leg.departureAt)} · {leg.transitLeg ? leg.timingStatus === 'cancelled' ? 'Partenza cancellata da' : leg.interlineWithPreviousLeg ? 'Rimani a bordo' : 'Sali a' : 'Parti da'}</Text>
-                <Text className="text-base leading-6 text-[#17243C]">{stopLabel(leg.fromStop, leg.from)}</Text>
+ <Text className="text-sm font-semibold text-primary"><Num className="text-sm font-semibold text-primary">{journeyTime(leg.departureAt)}</Num> · {leg.transitLeg ? leg.timingStatus === 'cancelled' ? 'Partenza cancellata da' : leg.interlineWithPreviousLeg ? 'Rimani a bordo' : 'Sali a' : 'Parti da'}</Text>
+                <Text className="text-base leading-6 text-primary">{stopLabel(leg.fromStop, leg.from)}</Text>
                 {boardingStop && onOpenStop ? <StopArrivalButton stop={boardingStop} onOpen={onOpenStop} /> : null}
               </View>
               <View className="gap-1">
-                <Text className="text-sm font-semibold text-[#2359D7]">{journeyTime(leg.arrivalAt)}{overnight ? ` del ${journeyDate(leg.arrivalAt!)}` : ''} · {leg.transitLeg ? leg.timingStatus === 'cancelled' ? 'Arrivo programmato a' : next?.interlineWithPreviousLeg ? 'Prosegui a bordo da' : 'Scendi a' : 'Arrivi a'}</Text>
-                <Text className="text-base leading-6 text-[#17243C]">{stopLabel(leg.toStop, leg.to)}</Text>
+                <Text className="text-sm font-semibold text-primary"><Num className="text-sm font-semibold text-primary">{journeyTime(leg.arrivalAt)}</Num>{overnight ? ` del ${journeyDate(leg.arrivalAt!)}` : ''} · {leg.transitLeg ? leg.timingStatus === 'cancelled' ? 'Arrivo programmato a' : next?.interlineWithPreviousLeg ? 'Prosegui a bordo da' : 'Scendi a' : 'Arrivi a'}</Text>
+                <Text className="text-base leading-6 text-primary">{stopLabel(leg.toStop, leg.to)}</Text>
                 {alightingStop && onOpenStop ? <StopArrivalButton stop={alightingStop} onOpen={onOpenStop} /> : null}
               </View>
-              {leg.transitLeg ? <Text className={`text-sm leading-5 ${leg.timingStatus === 'cancelled' ? 'font-semibold text-[#9B391B]' : 'text-[#59667A]'}`}>{journeyTimingLabel(leg, selected.fetchedAt, now, saved || retained)} · {journeyDuration(leg.durationSeconds)}</Text> : null}
+              {leg.transitLeg ? <Text className={`text-sm leading-5 ${leg.timingStatus === 'cancelled' ? 'font-semibold text-cancelled' : 'text-secondary'}`}>{journeyTimingLabel(leg, selected.fetchedAt, now, saved || retained)} · {journeyDuration(leg.durationSeconds)}</Text> : null}
             </View>
           </View>
         );
@@ -190,15 +195,18 @@ export function JourneyResults({ plans, selected, onSelect, onRefresh, loading, 
       </Disclosure>
       {selected.legs.some(leg => leg.timingStatus === 'prediction') ? <Notice text="Previsioni MATO: aggiornamento della fonte non disponibile." /> : null}
       {selected.warnings.map((warning, index) => <Notice key={index} text={warning} />)}
-      <Text className="text-xs leading-5 text-[#59667A]">{selected.source} · © OpenStreetMap contributors. Corse non monitorate durante la guida.</Text>
+      <Text className="text-sm leading-5 text-secondary">{selected.source} · © OpenStreetMap contributors. Corse non monitorate durante la guida.</Text>
     </View>
   );
 }
 
+function SelectedMark() {
+  const colors = useThemeColors();
+  return <Icon name="checkmark-circle" color={colors.action} size={21} />;
+}
+
 function StopArrivalButton({ stop, onOpen }: { stop: Stop; onOpen: (stop: Stop) => void }) {
-  return <Pressable accessibilityRole="button" accessibilityLabel={`Arrivi alla fermata ${stop.code}, ${stop.name}`}
-    onPress={() => onOpen(stop)} className="min-h-12 flex-row items-center gap-2 self-start rounded-xl bg-[#ECF2FF] px-3 py-2">
-    <Icon name="bus-outline" size={18} color="#2359D7" />
-    <Text className="shrink font-semibold text-[#2359D7]">Arrivi alla fermata {stop.code}</Text>
-  </Pressable>;
+  return <View className="self-start">
+    <Button variant="secondary" icon="bus-outline" accessibilityLabel={`Arrivi ${stop.code}, fermata ${stop.name}`} onPress={() => onOpen(stop)}>{`Arrivi · ${stop.code}`}</Button>
+  </View>;
 }
