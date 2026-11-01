@@ -96,7 +96,9 @@ export function createNavigationController(platform: NavigationPlatform, record:
     });
   };
   const start = (action: () => Promise<NavigationSnapshot>) => {
-    if (!state.ready || state.busy || navigationVisible(state.snapshot)) return Promise.resolve();
+    if (state.busy) return Promise.resolve();
+    // A Start that cannot be submitted is recorded, so a device report shows it never reached native.
+    if (!state.ready || navigationVisible(state.snapshot)) { record('start-ignored'); return Promise.resolve(); }
     record('start-requested');
     return prepareSessionCommand('start', action, true);
   };
@@ -122,6 +124,8 @@ export function createNavigationController(platform: NavigationPlatform, record:
       return () => { if (attachment === id) attachment += 1; remove(); };
     },
     refresh,
+    /** The planner changed: an earlier command failure no longer describes what is on screen. */
+    dismissError() { if (state.error && !state.busy && state.error !== unavailableStateMessage) publish({ ...state, error: null }); },
     start: (options: NavigationStart) => start(() => platform.startNavigation(options)),
     startTransit: (options: TransitNavigationStart) => start(() => platform.startTransitNavigation(options)),
     stop,
