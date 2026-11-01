@@ -1,5 +1,5 @@
-import { idleNavigation, navigationVisible, type NavigationPlatform, type NavigationSnapshot, type NavigationStart, type TransitConfirmation, type TransitNavigationStart } from '../domain/navigation';
-import type { DiagnosticInput } from '../services/diagnostics';
+import { idleNavigation, navigationVisible, type NavigationPlatform, type NavigationSnapshot, type NavigationStart, type TransitConfirmation, type TransitNavigationStart } from '../../domain/navigation';
+import type { DiagnosticInput } from '../../services/diagnostics';
 
 type NavigationDiagnostic = Extract<DiagnosticInput, { type: 'navigation' }>['state'];
 const diagnosticStatuses: Partial<Record<NavigationSnapshot['status'], NavigationDiagnostic>> = {

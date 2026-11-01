@@ -1,9 +1,9 @@
 import React, { useState, useSyncExternalStore } from 'react';
 import { Switch, Text, View } from 'react-native';
-import type { SearchPolicy } from '../domain/types';
-import { searchPreferences } from '../services/search-preferences';
-import { colors } from '../theme/tokens';
-import { Button, Notice } from './Controls';
+import type { SearchPolicy } from '../../domain/types';
+import { searchPreferences } from '../../services/search-preferences';
+import { colors } from '../../theme/tokens';
+import { Button, Notice } from '../../ui/Controls';
 
 export function DiscoverySettings() {
   const snapshot = useSyncExternalStore(searchPreferences.subscribe, searchPreferences.getSnapshot, searchPreferences.getSnapshot);

@@ -1,5 +1,5 @@
-import type { RoutePlan } from '../domain/types';
-import type { PlanRouteOptions } from '../services/routing';
+import type { RoutePlan } from '../../domain/types';
+import type { PlanRouteOptions } from '../../services/routing';
 
 export interface RouteState {
   queryKey: string;

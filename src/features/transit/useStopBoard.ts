@@ -1,7 +1,7 @@
 import { useCallback, useLayoutEffect, useReducer, useRef } from 'react';
-import type { DepartureBoard, TransitAlertSnapshot } from '../domain/types';
-import { getDepartures, getTransitAlerts } from '../services/transit';
-import { createActiveRefresh, REFRESH_INTERVALS, type ActiveRefresh } from './active-refresh';
+import type { DepartureBoard, TransitAlertSnapshot } from '../../domain/types';
+import { getDepartures, getTransitAlerts } from '../../services/transit';
+import { createActiveRefresh, REFRESH_INTERVALS, type ActiveRefresh } from '../app/active-refresh';
 
 export interface RetainedResource<T> {
   identity: string;

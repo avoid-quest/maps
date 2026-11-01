@@ -4,7 +4,7 @@ import type { GeoJSONSource, Map as WebMap } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import type { MapCanvasProps } from './MapCanvas.types';
 import { createRouteFraming } from './map-presentation';
-import { diagnostics } from '../services/diagnostics';
+import { diagnostics } from '../../services/diagnostics';
 
 export default function MapCanvas(props: MapCanvasProps) {
   const container = useRef<HTMLDivElement>(null);

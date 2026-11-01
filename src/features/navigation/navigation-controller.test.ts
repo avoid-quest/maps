@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createNavigationController } from './navigation-controller';
-import { idleNavigation, navigationLocationForReplan, type NavigationPlatform, type NavigationSnapshot } from '../domain/navigation';
+import { idleNavigation, navigationLocationForReplan, type NavigationPlatform, type NavigationSnapshot } from '../../domain/navigation';
 
 function deferred<T>() {
   let resolve!: (value: T) => void;

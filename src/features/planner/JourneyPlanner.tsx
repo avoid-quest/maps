@@ -1,8 +1,8 @@
 import { useReducer, useState } from 'react';
 import { Keyboard, Pressable, Text, TextInput, View } from 'react-native';
-import type { RouteLeg, RoutePlan, RouteStop, Stop, TransitTime } from '../domain/types';
-import { Button, Disclosure, Icon, Notice } from './Controls';
-import { matchJourneyStop } from '../services/transit-stop-matching';
+import type { RouteLeg, RoutePlan, RouteStop, Stop, TransitTime } from '../../domain/types';
+import { Button, Disclosure, Icon, Notice } from '../../ui/Controls';
+import { matchJourneyStop } from '../../services/transit-stop-matching';
 import {
   createTransitTimeDraft, draftTransitTime, italianDate, journeyDate, journeyDistance, journeyDuration,
   journeyTime, journeyTimingLabel, nextRomeDate, savedJourneyTimeLabel, transitTimeDraftReducer, transitTimeLabel, waitBefore,

@@ -1,8 +1,8 @@
 import { Text, View } from 'react-native';
-import type { Stop } from '../domain/types';
-import type { SavedJourney, SavedTravelFailure, SavedTravelSnapshot } from '../services/saved-travel';
-import { Button, Notice } from './Controls';
-import { journeyDate, journeyTime, savedJourneyTimeLabel } from './journey-presentation';
+import type { Stop } from '../../domain/types';
+import type { SavedJourney, SavedTravelFailure, SavedTravelSnapshot } from '../../services/saved-travel';
+import { Button, Notice } from '../../ui/Controls';
+import { journeyDate, journeyTime, savedJourneyTimeLabel } from '../planner/journey-presentation';
 
 export function savedTravelFailureMessage(failure: SavedTravelFailure | null): string | null {
   if (!failure) return null;

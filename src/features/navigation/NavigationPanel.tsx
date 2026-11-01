@@ -1,11 +1,11 @@
 import { useEffect, useState, type ComponentProps } from 'react';
 import { ActivityIndicator, Linking, Modal, Pressable, ScrollView, Text, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import type { NavigationSnapshot, TransitConfirmation } from '../domain/navigation';
-import { navigationLocationForReplan } from '../domain/navigation';
-import { Button, Icon, IconButton, Notice } from './Controls';
+import type { NavigationSnapshot, TransitConfirmation } from '../../domain/navigation';
+import { navigationLocationForReplan } from '../../domain/navigation';
+import { Button, Icon, IconButton, Notice } from '../../ui/Controls';
 import type { NavigationState } from './navigation-controller';
-import { journeyDuration } from './journey-presentation';
+import { journeyDuration } from '../planner/journey-presentation';
 
 const distance = (meters: number) => meters < 1000 ? `${Math.round(meters)} m` : `${(meters / 1000).toFixed(1).replace('.', ',')} km`;
 const statuses: Record<NavigationSnapshot['status'], string> = {

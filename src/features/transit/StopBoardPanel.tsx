@@ -1,10 +1,10 @@
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
-import type { Departure, Stop } from '../domain/types';
-import { colors } from '../theme/tokens';
-import { Button, EmptyState, IconButton, Notice } from './Controls';
+import type { Departure, Stop } from '../../domain/types';
+import { colors } from '../../theme/tokens';
+import { Button, EmptyState, IconButton, Notice } from '../../ui/Controls';
 import { displayedDepartureStatus } from './departure-status';
-import { transitAlertWarnings } from '../domain/transit-alert-freshness';
-import { journeyDate, journeyDistance, journeyTime } from './journey-presentation';
+import { transitAlertWarnings } from '../../domain/transit-alert-freshness';
+import { journeyDate, journeyDistance, journeyTime } from '../planner/journey-presentation';
 import type { useStopBoard } from './useStopBoard';
 
 type BoardState = ReturnType<typeof useStopBoard>;

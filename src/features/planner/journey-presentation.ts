@@ -1,5 +1,5 @@
-import type { RouteLeg, TransitTime, TravelMode } from '../domain/types';
-import { resolveTransitTime, romeDateTime } from '../services/transit-time';
+import type { RouteLeg, TransitTime, TravelMode } from '../../domain/types';
+import { resolveTransitTime, romeDateTime } from '../../services/transit-time';
 
 export const journeyTime = (value?: number) => value == null ? 'Orario non disponibile' :
   new Date(value).toLocaleTimeString('it-IT', { timeZone: 'Europe/Rome', hour: '2-digit', minute: '2-digit' });

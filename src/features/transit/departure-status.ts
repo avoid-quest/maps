@@ -1,4 +1,4 @@
-import type { Departure } from "../domain/types";
+import type { Departure } from "../../domain/types";
 
 export function displayedDepartureStatus(
   departure: Departure,

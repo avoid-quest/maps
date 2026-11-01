@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import type { RouteLeg } from '../domain/types';
+import type { RouteLeg } from '../../domain/types';
 import { createTransitTimeDraft, draftTransitTime, journeyDuration, journeyTime, journeyTimingLabel, nextRomeDate, savedJourneyTimeLabel, transitTimeDraftReducer, waitBefore } from './journey-presentation';
 
 const leg: RouteLeg = {

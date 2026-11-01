@@ -4,7 +4,7 @@ import { Map, Camera, GeoJSONSource, Layer, type CameraRef } from '@maplibre/map
 import type { FeatureCollection, Point } from 'geojson';
 import type { MapCanvasProps } from './MapCanvas.types';
 import { createRouteFraming } from './map-presentation';
-import { diagnostics } from '../services/diagnostics';
+import { diagnostics } from '../../services/diagnostics';
 
 export default function MapCanvas({ center, zoom = 14.5, cameraRevision, routeFitKey, cameraPadding, attributionTop = 68, attributionLeft = 8, markers = [], selectedMarkerId, route, coverageBounds, userLocation, followLocation, onPressMarker, onMapPress, onRegionChanged }: MapCanvasProps) {
   const framing = useRef(createRouteFraming());

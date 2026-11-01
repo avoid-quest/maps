@@ -17,9 +17,9 @@ import {
   View,
 } from "react-native";
 import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { mapCameraPadding } from "./src/components/map-presentation";
-import MapCanvas from "./src/components/MapCanvas";
-import type { MapMarker } from "./src/components/MapCanvas.types";
+import { mapCameraPadding } from "./src/features/map/map-presentation";
+import MapCanvas from "./src/features/map/MapCanvas";
+import type { MapMarker } from "./src/features/map/MapCanvas.types";
 import {
   Button,
   EmptyState,
@@ -28,7 +28,7 @@ import {
   Notice,
   Disclosure,
   type IconName,
-} from "./src/components/Controls";
+} from "./src/ui/Controls";
 import { colors } from "./src/theme/tokens";
 import type {
   Coordinate,
@@ -51,21 +51,21 @@ import {
   PROVIDER_NOTICES,
 } from "./src/services";
 import { getCurrentLocation, getAuthorizedLocation } from "./src/platform/location";
-import { DiagnosticsPanel } from "./src/components/DiagnosticsPanel";
-import { DiscoverySettings } from "./src/components/DiscoverySettings";
+import { DiagnosticsPanel } from "./src/features/settings/DiagnosticsPanel";
+import { DiscoverySettings } from "./src/features/settings/DiscoverySettings";
 import { searchPreferences } from "./src/services/search-preferences";
-import { JourneyResults, TransitTimeForm } from "./src/components/JourneyPlanner";
-import { useRoutePlans } from "./src/components/useRoutePlans";
-import { useStopBoard } from "./src/components/useStopBoard";
-import { StopBoardPanel } from "./src/components/StopBoardPanel";
-import { useAppActive } from "./src/components/useAppActive";
-import { routeQueryKey } from "./src/components/route-state";
-import { SavedTravelPanel, savedTravelFailureMessage } from "./src/components/SavedTravelPanel";
-import { journeyDate, journeyTime } from "./src/components/journey-presentation";
+import { JourneyResults, TransitTimeForm } from "./src/features/planner/JourneyPlanner";
+import { useRoutePlans } from "./src/features/planner/useRoutePlans";
+import { useStopBoard } from "./src/features/transit/useStopBoard";
+import { StopBoardPanel } from "./src/features/transit/StopBoardPanel";
+import { useAppActive } from "./src/features/app/useAppActive";
+import { routeQueryKey } from "./src/features/planner/route-state";
+import { SavedTravelPanel, savedTravelFailureMessage } from "./src/features/transit/SavedTravelPanel";
+import { journeyDate, journeyTime } from "./src/features/planner/journey-presentation";
 import { savedTravel, type SavedJourney } from "./src/services/saved-travel";
-import { useNavigation } from "./src/components/useNavigation";
-import { NavigationPanel } from "./src/components/NavigationPanel";
-import { NavigationNotices } from "./src/components/NavigationNotices";
+import { useNavigation } from "./src/features/navigation/useNavigation";
+import { NavigationPanel } from "./src/features/navigation/NavigationPanel";
+import { NavigationNotices } from "./src/features/navigation/NavigationNotices";
 import { navigationLocationForReplan } from "./src/domain/navigation";
 
 // A country view is a browsing fallback, never a claimed device position.

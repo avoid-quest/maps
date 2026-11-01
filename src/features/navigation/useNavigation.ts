@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { navigationPlatform } from '../platform/navigation';
+import { navigationPlatform } from '../../platform/navigation';
 import { createNavigationController } from './navigation-controller';
-import { navigationVisible } from '../domain/navigation';
-import { diagnostics } from '../services/diagnostics';
+import { navigationVisible } from '../../domain/navigation';
+import { diagnostics } from '../../services/diagnostics';
 
 export function useNavigation(active: boolean) {
   const [controller] = useState(() => createNavigationController(navigationPlatform, state => diagnostics.record({ type: 'navigation', state })));

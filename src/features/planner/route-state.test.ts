@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import type { RoutePlan } from '../domain/types';
+import type { RoutePlan } from '../../domain/types';
 import { emptyRouteState, routeQueryKey, routeReducer, selectedRoute, visibleRouteState } from './route-state';
 
 function plan(id: string, fetchedAt = 1000): RoutePlan {

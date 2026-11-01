@@ -1,10 +1,10 @@
 import React, { useState, useSyncExternalStore } from 'react';
 import { ScrollView, Switch, Text, View } from 'react-native';
-import { copyText } from '../platform/clipboard';
-import { Button, Notice } from './Controls';
-import { copyDiagnosticReport, diagnostics, MAX_DIAGNOSTIC_EVENTS } from '../services/diagnostics';
-import { diagnosticReport } from '../services/diagnostics-runtime';
-import { colors } from '../theme/tokens';
+import { copyText } from '../../platform/clipboard';
+import { Button, Notice } from '../../ui/Controls';
+import { copyDiagnosticReport, diagnostics, MAX_DIAGNOSTIC_EVENTS } from '../../services/diagnostics';
+import { diagnosticReport } from '../../services/diagnostics-runtime';
+import { colors } from '../../theme/tokens';
 
 export function DiagnosticsPanel() {
   const snapshot = useSyncExternalStore(diagnostics.subscribe, diagnostics.getSnapshot, diagnostics.getSnapshot);

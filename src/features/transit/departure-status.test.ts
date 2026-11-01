@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { displayedDepartureStatus } from "./departure-status";
-import type { Departure } from "../domain/types";
+import type { Departure } from "../../domain/types";
 
 const departure: Departure = {
   id: "1",

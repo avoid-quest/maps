@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
-import notices from '../../modules/avoid-navigation/android/src/main/assets/third-party/navigation-notices.json';
-import { Button, Icon } from './Controls';
+import notices from '../../../modules/avoid-navigation/android/src/main/assets/third-party/navigation-notices.json';
+import { Button, Icon } from '../../ui/Controls';
 
 const groups = [
   { id: 'ferrostar', label: 'Ferrostar' },
