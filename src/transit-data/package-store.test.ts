@@ -149,13 +149,25 @@ test('bundled bytes are verified against the bundled manifest', async () => {
 });
 
 test('mirrors: a failed or corrupt transfer falls through to the next URL', async () => {
-  const { store, serve } = harness();
+  const { store, serve, files } = harness();
   await store.open();
   const next = release('20261021', '2026-10-21T03:15:00Z');
   const [corrupt] = serve(next.manifest, next.text.slice(0, -10), 'https://a.test/');
   const [good] = serve(next.manifest, next.text, 'https://b.test/');
   const installed = await store.installDownloaded(next.manifest, ['https://down.test/' + next.manifest.package_path, corrupt!, good!]);
   assert.equal(installed.meta.packageHash, next.manifest.package_hash);
+  assert.deepEqual(files.requested, ['https://down.test/' + next.manifest.package_path, corrupt, good], 'tried in order');
+});
+
+test('a full disk while creating the schema or indexes leaves the active package intact', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gtt-store-'));
+  await harness(directory).store.open();
+  const full = harness(directory, { failRunAfter: 0 });
+  await full.store.open();
+  const next = release('20261021', '2026-10-21T03:15:00Z');
+  await assert.rejects(full.store.installDownloaded(next.manifest, full.serve(next.manifest, next.text)), (error: unknown) => error instanceof PackageError && error.kind === 'storage');
+  assert.equal(full.store.active()?.meta.packageHash, bundledManifest.package_hash);
+  assert.equal(full.databases().length, 1);
 });
 
 test('an APK with a newer bundled package replaces an older download; an older one does not', async () => {
@@ -182,4 +194,33 @@ test('representative-query validation rejects a candidate that answers different
   await compareRepresentativeQueries(oracle, oracle, pkg, rome('20261021', '07:00'));
   const tampered = { ...oracle, async vectors(ids: readonly number[]) { const map = await oracle.vectors(ids); for (const vector of map.values()) vector.departures = vector.departures.map(value => value + 60); return map; } };
   await assert.rejects(compareRepresentativeQueries(tampered, oracle, pkg, rome('20261021', '07:00')), PackageError);
+});
+
+test('a transient open error keeps the active package; real damage rolls back and is reported', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gtt-store-'));
+  const first = harness(directory);
+  await first.store.open();
+  const next = release('20261021', '2026-10-21T03:15:00Z');
+  await first.store.installDownloaded(next.manifest, first.serve(next.manifest, next.text));
+  const flaky = harness(directory);
+  const open = flaky.driver.open.bind(flaky.driver); let failures = 1;
+  flaky.driver.open = async name => { if (name !== 'gtt-registry.db' && failures-- > 0) throw new Error('SQLITE_BUSY: database is locked'); return open(name); };
+  await assert.rejects(flaky.store.open(), /SQLITE_BUSY/);
+  assert.equal((await flaky.store.packages()).find(entry => entry.role === 'active')?.hash, next.manifest.package_hash, 'registry untouched');
+  assert.equal((await flaky.store.open()).meta.packageHash, next.manifest.package_hash, 'the retry opens it');
+  assert.equal(flaky.store.rolledBack(), false);
+  const active = (await flaky.store.packages()).find(entry => entry.role === 'active')!;
+  fs.writeFileSync(flaky.driver.file(active.db), 'damaged'.repeat(500));
+  const damaged = harness(directory);
+  assert.equal((await damaged.store.open()).meta.packageHash, bundledManifest.package_hash);
+  assert.equal(damaged.store.rolledBack(), true);
+});
+
+test('identity lookups are chunked and match first arrival or first departure in SQL', async () => {
+  const { store } = harness();
+  const { reader } = await store.open();
+  const identities = Array.from({ length: 250 }, (_, index) => ({ routeId: '4U', direction: 0, shapeId: '4A', start: 8 * 3600 + index }));
+  const trips = await reader.tripsByIdentity(identities);
+  assert.ok(trips.some(trip => trip.tripId === 'T1'), '1,000 bound values would exceed a single statement on older SQLite builds');
+  assert.equal(trips.find(trip => trip.tripId === 'T1')?.firstDeparture, 8 * 3600);
 });

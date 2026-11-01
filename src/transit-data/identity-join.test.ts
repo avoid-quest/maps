@@ -109,7 +109,8 @@ test('identity variants: duplicates and timing conflicts are rejected; stop evid
   // the live service runs Saturdays only (defined for that day alone).
   const variants = (running: string) => {
     const pkg = fixturePackage();
-    pkg.services.push(['SAT', 32, '20261017', '20261017', [], []]);
+    // Saturday variant: runs on other Saturdays, but not on the 24th in the installed calendar.
+    pkg.services.push(['SAT', 32, '20261020', '20261130', [], ['20261024']]);
     pkg.vectors.push([[0, 120, 780, 240], null]);
     const index = pkg.trips.trip_id.indexOf('T1');
     pkg.trips.service[index] = pkg.services.findIndex(entry => entry[0] === running);
@@ -180,4 +181,33 @@ test('remap refresh is requested for unknown IDs, calendar rejections and a stal
   const join = await joinFeed(snapshotOf(update('NEW-T1')), reader, old);
   assert.equal(join.rejected.calendar, 1);
   assert.equal(remapRefreshReason(join, now, now, day), 'stale');
+});
+
+test('identity matches a realtime start_time equal to the first departure when the first stop has a dwell', async () => {
+  const pkg = fixturePackage();
+  pkg.vectors.push([[0, 120, 180, 240], [60, 0, 0, 0]]);
+  pkg.trips.vector[pkg.trips.trip_id.indexOf('T1')] = pkg.vectors.length - 1;
+  const reader = createMemoryReader(pkg, datasetMeta(pkg, fixtureManifest(encodePackage(pkg), pkg), 'bundled'));
+  const remap = await remapWith([['NEW-T1', '4U', 0, '4A', 'NEW']]);
+  for (const startTime of ['08:00:00', '08:01:00']) {
+    const join = await joinFeed(snapshotOf(update('NEW-T1', { trip: { tripId: 'NEW-T1', startDate: '20261021', startTime } })), reader, remap);
+    assert.equal(join.byLocalTrip.get('T1')?.[0]?.via, 'identity', startTime);
+  }
+});
+
+test('weekday evidence counts calendar_dates exceptions; local timetable errors are not hidden as remap failures', async () => {
+  const pkg = fixturePackage();
+  pkg.services.push(['SUNX', 0, '', '', ['20261025', '20261108', '20261115'], []]);
+  pkg.vectors.push([[0, 120, 780, 240], null]);
+  const index = pkg.trips.trip_id.indexOf('T1');
+  pkg.trips.service[index] = pkg.services.findIndex(entry => entry[0] === 'WK');
+  for (const key of Object.keys(pkg.trips) as (keyof typeof pkg.trips)[]) (pkg.trips[key] as (string | number)[]).push(
+    key === 'trip_id' ? 'T1-SUN' : key === 'vector' ? pkg.vectors.length - 1 : key === 'service' ? pkg.services.length - 1 : pkg.trips[key][index]!);
+  const reader = createMemoryReader(pkg, datasetMeta(pkg, fixtureManifest(encodePackage(pkg), pkg), 'bundled'));
+  const sunday = await remapWith([['NEW-T1', '4U', 0, '4A', 'NEWSUN']], { calendar: [{ serviceId: 'NEWSUN', mask: 64, start: '20261101', end: '20261101' }] });
+  const live = update('NEW-T1', { trip: { tripId: 'NEW-T1', startDate: '20261101', startTime: '08:00:00' } });
+  const join = await joinFeed(snapshotOf(live), reader, sunday);
+  assert.equal(join.byLocalTrip.get('T1-SUN')?.[0]?.via, 'identity', 'the Sunday variant exists only through calendar_dates');
+  const failing = { ...reader, tripsByIdentity: async () => { throw new Error('SQLITE_IOERR'); } };
+  await assert.rejects(joinFeed(snapshotOf(live), failing, sunday), /SQLITE_IOERR/);
 });

@@ -1,7 +1,7 @@
 import { romeDate, withinCoverage } from './calendar';
 import { checkManifestMatchesPackage, isUpgrade, PackageError, validateManifest, validatePackage, type PackageManifest, type TimetablePackage } from './package-format';
 import { createMemoryReader, datasetMeta, type DatasetMeta, type TimetableReader } from './reader';
-import { INITIAL_REFRESH_STATE, type RefreshState } from './refresh-policy';
+import { INITIAL_REFRESH_STATE, restoreRefreshState, type RefreshState } from './refresh-policy';
 import { scheduledEvents } from './scheduled-board';
 import type { SqlDatabase, SqlDriver } from './sql';
 import { checkDatabase, createSqlReader, importPackage, readMeta, validateDatabase } from './timetable-db';
@@ -33,6 +33,12 @@ const STAGING = /^gtt-[0-9a-f]{64}\.json(\.part)?$/;
 /** A candidate database needs roughly this multiple of the JSON size while importing. */
 const STORAGE_FACTOR = 6;
 
+const DAMAGE = /corrupt|malformed|not a database|NOTADB|no such (table|column)|file is (encrypted|not)/i;
+/** Integrity evidence: our own consistency checks, or SQLite reporting a damaged file. */
+function integrityFailure(error: unknown): boolean {
+  return error instanceof PackageError || DAMAGE.test(String((error as Error)?.message ?? error));
+}
+
 type PackageRow = { package_hash: string; db_name: string; role: 'active' | 'previous'; manifest: string; source: string };
 
 /**
@@ -48,6 +54,7 @@ export function createPackageStore(deps: { driver: SqlDriver; files: PackageFile
   let registry: SqlDatabase | undefined;
   let active: (ActiveDataset & { db: SqlDatabase }) | undefined;
   let queue: Promise<unknown> = Promise.resolve();
+  let rolledBackOnOpen = false;
   const serial = <T>(task: () => Promise<T>): Promise<T> => { const next = queue.catch(() => undefined).then(task); queue = next; return next; };
 
   async function openRegistry() {
@@ -120,6 +127,8 @@ export function createPackageStore(deps: { driver: SqlDriver; files: PackageFile
       if (current) await registryDb.run('DELETE FROM package WHERE db_name = ?', [current.db_name]);
       if (previous) await registryDb.run("UPDATE package SET role = 'active' WHERE db_name = ?", [previous.db_name]);
     });
+    // Close the connection to the database being removed before deleting its file.
+    if (current && active && active.meta.packageHash === current.package_hash) { const closing = active.db; active = undefined; await closing.close().catch(() => undefined); }
     if (current) await driver.remove(current.db_name).catch(() => undefined);
     if (!previous) return undefined;
     try { return active = await openDataset({ ...previous, role: 'active' }); } catch {
@@ -145,7 +154,13 @@ export function createPackageStore(deps: { driver: SqlDriver; files: PackageFile
       const current = (await rows()).find(row => row.role === 'active');
       let dataset: ActiveDataset | undefined;
       if (current) {
-        try { dataset = active = await openDataset(current); } catch { dataset = await rollback(); }
+        try { dataset = active = await openDataset(current); } catch (error) {
+          // Only evidence of damage justifies deleting the active database; a transient error
+          // (busy, I/O hiccup) keeps it and fails this attempt so the next one can retry.
+          if (!integrityFailure(error)) throw error;
+          dataset = await rollback();
+          rolledBackOnOpen = true;
+        }
       }
       if (!dataset) return installBundled();
       // An app update can ship a newer GTT source than the last download (never an older one); if importing it
@@ -156,6 +171,8 @@ export function createPackageStore(deps: { driver: SqlDriver; files: PackageFile
       return dataset;
     }),
     active: () => active,
+    /** Whether opening had to roll back from a damaged active package (for diagnostics). */
+    rolledBack: () => rolledBackOnOpen,
     /**
      * Verify the downloaded bytes against the manifest hash before parsing or importing anything.
      * Mirrors are tried in order; a failed transfer or hash mismatch moves on to the next one.
@@ -181,7 +198,8 @@ export function createPackageStore(deps: { driver: SqlDriver; files: PackageFile
     rollback: () => serial(rollback),
     async readState(): Promise<RefreshState> {
       const [row] = await (await openRegistry()).all<{ value: string }>("SELECT value FROM state WHERE key = 'refresh'");
-      try { return row ? { ...INITIAL_REFRESH_STATE, ...JSON.parse(row.value) } : INITIAL_REFRESH_STATE; } catch { return INITIAL_REFRESH_STATE; }
+      // Normalised: a corrupt or older stored shape can never break startup.
+      try { return row ? restoreRefreshState(JSON.parse(row.value)) : INITIAL_REFRESH_STATE; } catch { return INITIAL_REFRESH_STATE; }
     },
     async writeState(state: RefreshState) {
       await (await openRegistry()).run("INSERT OR REPLACE INTO state (key, value) VALUES ('refresh', ?)", [JSON.stringify(state)]);

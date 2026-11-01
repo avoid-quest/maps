@@ -94,6 +94,7 @@ def build_package(zip_path):
         for row in rows("calendar.txt", required=False):
             mask = sum(1 << bit for bit, day in enumerate(
                 ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")) if row[day] == "1")
+            check(row["service_id"] not in services, f"duplicate calendar service_id {row['service_id']}")
             services[row["service_id"]] = [row["service_id"], mask, valid_date(row["start_date"], "calendar"),
                                            valid_date(row["end_date"], "calendar"), [], []]
         for row in rows("calendar_dates.txt", required=False):
@@ -105,7 +106,10 @@ def build_package(zip_path):
         service_list = [[*services[service][:4], sorted(set(services[service][4])), sorted(set(services[service][5]))]
                         for service in service_ids]
 
-        trip_rows = {row["trip_id"]: row for row in rows("trips.txt")}
+        trip_list = rows("trips.txt")
+        trip_rows = {row["trip_id"]: row for row in trip_list}
+        # Check on the raw rows: a dict would silently keep only the last duplicate.
+        check(len(trip_rows) == len(trip_list), "duplicate trip_id in trips.txt")
         visits = {trip_id: [] for trip_id in trip_rows}
         for row in rows("stop_times.txt"):
             trip_id = row["trip_id"]
@@ -162,9 +166,11 @@ def build_package(zip_path):
                                ("shape", shape_ids[shape])):
                 columns[key].append(value)
 
+        unknown = sorted({row["trip_id"] for row in frequencies} - set(trip_position))
+        check(not unknown, f"frequencies.txt references unknown trips {unknown[:5]}")
         frequency_rows = sorted([trip_position[row["trip_id"]], seconds(row["start_time"], "frequencies"),
                                  seconds(row["end_time"], "frequencies"), int(row["headway_secs"]),
-                                 int(row.get("exact_times") or 0)] for row in frequencies if row["trip_id"] in trip_position)
+                                 int(row.get("exact_times") or 0)] for row in frequencies)
 
     valid_from = valid_date(feed.get("feed_start_date") or min_service_date(service_list), "feed_start_date")
     valid_to = valid_date(feed.get("feed_end_date") or max_service_date(service_list), "feed_end_date")
@@ -250,8 +256,22 @@ def validate_package(package):
         check(0 <= trips["start"][index] <= 48 * 3600, f"trip {trips['trip_id'][index]} starts outside 0-48h")
         check(0 <= trips["shape"][index] < len(package["shapes"]), "trip shape out of range")
     for frequency in package["frequencies"]:
-        check(0 <= frequency[0] < count and frequency[1] < frequency[2] and frequency[3] > 0 and frequency[4] in (0, 1), "invalid frequency")
+        check(0 <= frequency[0] < count and 0 <= frequency[1] < frequency[2] <= 48 * 3600 and frequency[3] >= 60
+              and (frequency[2] - frequency[1]) // frequency[3] <= 1440 and frequency[4] in (0, 1), "invalid frequency")
     return package
+
+
+def compare_source(a, b):
+    """Order two manifests by GTT source generation (feed_version, then Last-Modified); mirrors package-format.ts."""
+    va, vb = str(a.get("feed_version") or ""), str(b.get("feed_version") or "")
+    if va != vb and va.isdigit() and vb.isdigit():
+        return 1 if int(va) > int(vb) else -1
+    if a.get("source_zip_hash") and a.get("source_zip_hash") == b.get("source_zip_hash"):
+        return 0
+    la, lb = a.get("source_last_modified"), b.get("source_last_modified")
+    if la and lb and la != lb:
+        return 1 if la > lb else -1
+    return 0
 
 
 CRC_MEMBERS = ("trips.txt", "stop_times.txt", "calendar.txt", "calendar_dates.txt", "routes.txt", "stops.txt")

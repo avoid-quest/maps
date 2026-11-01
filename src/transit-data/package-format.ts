@@ -138,7 +138,9 @@ export function validatePackage(value: unknown): TimetablePackage {
     check(isInt(trips.start[index]) && trips.start[index]! >= 0 && trips.start[index]! <= 48 * 3600, `Inizio corsa non valido per ${trips.trip_id[index]}.`);
   }
   for (const frequency of frequencies) {
-    check(ints(frequency) && frequency[0] >= 0 && frequency[0] < count && frequency[1] < frequency[2] && frequency[3] > 0 && (frequency[4] === 0 || frequency[4] === 1), 'Frequenza non valida.');
+    // Bounded windows: the board expands exact frequencies, so a malformed row cannot explode.
+    check(ints(frequency) && frequency[0] >= 0 && frequency[0] < count && frequency[1] >= 0 && frequency[1] < frequency[2] && frequency[2] <= 48 * 3600
+      && frequency[3] >= 60 && (frequency[2] - frequency[1]) / frequency[3] <= 1440 && (frequency[4] === 0 || frequency[4] === 1), 'Frequenza non valida.');
   }
   return pkg;
 }
@@ -155,6 +157,8 @@ export function validateManifest(value: unknown): PackageManifest {
   check((manifest.upstream_checked_at === null || ISO(manifest.upstream_checked_at)) && ISO(manifest.built_at), 'Date del manifest non valide.');
   check(manifest.source_last_modified === undefined || manifest.source_last_modified === null || ISO(manifest.source_last_modified), 'Data della fonte non valida.');
   check(isString(manifest.feed_version) && isString(manifest.attribution) && manifest.attribution.includes('GTT'), 'Attribuzione del manifest mancante.');
+  const counts = manifest.counts as Record<string, unknown> | undefined;
+  check(counts && typeof counts === 'object' && ['stops', 'routes', 'trips', 'patterns', 'vectors', 'services'].every(key => isInt(counts[key]) && (counts[key] as number) >= 0), 'Conteggi del manifest non validi.');
   return manifest;
 }
 
@@ -179,8 +183,12 @@ export function compareSource(a: PackageManifest, b: PackageManifest): number {
   const [left, right] = [Date.parse(a.source_last_modified ?? ''), Date.parse(b.source_last_modified ?? '')];
   return Number.isFinite(left) && Number.isFinite(right) && left !== right ? Math.sign(left - right) : 0;
 }
-/** A candidate may replace the active package only with a newer source, or the same source rebuilt later. */
+/**
+ * A candidate may replace the active package only with a newer source, or the same source (same
+ * ZIP hash) rebuilt later. A different source that cannot be ordered is never an upgrade.
+ */
 export function isUpgrade(candidate: PackageManifest, active: PackageManifest): boolean {
   const order = compareSource(candidate, active);
-  return order !== 0 ? order > 0 : Date.parse(candidate.built_at) > Date.parse(active.built_at);
+  if (order !== 0) return order > 0;
+  return candidate.source_zip_hash === active.source_zip_hash && Date.parse(candidate.built_at) > Date.parse(active.built_at);
 }

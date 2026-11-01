@@ -24,9 +24,13 @@ export function catalogVersion() { return { packageHash: current.packageHash, fe
 export function subscribeCatalog(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener); }; }
 
 /** Adopt the stops of the active package (after first import or a package switch). */
+let adopting: string | undefined;
 export async function adoptCatalog(reader: TimetableReader): Promise<void> {
   if (reader.meta.packageHash === current.packageHash) return;
+  // Only the most recently requested package may land: an older, slower adoption is discarded.
+  const wanted = adopting = reader.meta.packageHash;
   const [stops, stopRoutes, routes] = await Promise.all([reader.stops(), reader.stopRoutes(), reader.routes()]);
+  if (adopting !== wanted) return;
   const next: Stop[] = stops.filter(stop => stop.locationType === 0).map(stop => ({
     id: stop.stopId, code: stop.code, name: stop.name, coordinate: { latitude: stop.lat, longitude: stop.lon },
     lines: [...new Set((stopRoutes.get(stop.stopId) ?? []).map(route => routes.get(route)?.shortName || route))].sort(),

@@ -132,6 +132,8 @@ export async function readMembers(transport: RangeTransport, url: string, direct
     const entry = directory.entries.get(name);
     if (!entry) throw new ZipRangeError(`${name} assente nell’archivio GTT.`);
     if (entry.method !== 0 && entry.method !== 8) throw new ZipRangeError(`${name}: formato non supportato.`, 'unsupported');
+    // A deflated member always has at least one block: an empty one is malformed.
+    if (entry.method === 8 && entry.compressedSize === 0) throw new ZipRangeError(`${name}: dati compressi vuoti.`);
     if (entry.compressedSize > limits.maxCompressedMember || entry.size > limits.maxMemberBytes || (entry.method === 0 && entry.compressedSize !== entry.size)) {
       throw new ZipRangeError(`${name}: dimensioni dichiarate fuori dai limiti.`, 'limit');
     }
@@ -242,6 +244,7 @@ export function csvRows(onRow: (row: Record<string, string>) => void, limits: Cs
     }
     buffer = buffer.slice(lineStart); scanned = buffer.length;
     if (buffer.length > limits.maxLineLength) throw new ZipRangeError('Riga CSV troppo lunga.', 'limit');
+    if (final && quoted) throw new ZipRangeError('Campo CSV tra virgolette non chiuso.');
     if (final && buffer) { emit(buffer.replace(/\r$/, '')); buffer = ''; scanned = 0; }
   };
 }

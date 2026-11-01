@@ -21,6 +21,8 @@ export interface PatternInfo { patternId: number; stopIds: string[]; sequences: 
 export interface TripInfo {
   tripId: string; routeId: string; serviceId: string; patternId: number; vectorId: number;
   start: number; headsign: string; direction: number; shapeId: string;
+  /** First-stop departure (GTFS seconds); differs from `start` (first arrival) when the first stop has a dwell. */
+  firstDeparture: number;
   frequency?: { start: number; end: number; headway: number; exactTimes: boolean }[];
 }
 export interface TimingVector { arrivals: number[]; departures: number[] }
@@ -50,24 +52,22 @@ export interface TimetableReader {
   calendar(dates: readonly ServiceDate[]): Promise<{ rows: CalendarRow[]; exceptions: CalendarException[] }>;
 }
 
-export function maxTripSeconds(pkg: TimetablePackage): number {
-  let max = 0;
-  for (const vector of pkg.vectors) max = Math.max(max, decodeVector(vector).departures.at(-1) ?? 0);
-  return max;
+const durations = (pkg: TimetablePackage) => pkg.vectors.map(vector => decodeVector(vector).departures.at(-1) ?? 0);
+export function maxTripSeconds(pkg: TimetablePackage, spans = durations(pkg)): number {
+  return spans.reduce((max, span) => Math.max(max, span), 0);
 }
 
-export function maxEventSeconds(pkg: TimetablePackage): number {
-  const durations = pkg.vectors.map(vector => decodeVector(vector).departures.at(-1) ?? 0);
+export function maxEventSeconds(pkg: TimetablePackage, spans = durations(pkg)): number {
   let max = 0;
-  pkg.trips.start.forEach((start, index) => { max = Math.max(max, start + durations[pkg.trips.vector[index]!]!); });
-  for (const [trip, , end] of pkg.frequencies) max = Math.max(max, end + durations[pkg.trips.vector[trip]!]!);
+  pkg.trips.start.forEach((start, index) => { max = Math.max(max, start + spans[pkg.trips.vector[index]!]!); });
+  for (const [trip, , end] of pkg.frequencies) max = Math.max(max, end + spans[pkg.trips.vector[trip]!]!);
   return max;
 }
 
 /** Dataset metadata derived from a validated package and its manifest. */
 export function datasetMeta(pkg: TimetablePackage, manifest: PackageManifest, source: DatasetMeta['source']): DatasetMeta {
   return { packageHash: manifest.package_hash, feedVersion: pkg.feed.feed_version, validFrom: pkg.feed.valid_from, validTo: pkg.feed.valid_to,
-    maxTripSeconds: maxTripSeconds(pkg), maxEventSeconds: maxEventSeconds(pkg), source, manifest };
+    ...((spans) => ({ maxTripSeconds: maxTripSeconds(pkg, spans), maxEventSeconds: maxEventSeconds(pkg, spans) }))(durations(pkg)), source, manifest };
 }
 
 /** Package-backed reader: used on web, in tests, and as the oracle for candidate-database validation. */
@@ -88,15 +88,19 @@ export function createMemoryReader(pkg: TimetablePackage, meta: DatasetMeta): Ti
   const trip = (index: number): TripInfo => ({
     tripId: t.trip_id[index]!, routeId: pkg.routes[t.route[index]!]![0], serviceId: pkg.services[t.service[index]!]![0],
     patternId: t.pattern[index]!, vectorId: t.vector[index]!, start: t.start[index]!, headsign: pkg.headsigns[t.headsign[index]!]!,
-    direction: t.direction[index]!, shapeId: pkg.shapes[t.shape[index]!]!, ...(frequencies.has(index) ? { frequency: frequencies.get(index)! } : {}),
+    direction: t.direction[index]!, shapeId: pkg.shapes[t.shape[index]!]!, firstDeparture: t.start[index]! + (pkg.vectors[t.vector[index]!]![1]?.[0] ?? 0), ...(frequencies.has(index) ? { frequency: frequencies.get(index)! } : {}),
   });
   const byPattern = new Map<number, number[]>();
   t.pattern.forEach((pattern, index) => { const list = byPattern.get(pattern) ?? []; list.push(index); byPattern.set(pattern, list); });
   const tripIndex = new Map(t.trip_id.map((id, index) => [id, index]));
   const byIdentity = new Map<string, number[]>();
   t.trip_id.forEach((_, index) => {
-    const key = identityKey({ routeId: pkg.routes[t.route[index]!]![0], direction: t.direction[index]!, shapeId: pkg.shapes[t.shape[index]!]!, start: t.start[index]! });
-    const list = byIdentity.get(key) ?? []; list.push(index); byIdentity.set(key, list);
+    const base = { routeId: pkg.routes[t.route[index]!]![0], direction: t.direction[index]!, shapeId: pkg.shapes[t.shape[index]!]! };
+    const departure = t.start[index]! + (pkg.vectors[t.vector[index]!]![1]?.[0] ?? 0);
+    for (const start of new Set([t.start[index]!, departure])) {
+      const key = identityKey({ ...base, start });
+      const list = byIdentity.get(key) ?? []; list.push(index); byIdentity.set(key, list);
+    }
   });
   const stopRoutes = new Map<string, Set<string>>();
   t.pattern.forEach((pattern, index) => {

@@ -13,6 +13,19 @@ export interface RowPresentation {
   note?: string;
 }
 
+/**
+ * Rows still worth showing now. Between refreshes (and while realtime retries back off), a row
+ * whose displayed time has passed is dropped at render time rather than lingering as departed.
+ */
+export function visibleRows(rows: readonly GttBoardRow[], now: number): GttBoardRow[] {
+  return rows.filter(input => {
+    const row = agedRow(input, now);
+    if (row.gtt.frequency && row.scheduledAt === undefined) return row.gtt.frequency.until >= now - 60_000;
+    const at = row.predictedAt ?? row.providerTimeAt ?? row.scheduledAt;
+    return at === undefined ? row.gtt.realtime !== "expired" : at >= now - 60_000;
+  });
+}
+
 export const IDENTITY_JOIN_NOTE = 'Tempo reale abbinato per linea, direzione, percorso e partenza: GTT ha cambiato il codice della corsa.';
 const minutes = (ms: number) => Math.max(0, Math.round(ms / 60_000));
 
@@ -69,6 +82,7 @@ export function rowPresentation(input: GttBoardRow, now: number): RowPresentatio
   // The calendar-extension note explains why a row outside the installed calendar is shown at
   // all; an identity join otherwise gets its own provenance line. Only while realtime backs it.
   const backed = row.gtt.realtime === "fresh" || row.gtt.realtime === "stale" || row.gtt.realtime === "cancelled" || row.gtt.realtime === "skipped";
-  const note = row.gtt.calendar === "realtime-identity" ? row.gtt.note : backed && row.gtt.joinedBy === "identity" ? IDENTITY_JOIN_NOTE : undefined;
+  // Both notes describe a live match: once the realtime behind the row has expired, neither applies.
+  const note = !backed ? undefined : row.gtt.calendar === "realtime-identity" ? row.gtt.note : row.gtt.joinedBy === "identity" ? IDENTITY_JOIN_NOTE : undefined;
   return { row, timeText, statusText, provenance: provenanceLabel(row), live, ...(note ? { note } : {}) };
 }

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { IDENTITY_JOIN_NOTE, rowPresentation } from "./departure-status";
+import { IDENTITY_JOIN_NOTE, rowPresentation, visibleRows } from "./departure-status";
 import type { GttBoardRow } from "../../transit-data/board-model";
 
 const base: GttBoardRow = {
@@ -66,4 +66,12 @@ test("calendar-extension and identity-joined rows explain their provenance", () 
   assert.match(view.note ?? "", /fuori dal calendario installato/);
   assert.equal(rowPresentation({ ...base, gtt: { ...base.gtt, joinedBy: "identity" } }, 1_030_000).note, IDENTITY_JOIN_NOTE);
   assert.equal(rowPresentation(base, 1_030_000).note, undefined, "trip_id joins need no note");
+});
+
+test("departed rows disappear at render time; notes need live data behind them", () => {
+  const scheduledPast: GttBoardRow = { ...base, predictedAt: undefined, sourceUpdatedAt: undefined, scheduledAt: 900_000, realtimeState: "scheduled", timeBasis: "scheduled", gtt: { ...base.gtt, realtime: "no-trip-update" } };
+  assert.deepEqual(visibleRows([base, scheduledPast], 1_000_000).map(row => row.id), [base.id], "a scheduled time 100 s ago is gone");
+  assert.equal(visibleRows([base], 1_000_000 + 31 * 60_000).length, 0, "an expired prediction falls back to its past scheduled time");
+  const extension: GttBoardRow = { ...base, gtt: { ...base.gtt, joinedBy: "identity", calendar: "realtime-identity", note: "Corsa fuori dal calendario installato" } };
+  assert.equal(rowPresentation(extension, 1_000_000 + 31 * 60_000).note, undefined, "no live-match note once the realtime expired");
 });

@@ -91,7 +91,8 @@ export function withEvidence(state: RefreshState, update: { confirmedAt?: number
 
 export function shouldCheck(state: RefreshState, reason: CheckReason, now: number): boolean {
   if (reason === 'manual') return state.lastCheckAt === undefined || now - state.lastCheckAt >= REFRESH_POLICY.manualMinIntervalMs || now < state.lastCheckAt;
-  if (state.nextAllowedAt !== undefined && now < state.nextAllowedAt) return false;
+  // A backoff further ahead than the maximum means the clock moved back: ignore it.
+  if (state.nextAllowedAt !== undefined && now < state.nextAllowedAt && state.nextAllowedAt - now <= REFRESH_POLICY.backoffMaxMs) return false;
   if (reason === 'mismatch') return state.lastMismatchCheckAt === undefined || now - state.lastMismatchCheckAt >= REFRESH_POLICY.mismatchIntervalMs || now < state.lastMismatchCheckAt;
   return state.lastSuccessAt === undefined || now - state.lastSuccessAt >= REFRESH_POLICY.checkIntervalMs || now < state.lastSuccessAt;
 }

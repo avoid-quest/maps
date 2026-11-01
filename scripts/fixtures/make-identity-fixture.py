@@ -38,6 +38,9 @@ for entity in feed.get(2, []):
     e = fields(entity)
     if 3 in e:
         d = fields(fields(e[3][0])[1][0])
+        if not all(key in d for key in (1, 2, 3)):
+            print("skipping a trip update without trip_id/start_time/start_date", file=sys.stderr)
+            continue
         live.append((d[1][0].decode(), d[2][0].decode(), d[3][0].decode()))
 
 def rows(directory, name):
@@ -47,7 +50,7 @@ live_ids = {trip_id for trip_id, _, _ in live}
 identities = set()
 for trip_id, start, _ in live:
     r = new_trips.get(trip_id)
-    if r: identities.add((r["route_id"], r["direction_id"], r["shape_id"], gtt.seconds(start, "rt")))
+    if r: identities.add((r["route_id"], r["direction_id"] or "-1", r["shape_id"], gtt.seconds(start, "rt")))
 
 with tempfile.TemporaryDirectory() as scratch:
     archive = pathlib.Path(scratch) / "old.zip"

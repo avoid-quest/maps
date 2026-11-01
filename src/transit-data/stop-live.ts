@@ -7,6 +7,13 @@ import { addDays, romeCivilTimes, romeDate } from './calendar';
  * Rows built from it are "declared realtime without source time": retrieval time only, never
  * attached to a specific trip, and never replacing a trip-joined prediction.
  */
+const normalizeDirection = (text?: string) => (text ?? '').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Z0-9]+/g, ' ').trim();
+/** Same direction when one destination text starts with the other (GTT abbreviates either side). */
+export function sameDirection(a?: string, b?: string): boolean {
+  const [left, right] = [normalizeDirection(a), normalizeDirection(b)];
+  return !!left && !!right && (left.startsWith(right) || right.startsWith(left));
+}
+
 export const STOP_LIVE_SETTING = 'Tempo reale esteso dalla fermata (GTT)';
 export const STOP_LIVE_DISCLOSURE = 'Disattivato di default. Se lo attivi, mentre una bacheca è aperta l’app chiede a GTT i passaggi di quella fermata (al massimo ogni 30 secondi): GTT riceve il codice della fermata consultata e il tuo indirizzo IP, non la tua posizione. Nessun cookie viene inviato o salvato. Gli orari sono al minuto, senza ora di aggiornamento della fonte e non collegati a una corsa specifica.';
 
@@ -54,15 +61,21 @@ export function stopLiveRows(snapshot: StopLiveSnapshot, board: { stop: { id: st
 }): GttBoardRow[] {
   const joined = board.rows.filter(row => row.gtt.joinedBy && (row.predictedAt ?? row.providerTimeAt) !== undefined);
   const rows: GttBoardRow[] = [];
+  const seen = new Map<string, number>();
   for (const line of snapshot.lines) {
     const route = context.routes.get(line.routeId);
     // Only bus and tram routes of the installed package; metro stays scheduled (no GTT metro realtime).
     if (!route || (route.routeType !== 0 && route.routeType !== 3)) continue;
     for (const at of line.realtime) {
       if (at < context.now - 60_000) continue;
-      if (joined.some(row => row.gtt.routeId === line.routeId && Math.abs((row.predictedAt ?? row.providerTimeAt)! - at) <= DUPLICATE_WINDOW_MS)) continue;
+      // Suppressed only when the same route *and direction* already has a trip-joined prediction
+      // close by; when directions cannot be compared reliably, the passage is kept.
+      if (joined.some(row => row.gtt.routeId === line.routeId && sameDirection(row.headsign, line.direction)
+        && Math.abs((row.predictedAt ?? row.providerTimeAt)! - at) <= DUPLICATE_WINDOW_MS)) continue;
+      const key = `${line.routeId}:${normalizeDirection(line.direction)}:${at}`;
+      const occurrence = seen.get(key) ?? 0; seen.set(key, occurrence + 1);
       rows.push({
-        id: `gtt-stop:${snapshot.stopCode}:${line.routeId}:${at}`,
+        id: `gtt-stop:${snapshot.stopCode}:${key}:${occurrence}`,
         provider: 'gtt',
         upstream: { ...(context.operator?.(route.agencyId) ? { operator: context.operator(route.agencyId)! } : {}), attribution: GTT_ATTRIBUTION, dataset: 'GTT palina.getTransitiOld' },
         event: 'arrival', mode: route.routeType === 0 ? 'tram' : 'bus', line: route.shortName || line.line,

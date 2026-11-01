@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState, useSyncExternalStore } from 'react';
 import type { TransitAlertSnapshot } from '../../domain/types';
 import { ARRIVALS_REFRESH_MS, getScheduledBoard, getStopBoard, getTransitAlerts, RealtimeUnavailableError, updateSchedulesNow } from '../../services/transit';
 import type { StopBoard } from '../../transit-data/board-model';
@@ -42,7 +42,17 @@ export function useStopBoard({ stopId, active }: { stopId?: string; active: bool
   const controllers = useRef<{ arrivals: ActiveRefresh; alerts: ActiveRefresh } | null>(null);
   const activity = useRef(active);
   activity.current = active;
+  // A newly activated package restarts the board's requests (aborting any in flight for the old
+  // package) so its rows come from the new package's stops and trips without waiting for a poll.
+  const packageHash = schedules.meta?.packageHash;
+  const [generation, setGeneration] = useState(0);
+  const shownHash = useRef(packageHash);
+  useEffect(() => {
+    if (shownHash.current && packageHash && shownHash.current !== packageHash) setGeneration(value => value + 1);
+    if (packageHash) shownHash.current = packageHash;
+  }, [packageHash]);
   useLayoutEffect(() => {
+    void generation;
     updateArrivals({ type: 'identity', identity });
     updateAlerts({ type: 'identity', identity });
     if (!identity) return;
@@ -87,20 +97,12 @@ export function useStopBoard({ stopId, active }: { stopId?: string; active: bool
       for (const controller of Object.values(next)) controller.dispose();
       if (controllers.current === next) controllers.current = null;
     };
-  }, [identity]);
+  }, [identity, generation]);
   useLayoutEffect(() => {
     if (controllers.current) for (const controller of Object.values(controllers.current)) controller.setActive(active);
   }, [active, identity]);
   // Opening or resuming a board checks the schedule manifest when the last success is over 6 h old.
   useEffect(() => { if (active && identity) void timetableService.check('open'); }, [active, identity]);
-  // A newly activated package re-renders the board from its own stops and trips.
-  const packageHash = schedules.meta?.packageHash;
-  const shownHash = useRef(packageHash);
-  useEffect(() => {
-    if (shownHash.current === packageHash) return;
-    shownHash.current = packageHash;
-    controllers.current?.arrivals.refresh();
-  }, [packageHash]);
   const suspend = useCallback(() => {
     if (controllers.current) for (const controller of Object.values(controllers.current)) controller.setActive(false);
   }, []);

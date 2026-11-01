@@ -10,7 +10,7 @@ import { Button, Display, Divider, EmptyState, IconButton, Notice, Num, SectionH
 import { detailDistance } from '../map/distance-reference';
 import { useDistanceReference } from '../map/useDistanceReference';
 import { journeyDate, journeyTime } from '../planner/journey-presentation';
-import { rowPresentation } from './departure-status';
+import { rowPresentation, visibleRows } from './departure-status';
 import type { useStopBoard } from './useStopBoard';
 
 type BoardState = ReturnType<typeof useStopBoard>;
@@ -40,7 +40,7 @@ export function StopBoardPanel({ stop, state, now, onLink, onDirections, actions
       </Text>
       {board.notices.map(notice => <View key={notice.code} className="px-4"><Notice tone="caution" text={notice.text}
         {...(notice.action && schedules.updateSupported ? { action: 'Aggiorna orari', onAction: updateSchedules } : {})} /></View>)}
-      {board.rows.length ? <View>{board.rows.map(row => <DepartureRow key={row.id} row={row} now={now} />)}</View>
+      {visibleRows(board.rows, now).length ? <View>{visibleRows(board.rows, now).map(row => <DepartureRow key={row.id} row={row} now={now} />)}</View>
         : <EmptyState icon="time-outline" title="Nessun passaggio programmato" description="Nessuna corsa nelle prossime ore secondo gli orari installati." />}
       {board.attributions.map(attribution => <Text key={attribution} className="px-4 text-sm leading-5 text-secondary">{attribution}</Text>)}
     </> : null}
@@ -110,7 +110,8 @@ function DepartureRow({ row, now }: { row: GttBoardRow; now: number }) {
   const hairlines = useHairlines();
   const view = rowPresentation(row, now);
   const countdown = view.live ? /^(\d+) min$/.exec(view.timeText)?.[1] : undefined;
-  const tone = stateClass(row, view.live);
+  // Colour follows the aged row, the same one the written state describes.
+  const tone = stateClass(view.row, view.live);
   const line = row.line ?? '—';
   const spokenTime = view.timeText === '—' ? '' : countdown != null ? `tra ${countdown} minuti` : /^\d|^~/.test(view.timeText) ? `alle ${view.timeText.replace('~', 'circa ')}` : view.timeText;
   return <View accessible accessibilityLabel={`${row.line ? `Linea ${row.line}` : 'Linea non indicata'}, ${row.headsign || 'direzione non indicata'}, ${view.statusText}, ${view.provenance}${spokenTime ? `, ${spokenTime}` : ''}${view.note ? `. ${view.note}` : ''}`}

@@ -98,12 +98,14 @@ export const LABELS = {
 
 export function modeForRouteType(routeType: number | undefined): TransitBoardMode {
   if (routeType === undefined || routeType < 0) return 'unknown';
+  // GTFS basic types, then the extended (HVT) ranges.
   if (routeType === 0 || (routeType >= 900 && routeType < 1000)) return 'tram';
-  if (routeType === 1 || routeType === 401 || routeType === 402) return 'metro';
-  if (routeType === 2 || (routeType >= 100 && routeType < 200)) return 'rail';
-  if (routeType === 3 || (routeType >= 700 && routeType < 800)) return 'bus';
+  if (routeType === 1 || (routeType >= 400 && routeType <= 404)) return 'metro';
+  if (routeType === 2 || routeType === 12 || (routeType >= 100 && routeType < 200) || (routeType >= 300 && routeType < 400)) return 'rail';
+  if (routeType === 3 || routeType === 11 || (routeType >= 700 && routeType < 900)) return 'bus';
+  if (routeType >= 200 && routeType < 300) return 'coach';
   if (routeType === 7 || routeType === 1400) return 'funicular';
-  if (routeType === 4 || (routeType >= 1000 && routeType < 1100)) return 'ferry';
+  if (routeType === 4 || routeType === 1000 || routeType === 1200) return 'ferry';
   if (routeType === 6 || routeType === 1300) return 'aerial-lift';
   return 'other';
 }
@@ -143,6 +145,8 @@ function agedStopRow(row: GttBoardRow, now: number): GttBoardRow {
 
 /** Provenance label beside a row. */
 export function provenanceLabel(row: GttBoardRow): string {
+  // An expired per-stop row no longer carries live data: no realtime label.
+  if (row.gtt.realtime === 'expired') return LABELS.scheduled;
   if (row.gtt.source === 'stop' || row.gtt.realtime === 'stop-live') return LABELS.stopLive;
   return row.gtt.realtime === 'fresh' || row.gtt.realtime === 'stale' || row.realtimeState === 'cancelled' ? LABELS.realtime : LABELS.scheduled;
 }

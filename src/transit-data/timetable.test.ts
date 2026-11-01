@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { activeServiceIds, addDays, romeDate, serviceDayOrigin, serviceTime, weekday } from './calendar';
 import { composeBoard } from './board';
 import { agedRow } from './board-model';
+import * as boardModel from './board-model';
 import { realtimeStateLabel } from '../domain/transit-board';
 import { joinFeed } from './identity-join';
 import { indexFeed, predictEvent, updateForEvent, type RTFeed, type TripUpdate } from './realtime';
@@ -276,4 +277,10 @@ test('zero joins on a nonempty feed keep scheduled rows and ask for a schedule u
   assert.ok(!board.notices.some(notice => /\d+ corse/.test(notice.text)), 'counts stay in diagnostics');
   const offline = await composeBoard(reader, 'A', NOW, { refresh: INITIAL_REFRESH_STATE, realtime: { error: 'Rete assente.' } });
   assert.equal(offline.realtime.state, 'unavailable'); assert.ok(offline.rows.length > 0);
+});
+
+test('route types: GTFS basic and extended ranges', () => {
+  const { modeForRouteType } = boardModel;
+  assert.deepEqual([0, 1, 2, 3, 4, 7, 11, 12, 109, 300, 401, 700, 800, 900, 1000, 1100, 1200, 1300, 1400, 200].map(modeForRouteType),
+    ['tram', 'metro', 'rail', 'bus', 'ferry', 'funicular', 'bus', 'rail', 'rail', 'rail', 'metro', 'bus', 'bus', 'tram', 'ferry', 'other', 'ferry', 'aerial-lift', 'funicular', 'coach']);
 });

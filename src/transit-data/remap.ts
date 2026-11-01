@@ -1,3 +1,4 @@
+import { validDate } from './package-format';
 import { activeServiceIds, type CalendarException, type CalendarRow } from './calendar';
 import { placeholders, type SqlDatabase } from './sql';
 import { csvRows, readCentralDirectory, readMembers, ZipRangeError, type CentralDirectory, type RangeTransport } from './zip-range';
@@ -29,15 +30,24 @@ export async function fetchRemapMembers(transport: RangeTransport, url: string, 
   let feedVersion: string | undefined;
   const parsers: Record<string, (chunk: string, final: boolean) => void> = {
     // Record limits well above GTT's ~61k trips, ~400 services and ~10k exceptions.
+    // Malformed or ambiguous rows reject the whole remap: an identity join must never rest on them.
     'trips.txt': csvRows(row => {
-      if (!row.trip_id || !row.route_id || !row.service_id) return;
-      trips.set(row.trip_id, { routeId: row.route_id, direction: row.direction_id === '' || row.direction_id === undefined ? -1 : Number(row.direction_id), shapeId: row.shape_id ?? '', serviceId: row.service_id });
+      if (!row.trip_id || !row.route_id || !row.service_id) throw new ZipRangeError('trips.txt: campi obbligatori mancanti.');
+      if (trips.has(row.trip_id)) throw new ZipRangeError(`trips.txt: trip_id duplicato ${row.trip_id}.`);
+      const direction = row.direction_id === '' || row.direction_id === undefined ? -1 : Number(row.direction_id);
+      if (direction !== -1 && direction !== 0 && direction !== 1) throw new ZipRangeError('trips.txt: direction_id non valido.');
+      trips.set(row.trip_id, { routeId: row.route_id, direction, shapeId: row.shape_id ?? '', serviceId: row.service_id });
     }, { maxRows: 400_000, maxLineLength: 4096 }),
     'calendar.txt': csvRows(row => {
-      calendar.push({ serviceId: row.service_id!, mask: WEEKDAYS.reduce((mask, day, bit) => mask | (row[day] === '1' ? 1 << bit : 0), 0), start: row.start_date!, end: row.end_date! });
+      if (!row.service_id || !validDate(row.start_date) || !validDate(row.end_date) || row.start_date! > row.end_date!
+        || WEEKDAYS.some(day => row[day] !== '0' && row[day] !== '1') || calendar.some(entry => entry.serviceId === row.service_id)) {
+        throw new ZipRangeError('calendar.txt: riga non valida o duplicata.');
+      }
+      calendar.push({ serviceId: row.service_id, mask: WEEKDAYS.reduce((mask, day, bit) => mask | (row[day] === '1' ? 1 << bit : 0), 0), start: row.start_date!, end: row.end_date! });
     }, { maxRows: 20_000, maxLineLength: 1024 }),
     'calendar_dates.txt': csvRows(row => {
-      if (row.exception_type === '1' || row.exception_type === '2') exceptions.push({ serviceId: row.service_id!, date: row.date!, added: row.exception_type === '1' });
+      if (!row.service_id || !validDate(row.date) || (row.exception_type !== '1' && row.exception_type !== '2')) throw new ZipRangeError('calendar_dates.txt: riga non valida.');
+      exceptions.push({ serviceId: row.service_id, date: row.date!, added: row.exception_type === '1' });
     }, { maxRows: 500_000, maxLineLength: 1024 }),
     'feed_info.txt': csvRows(row => { feedVersion = row.feed_version || feedVersion; }, { maxRows: 10, maxLineLength: 4096 }),
   };

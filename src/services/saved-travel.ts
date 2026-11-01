@@ -1,5 +1,5 @@
 import type { Coordinate, RouteLeg, RoutePlan, RouteStep, RouteStop, Stop, TransitTime, TravelMode } from '../domain/types';
-import { catalogStop, catalogVersion } from '../transit-data/stop-catalog';
+import { catalogStop, catalogVersion, subscribeCatalog } from '../transit-data/stop-catalog';
 import { diagnostics } from './diagnostics';
 import { resolveTransitTime } from './transit-time';
 
@@ -328,6 +328,8 @@ export function createSavedTravel(options: StoreOptions = {}) {
     value => encode({ version: 1, journey: value }, MAX_JOURNEY_BYTES), notify, onFailure);
   const stops = createSlot<SavedStop[]>(STOPS_STORAGE_KEY, [], stopList,
     value => encode({ version: 1, stops: value }, MAX_STOPS_BYTES), notify, onFailure);
+  // Saved shortcuts are re-evaluated against the active package's stops after a package switch.
+  if (!options.getStop) subscribeCatalog(notify);
   let initialization: Promise<void> | undefined;
   return {
     getSnapshot: () => snapshot,

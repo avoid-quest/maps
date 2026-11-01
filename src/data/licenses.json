@@ -6,8 +6,8 @@
   },
   {
     "id": "GTT timetable package",
-    "url": "https://www.gtt.to.it",
-    "text": "Data source: GTT S.p.A. – Gruppo Torinese Trasporti (https://www.gtt.to.it). Stop boards use a timetable package derived from GTT's official GTFS export (https://www.gtt.to.it/open_data/gtt_gtfs.zip) under GTT's non-commercial GTFS licence. Modified for this distribution: stop_times compacted into stop patterns and timing vectors, shapes, fares and GTT-specific extra files omitted; stop IDs, stop_sequence values, times, calendars and exceptions are preserved. The bundled package and any newer package downloaded by the app are identified by SHA-256 (hashed, not signed); each records the source feed version, source ZIP hash, upstream modification and check times. GTT provides the data as is, may change or suspend it without notice, and does not endorse this application."
+    "url": "https://www.gtt.to.it/gtt_gtfs_license.html",
+    "text": "Data source: GTT S.p.A. – Gruppo Torinese Trasporti (https://www.gtt.to.it). Stop boards use a timetable package derived from GTT's official GTFS export (https://www.gtt.to.it/open_data/gtt_gtfs.zip) under GTT's non-commercial GTFS licence. Modified for this distribution: stop_times compacted into stop patterns and timing vectors, shape geometry, fares and GTT-specific extra files omitted; stop IDs, stop_sequence values, times, shape IDs, calendars and exceptions are preserved. The bundled package and any newer package downloaded by the app are identified by SHA-256 (hashed, not signed); each records the source feed version, source ZIP hash, upstream modification and check times. GTT provides the data as is, may change or suspend it without notice, and does not endorse this application."
   },
   {
     "id": "Apache-2.0",

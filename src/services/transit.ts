@@ -11,9 +11,10 @@ import type { StopBoard } from '../transit-data/board-model';
 import { epochMs, indexFeed, type RealtimeSnapshot, type RTFeed } from '../transit-data/realtime';
 import type { TimetableReader } from '../transit-data/reader';
 import { remapService, timetableService } from '../transit-data/runtime';
-import { adoptCatalog, catalogStop, catalogStopRoutes, catalogStops } from '../transit-data/stop-catalog';
+import { adoptCatalog, catalogStop, catalogStopRoutes, catalogStops, catalogVersion } from '../transit-data/stop-catalog';
 import { distanceMeters } from './geo';
 import { checkAbort, fetchResponse, requestQueue, ServiceError } from './network';
+import { decodeUtf8 } from './utf8';
 import { diagnostics } from './diagnostics';
 export type { RTFeed } from '../transit-data/realtime';
 
@@ -24,7 +25,30 @@ const queue = requestQueue(1500);
 export const ARRIVALS_REFRESH_MS = 30_000;
 const SOURCE = 'GTT S.p.A. – Gruppo Torinese Trasporti';
 
+/**
+ * Keep the synchronous stop catalog on the active package: at first use (an installed download
+ * survives restarts) and after every package switch. Consumers re-render via subscribeCatalog.
+ */
+let catalogFollowing = false;
+function followActiveCatalog() {
+  if (catalogFollowing) return;
+  catalogFollowing = true;
+  const sync = () => { void timetableService.current().then(dataset => adoptCatalog(dataset.reader)).catch(() => undefined); };
+  timetableService.subscribe(() => {
+    const meta = timetableService.status().meta;
+    if (meta && meta.packageHash !== catalogVersion().packageHash) sync();
+  });
+  sync();
+}
+/** The catalog of the active package, adopting it first when it is not current yet. */
+async function currentCatalog(): Promise<void> {
+  followActiveCatalog();
+  const dataset = await timetableService.current().catch(() => undefined);
+  if (dataset) await adoptCatalog(dataset.reader).catch(() => undefined);
+}
+
 export function getNearbyStops(center: Coordinate, options: { limit?: number; radiusMeters?: number } = {}): Stop[] {
+  followActiveCatalog();
   return catalogStops().map(stop => ({ ...stop, distanceMeters: distanceMeters(center, stop.coordinate) }))
     .filter(s => s.distanceMeters <= (options.radiusMeters ?? 1800)).sort((a, b) => a.distanceMeters - b.distanceMeters).slice(0, options.limit ?? 18);
 }
@@ -59,6 +83,20 @@ async function fetchFeed(file: string, maxAge: number, signal?: AbortSignal): Pr
   }, signal);
 }
 
+/**
+ * Join diagnostics are bounded: a state is recorded when it first appears and then at most every
+ * 30 minutes, so a board polling every 30 s cannot flood the 120-event buffer.
+ */
+const JOIN_DIAGNOSTIC_INTERVAL_MS = 30 * 60_000;
+const lastJoinRecord = new Map<string, number>();
+export function recordJoin(state: 'realtime-unmatched' | 'realtime-partial' | 'realtime-identity' | undefined, count: number, now = Date.now()) {
+  if (!state) return;
+  const last = lastJoinRecord.get(state);
+  if (last !== undefined && now - last < JOIN_DIAGNOSTIC_INTERVAL_MS && now >= last) return;
+  lastJoinRecord.set(state, now);
+  diagnostics.record({ type: 'timetable', state, count });
+}
+
 interface Joined { snapshot: RealtimeSnapshot; joins: Map<string, Promise<FeedJoin>> }
 const joined = new WeakMap<FeedSnapshot, Joined>();
 /**
@@ -78,9 +116,8 @@ async function realtimeFor(feed: FeedSnapshot, reader: TimetableReader): Promise
     join = joinFeed(snapshot, reader, remapService.store).then(result => {
       const unmatched = snapshot.tripUpdates - result.matchedTrips;
       // Unmatched counts are diagnostics, not board content.
-      if (snapshot.tripUpdates && !result.matchedTrips) diagnostics.record({ type: 'timetable', state: 'realtime-unmatched', count: unmatched });
-      else if (unmatched) diagnostics.record({ type: 'timetable', state: 'realtime-partial', count: unmatched });
-      if (result.identityMatched) diagnostics.record({ type: 'timetable', state: 'realtime-identity', count: result.identityMatched });
+      recordJoin(snapshot.tripUpdates && !result.matchedTrips ? 'realtime-unmatched' : unmatched ? 'realtime-partial' : undefined, unmatched);
+      recordJoin(result.identityMatched ? 'realtime-identity' : undefined, result.identityMatched);
       return result;
     });
     join.catch(() => entry!.joins.delete(key));
@@ -103,7 +140,7 @@ export function updateSchedulesNow(): void {
 function refreshRemap(reason: 'unknown-trips' | 'manual' | 'stale') {
   void remapService.refresh(reason).then(report => {
     const state = report.outcome === 'updated' ? 'remap-updated' : report.outcome === 'not-modified' || report.outcome === 'package-current' ? 'remap-current' : report.outcome === 'failed' ? 'remap-failed' : undefined;
-    if (state) diagnostics.record({ type: 'timetable', state, ...(report.bytes ? { count: Math.round(report.bytes / 1024) } : {}) });
+    if (state) diagnostics.record({ type: 'timetable', state });
   });
 }
 
@@ -119,24 +156,26 @@ async function stopLiveFor(stopId: string, reader: TimetableReader, signal?: Abo
   if (!timetableService.status().refresh.stopLive) return undefined;
   const stop = await reader.stop(stopId);
   if (!stop?.code || !/^\d+$/.test(stop.code)) return undefined;
-  // Urban (bus/tram) routes only: the endpoint is queried with bacino=U; metro stays scheduled.
-  const [stopRoutes, routes] = await Promise.all([reader.stopRoutes(), reader.routes()]);
-  if (!(stopRoutes.get(stopId) ?? []).some(routeId => { const route = routes.get(routeId); return route?.agencyId === 'U' && (route.routeType === 0 || route.routeType === 3); })) return undefined;
+  // Only urban stops are ever cached, so a fresh cache entry answers before any network-wide query.
   const now = Date.now();
   const cached = stopLiveCache.get(stop.code);
   if (cached && now - cached.at < STOP_LIVE_CACHE_MS && now >= cached.at) return cached.snapshot;
   if (now - lastStopLiveRequest < STOP_LIVE_SPACING_MS && now >= lastStopLiveRequest) return cached?.snapshot;
+  // Urban (bus/tram) routes only: the endpoint is queried with bacino=U; metro stays scheduled.
+  const [stopRoutes, routes] = await Promise.all([reader.stopRoutes(), reader.routes()]);
+  if (!(stopRoutes.get(stopId) ?? []).some(routeId => { const route = routes.get(routeId); return route?.agencyId === 'U' && (route.routeType === 0 || route.routeType === 3); })) return undefined;
   lastStopLiveRequest = now;
   const url = `${GTT_STOP_ENDPOINT}?option=com_gtt&task=palina.getTransitiOld&palina=${encodeURIComponent(stop.code)}&bacino=U&realtime=true&get_param=value`;
   try {
     const response = await fetchResponse(url, { signal, credentials: 'omit' }, 'gtt-stop');
-    const snapshot = parseStopLive(JSON.parse(await response.text()), stop.code, Date.now());
+    // Decoded explicitly: React Native's text() can misread UTF-8 (accented directions) as Latin-1.
+    const snapshot = parseStopLive(JSON.parse(decodeUtf8(await response.arrayBuffer())), stop.code, Date.now());
     stopLiveCache.set(stop.code, { snapshot, at: snapshot.retrievedAt });
     if (stopLiveCache.size > 8) stopLiveCache.delete(stopLiveCache.keys().next().value!);
     return snapshot;
-  } catch {
+  } catch (error) {
     checkAbort(signal);
-    diagnostics.record({ type: 'service', state: 'invalid', provider: 'gtt-stop' });
+    diagnostics.record({ type: 'service', state: error instanceof ServiceError ? error.kind : 'invalid', provider: 'gtt-stop' });
     return cached?.snapshot;
   }
 }
@@ -149,12 +188,14 @@ async function withStopLive(board: StopBoard, reader: TimetableReader, signal?: 
   const extra = stopLiveRows(snapshot, board, { now, routes, operator: agencyId => agencies.get(agencyId) });
   if (!extra.length) return board;
   const time = (row: StopBoard['rows'][number]) => row.predictedAt ?? row.providerTimeAt ?? row.scheduledAt ?? row.gtt.frequency?.from ?? now;
-  return { ...board, rows: [...board.rows, ...extra].sort((a, b) => time(a) - time(b)).slice(0, BOARD_LIMIT + extra.length) };
+  // One bounded board: per-stop passages compete for the same row budget, by time.
+  return { ...board, rows: [...board.rows, ...extra].sort((a, b) => time(a) - time(b)).slice(0, BOARD_LIMIT) };
 }
 
 async function activeReader(stopId: string): Promise<TimetableReader> {
   let dataset;
   try { dataset = await timetableService.current(); } catch { throw new ServiceError('Orari GTT non disponibili sul dispositivo.', 'unavailable'); }
+  followActiveCatalog();
   void adoptCatalog(dataset.reader).catch(() => undefined);
   if (!stopId || !await dataset.reader.stop(stopId)) throw new ServiceError('Fermata non presente nel pacchetto orari installato.', 'invalid');
   return dataset.reader;
@@ -185,6 +226,7 @@ export async function getStopBoard(stopId: string, options: { signal?: AbortSign
   }
   checkAbort(options.signal);
   const realtime = await realtimeFor(feed, reader);
+  checkAbort(options.signal);
   const board = await withStopLive(await composeBoard(reader, stopId, Date.now(), { refresh: timetableService.status().refresh, realtime, nextRefreshAt: feed.fetchedAt + ARRIVALS_REFRESH_MS }), reader, options.signal);
   // A nonempty feed with zero joins means the installed package is older than GTT's trip IDs.
   if (board.realtime.state === 'unmatched') void timetableService.check('mismatch');
@@ -193,6 +235,9 @@ export async function getStopBoard(stopId: string, options: { signal?: AbortSign
 
 function text(value?: { translation?: { text?: string; language?: string }[] }): string { return value?.translation?.find(t => t.language === 'it')?.text ?? value?.translation?.[0]?.text ?? ''; }
 export async function getTransitAlerts(stopId?: string, options: { signal?: AbortSignal } = {}): Promise<TransitAlertSnapshot> {
+  // Stop and route membership come from the active package, never a catalog still being swapped.
+  await currentCatalog();
+  checkAbort(options.signal);
   const stop = stopId === undefined ? undefined : getStop(stopId);
   if (stopId !== undefined && !stop) throw new ServiceError('Fermata non presente nel pacchetto installato.', 'invalid');
   const { feed, fetchedAt } = await fetchFeed('alerts.aspx', 5 * 60_000, options.signal); const now = Date.now();

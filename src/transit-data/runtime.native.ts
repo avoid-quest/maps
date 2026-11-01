@@ -28,7 +28,12 @@ const databaseDirectory = () => {
 };
 const driver: SqlDriver = {
   open: async name => wrap(await openDatabaseAsync(name)),
-  remove: async name => { await deleteDatabaseAsync(name).catch(() => undefined); },
+  // A missing file is fine; any other failure (locked, permission) is reported to the caller.
+  remove: async name => {
+    const directory = databaseDirectory();
+    if (!directory.exists || !directory.list().some(entry => entry.name === name)) return;
+    await deleteDatabaseAsync(name);
+  },
   list: async () => { const directory = databaseDirectory(); return directory.exists ? directory.list().map(entry => entry.name) : []; },
 };
 const packages = new Directory(Paths.document, 'gtt-packages');

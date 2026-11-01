@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { rowPresentation } from '../features/transit/departure-status';
 import type { GttBoardRow } from './board-model';
 import { romeCivilTimes } from './calendar';
-import { parseStopLive, stopLiveRows } from './stop-live';
+import { parseStopLive, sameDirection, stopLiveRows } from './stop-live';
 import { rome } from './test-support/fixture';
 
 // Shape of GTT's palina.getTransitiOld response for public stop 472 (sampled 2026-11-01, abridged).
@@ -33,7 +33,7 @@ test('per-stop response: urban lines only, minute times in Rome, invalid times d
 
 test('per-stop rows: declared realtime without source time, metro stays scheduled, joined predictions win', () => {
   const snapshot = parseStopLive(RESPONSE, '472', AT);
-  const joined = { gtt: { routeId: '15U', realtime: 'fresh', joinedBy: 'trip_id', tripId: 'T' }, predictedAt: rome('20261101', '21:35') + 40_000 } as unknown as GttBoardRow;
+  const joined = { gtt: { routeId: '15U', realtime: 'fresh', joinedBy: 'trip_id', tripId: 'T' }, headsign: 'BORGATA LESNA, VIA BRISSOGNE', predictedAt: rome('20261101', '21:35') + 40_000 } as unknown as GttBoardRow;
   const rows = stopLiveRows(snapshot, board([joined]), { now: AT, routes });
   assert.deepEqual(rows.map(row => [row.gtt.routeId, row.predictedAt]), [['ST2U', rome('20261101', '21:29')], ['15U', rome('20261101', '22:14')]]);
   const row = rows[0]!;
@@ -58,4 +58,19 @@ test('autumn DST fold: an ambiguous HH:MM resolves to the occurrence nearest the
   assert.equal(rows.length, 1, 'kept as upcoming');
   // Retrieved at 02:20 CEST (the first 02:20): the first 02:25.
   assert.equal(parseStopLive([{ Linea: '15', Bacino: 'U', PassaggiRT: ['02:25'] }], '472', Date.parse('2026-10-25T00:20:00Z')).lines[0]!.realtime[0], Date.parse('2026-10-25T00:25:00Z'));
+});
+
+test('per-stop rows: unique keys per direction, suppression only for the same direction, no live label once expired', () => {
+  const snapshot = parseStopLive([
+    { Linea: '15', PassaggiRT: ['21:35', '21:35'], Direzione: 'BORGATA LESNA, VIA BRISSOGNE', Bacino: 'U' },
+    { Linea: '15', PassaggiRT: ['21:35'], Direzione: 'SASSI', Bacino: 'U' },
+  ], '472', AT);
+  const joined = { gtt: { routeId: '15U', realtime: 'fresh', joinedBy: 'trip_id', tripId: 'T' }, headsign: 'BORGATA LESNA', predictedAt: rome('20261101', '21:35') } as unknown as GttBoardRow;
+  const rows = stopLiveRows(snapshot, board([joined]), { now: AT, routes });
+  assert.deepEqual(rows.map(row => row.headsign), ['SASSI'], 'the opposite direction is never hidden');
+  const unjoined = stopLiveRows(snapshot, board(), { now: AT, routes });
+  assert.equal(new Set(unjoined.map(row => row.id)).size, 3, 'distinct React keys');
+  assert.equal(sameDirection('Borgata Lesna', 'BORGATA LESNA, VIA BRISSOGNE'), true);
+  assert.equal(sameDirection('', 'SASSI'), false);
+  assert.equal(rowPresentation(rows[0]!, AT + 31 * 60_000).provenance, 'Programmato · GTT');
 });

@@ -1,7 +1,7 @@
 import { identityKey, type PatternInfo, type TimetableReader, type TripIdentity, type TripInfo } from './reader';
 import { startSeconds, type RealtimeSnapshot, type TripUpdate } from './realtime';
 import type { RemapStore } from './remap';
-import { activeServiceIds, addDays } from './calendar';
+import { activeServiceIds, addDays, weekday } from './calendar';
 
 /**
  * Joins every TripUpdate of a feed to the installed timetable once per feed and package:
@@ -29,6 +29,17 @@ export interface FeedJoin {
   remapFailed?: boolean;
 }
 
+/** A failure reading the optional remap store (as opposed to the installed timetable). */
+export class RemapReadError extends Error {
+  constructor(readonly cause: unknown) { super(`remap unreadable: ${String((cause as Error)?.message ?? cause)}`); this.name = 'RemapReadError'; }
+}
+function guarded(store: RemapStore): Pick<RemapStore, 'lookup' | 'activeServices' | 'calendarRow'> {
+  const wrap = <A extends unknown[], R>(call: (...args: A) => Promise<R>) => async (...args: A) => {
+    try { return await call(...args); } catch (error) { throw new RemapReadError(error); }
+  };
+  return { lookup: wrap(ids => store.lookup(ids)), activeServices: wrap(date => store.activeServices(date)), calendarRow: wrap(id => store.calendarRow(id)) };
+}
+
 /** Days of calendar evidence compared when local timing variants share one identity. */
 const EVIDENCE_DAYS = 14;
 const MIN_EVIDENCE_DAYS = 3;
@@ -46,13 +57,15 @@ export async function joinFeed(snapshot: RealtimeSnapshot, reader: TimetableRead
   if (!remap) { for (const id of missing) result.unknownTrips += snapshot.byTrip.get(id)!.length; return result; }
   try {
     // Identity results are committed only if every remap read succeeds.
-    const joins = await identityJoins(snapshot, reader, remap, missing, result);
+    const joins = await identityJoins(snapshot, reader, guarded(remap), missing, result);
     for (const join of joins) {
       add(join.trip.tripId, { update: join.update, via: 'identity' });
       result.matchedTrips++; result.identityMatched++;
       if (join.extension) result.extensions.push({ trip: join.trip, serviceDate: join.date });
     }
-  } catch {
+  } catch (error) {
+    // Only the optional remap may fail quietly; errors of the installed timetable propagate.
+    if (!(error instanceof RemapReadError)) throw error;
     // A damaged or unreadable remap must not take exact joins (or the board) down with it.
     result.remapFailed = true;
     result.rejected = { ambiguous: 0, mismatch: 0, noSchedule: 0, calendar: 0 };
@@ -61,7 +74,7 @@ export async function joinFeed(snapshot: RealtimeSnapshot, reader: TimetableRead
   return result;
 }
 
-async function identityJoins(snapshot: RealtimeSnapshot, reader: TimetableReader, remap: RemapStore, missing: string[], result: FeedJoin) {
+async function identityJoins(snapshot: RealtimeSnapshot, reader: TimetableReader, remap: Pick<RemapStore, 'lookup' | 'activeServices' | 'calendarRow'>, missing: string[], result: FeedJoin) {
   const remapped = await remap.lookup(missing);
   const pending: { update: TripUpdate; identity: TripIdentity; serviceId: string; date: string }[] = [];
   for (const id of missing) {
@@ -88,13 +101,14 @@ async function identityJoins(snapshot: RealtimeSnapshot, reader: TimetableReader
     }
   };
   await runs([...new Set(pending.map(entry => entry.date))]);
-  let masks: Map<string, number> | undefined;
-  const localMasks = async () => masks ??= new Map((await reader.calendar([])).rows.map(row => [row.serviceId, row.mask]));
   const candidates = await reader.tripsByIdentity(pending.map(entry => entry.identity));
   const byKey = new Map<string, TripInfo[]>();
   for (const trip of candidates) {
-    const key = identityKey({ routeId: trip.routeId, direction: trip.direction, shapeId: trip.shapeId, start: trip.start });
-    const list = byKey.get(key) ?? []; list.push(trip); byKey.set(key, list);
+    // Realtime start_time may be the first arrival or the first departure: index both.
+    for (const start of new Set([trip.start, trip.firstDeparture])) {
+      const key = identityKey({ routeId: trip.routeId, direction: trip.direction, shapeId: trip.shapeId, start });
+      const list = byKey.get(key) ?? []; list.push(trip); byKey.set(key, list);
+    }
   }
   const patterns = await reader.patterns([...new Set(candidates.map(trip => trip.patternId))]);
   const joins: { trip: TripInfo; update: TripUpdate; date: string; extension: boolean }[] = [];
@@ -127,8 +141,16 @@ async function identityJoins(snapshot: RealtimeSnapshot, reader: TimetableReader
         agreeing = [...classes.values()].filter(variant => window.every(date =>
           !remoteRuns.get(date)!.has(entry.serviceId) || variant.some(trip => localRuns.get(date)!.has(trip.serviceId))));
       } else if (remote?.mask) {
-        const masks = await localMasks();
-        agreeing = [...classes.values()].filter(variant => (variant.reduce((mask, trip) => mask | (masks.get(trip.serviceId) ?? 0), 0) & remote.mask) === remote.mask);
+        // Weekdays on which each variant actually runs locally (weekly pattern and calendar_dates
+        // exceptions alike), over the four weeks of local calendar nearest the live date.
+        const sample: string[] = [];
+        for (let day = -27; day < 28 && sample.length < 28; day++) { const date = addDays(entry.date, day); if (date >= validFrom && date <= validTo) sample.push(date); }
+        if (sample.length < 7) { result.rejected.ambiguous++; continue; }
+        await runs(sample);
+        agreeing = [...classes.values()].filter(variant => {
+          const weekdays = new Set(sample.filter(date => variant.some(trip => localRuns.get(date)!.has(trip.serviceId))).map(weekday));
+          return [0, 1, 2, 3, 4, 5, 6].every(day => !(remote.mask & (1 << day)) || weekdays.has(day));
+        });
       } else agreeing = [];
       if (agreeing.length !== 1) { result.rejected.ambiguous++; continue; }
       plausible = agreeing[0]!;

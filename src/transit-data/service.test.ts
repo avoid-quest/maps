@@ -8,7 +8,7 @@ import type { PackageManifest } from './package-format';
 import { createPackageStore } from './package-store';
 import { indexFeed } from './realtime';
 import { bindActive, confirmedAt, failedCheck, INITIAL_REFRESH_STATE, REFRESH_POLICY, restoreRefreshState, scheduleNotices, shouldCheck, startedCheck, succeededCheck, withEvidence } from './refresh-policy';
-import { createTimetableService } from './service';
+import { createStaticTimetableService, createTimetableService } from './service';
 import { encodePackage, fixtureManifest, fixturePackage, fixtureReader, rome } from './test-support/fixture';
 import { createTestFiles, sha256 } from './test-support/files';
 import { createBunDriver } from './test-support/sqlite-driver';
@@ -74,10 +74,10 @@ function setup(options: { wifi?: boolean | 'throws'; directory?: string; mirrors
   const store = createPackageStore({ driver, files, sha256, bundled: { manifest: bundled.manifest, load: async () => bundled.text }, closeLater: db => void db.close() });
   let clock = rome('20261021', '08:02');
   let manifest: PackageManifest | undefined = bundled.manifest; let etag = '"m1"'; const down = new Set<string>(); let networkLookups = 0;
-  const requests: { url: string; headers: Record<string, string> }[] = [];
+  const requests: { url: string; headers: Record<string, string>; credentials?: RequestCredentials }[] = [];
   const fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input);
-    requests.push({ url, headers: { ...(init?.headers as Record<string, string> | undefined) } });
+    requests.push({ url, headers: { ...(init?.headers as Record<string, string> | undefined) }, credentials: init?.credentials });
     if ([...down].some(base => url.startsWith(base))) throw new TypeError('Network request failed');
     if ((init?.headers as Record<string, string> | undefined)?.['If-None-Match'] === etag) return new Response(null, { status: 304 });
     return new Response(JSON.stringify(manifest), { status: 200, headers: { ETag: etag } });
@@ -110,12 +110,12 @@ function setup(options: { wifi?: boolean | 'throws'; directory?: string; mirrors
 test('manifest checks are plain conditional GETs and confirm the active package', async () => {
   const env = setup();
   assert.equal(await env.service.check('open'), 'current');
-  assert.deepEqual(env.requests, [{ url: `${BASE}manifest.json`, headers: {} }], 'no identifiers, query parameters or custom headers');
+  assert.deepEqual(env.requests, [{ url: `${BASE}manifest.json`, headers: {}, credentials: 'omit' }], 'no identifiers, query parameters, custom headers or cookies');
   assert.equal(confirmedAt(env.service.status().refresh), Date.parse(env.bundled.upstream_checked_at!));
   env.advance(HOUR);
   assert.equal(await env.service.check('open'), 'throttled');
   assert.equal(await env.service.check('manual'), 'not-modified');
-  assert.deepEqual(env.requests[1], { url: `${BASE}manifest.json`, headers: { 'If-None-Match': '"m1"' } });
+  assert.deepEqual(env.requests[1], { url: `${BASE}manifest.json`, headers: { 'If-None-Match': '"m1"' }, credentials: 'omit' });
 });
 
 test('ordered mirrors: the next mirror is used only when one fails; validators stay per mirror', async () => {
@@ -127,7 +127,7 @@ test('ordered mirrors: the next mirror is used only when one fails; validators s
   assert.deepEqual(env.files.requested, [MIRROR + published.package_path], 'package fetched from the serving mirror');
   env.setDown(BASE, false); env.advance(REFRESH_POLICY.manualMinIntervalMs);
   assert.equal(await env.service.check('manual'), 'current');
-  assert.deepEqual(env.requests.at(-1), { url: `${BASE}manifest.json`, headers: {} }, 'the other mirror\'s ETag is not sent');
+  assert.deepEqual(env.requests.at(-1), { url: `${BASE}manifest.json`, headers: {}, credentials: 'omit' }, 'the other mirror\'s ETag is not sent');
 });
 
 test('Releases mirror uses the flat asset layout', async () => {
@@ -223,7 +223,9 @@ test('failures back off; corrupt transfers try again; invalid packages are not r
   assert.equal(await env.service.check('open'), 'rejected', 'verified bytes, invalid content');
   const downloads = env.files.requested.length;
   env.advance(REFRESH_POLICY.backoffMaxMs);
-  assert.equal(await env.service.check('manual'), 'not-modified');
+  // The same manifest served again under a new ETag (a full 200): still not downloaded.
+  env.setManifest(brokenManifest, '"invalid-again"');
+  assert.equal(await env.service.check('manual'), 'rejected');
   assert.equal(env.files.requested.length, downloads, 'the rejected package is not downloaded again');
   assert.equal(env.service.status().meta?.packageHash, newer.package_hash);
 });
@@ -259,4 +261,55 @@ test('a check completing after a preference change never restores the old prefer
   assert.equal(await pending, 'current');
   assert.equal(service.status().refresh.stopLive, false, 'in memory');
   assert.equal((await store.readState()).stopLive, false, 'persisted');
+});
+
+test('service robustness: throttled outcome, clock skew, stalled body, malformed state, persistence errors', async () => {
+  // Throttled checks report their outcome.
+  const env = setup();
+  await env.service.check('open');
+  assert.equal(await env.service.check('open'), 'throttled');
+  assert.equal(env.service.status().lastOutcome, 'throttled');
+  // A backoff deadline further ahead than the maximum (clock moved back) no longer blocks.
+  const skewed = { ...failedCheck(INITIAL_REFRESH_STATE, 1_000_000_000_000), lastSuccessAt: undefined };
+  assert.equal(shouldCheck(skewed, 'open', 1_000_000_000_000 - 10 * HOUR), true);
+  // Malformed persisted state is normalised by the store.
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gtt-service-'));
+  const pkg = fixturePackage(); const text = encodePackage(pkg); const manifest = fixtureManifest(text, pkg);
+  const store = createPackageStore({ driver: createBunDriver(path.join(directory, 'db')), files: createTestFiles(path.join(directory, 'files'), new Map()), sha256, bundled: { manifest, load: async () => text }, closeLater: db => void db.close() });
+  await store.open();
+  await store.writeState({ evidence: 'broken', failures: 'x' } as unknown as Parameters<typeof store.writeState>[0]);
+  assert.deepEqual((await store.readState()).evidence, {});
+  // A mirror that stalls mid-body cannot block later checks: the deadline covers the body.
+  let calls = 0;
+  const stalled = (async () => { calls++; return new Response(new ReadableStream({ start() { /* never sends */ } })); }) as unknown as typeof globalThis.fetch;
+  const originalSetTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = ((callback: () => void, ms?: number) => originalSetTimeout(callback, ms === 20_000 ? 5 : ms)) as typeof setTimeout;
+  try {
+    const service = createTimetableService({ store, fetch: stalled, mirrors: [{ base: BASE, layout: 'tree' }] });
+    assert.equal(await service.check('manual'), 'failed');
+    assert.equal(await service.check('manual'), 'throttled', 'the next check is no longer blocked by an in-flight read');
+    assert.equal(calls, 1);
+  } finally { globalThis.setTimeout = originalSetTimeout; }
+  // A preference that cannot be persisted is reported.
+  const failing = { ...store, writeState: async () => { throw new Error('SQLITE_FULL'); } } as typeof store;
+  const service = createTimetableService({ store: failing, fetch: stalled, mirrors: [] });
+  await service.setStopLive(true);
+  assert.match(service.status().lastError ?? '', /Impossibile salvare/);
+});
+
+test('the static (web/test) service reports a failed open and allows a retry', async () => {
+  let attempts = 0;
+  const service = createStaticTimetableService(async () => { attempts++; throw new Error('asset missing'); });
+  await assert.rejects(service.ready(), /asset missing/);
+  assert.equal(service.status().phase, 'failed');
+  await assert.rejects(service.ready());
+  assert.equal(attempts, 2);
+});
+
+test('a different source that cannot be ordered is never an upgrade; a same-source rebuild is', async () => {
+  const { isUpgrade } = await import('./package-format');
+  const pkg = fixturePackage(); const base = fixtureManifest(encodePackage(pkg), pkg, { source_last_modified: null });
+  const otherZip = { ...base, source_zip_hash: 'c'.repeat(64), built_at: '2026-12-01T00:00:00Z' };
+  assert.equal(isUpgrade(otherZip, base), false, 'same feed_version, unknown modification times, different ZIP');
+  assert.equal(isUpgrade({ ...base, built_at: '2026-12-01T00:00:00Z' }, base), true, 'same ZIP rebuilt later');
 });

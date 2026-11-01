@@ -49,7 +49,8 @@ function toRow(event: ScheduledEvent, prediction: Prediction, context: {
     : detail === 'before-first-update' ? 'Il mezzo potrebbe essere già transitato: previsioni disponibili solo per le fermate successive.'
     : event.extended ? 'Corsa fuori dal calendario installato: orari del pacchetto, abbinati alla corsa in tempo reale GTT per linea, direzione, percorso e partenza.' : undefined;
   return {
-    id: `gtt:${event.trip.tripId}:${event.serviceDate}:${event.position}:${event.start}`,
+    // Headway rows and realtime-named instances of the same frequency must not share a key.
+    id: `gtt:${event.trip.tripId}:${event.serviceDate}:${event.position}:${event.start}${event.frequency ? ':headway' : event.inexact ? ':instance' : ''}`,
     provider: 'gtt',
     upstream: { ...(context.operator ? { operator: context.operator } : {}), attribution: GTT_ATTRIBUTION, dataset: `gtt_gtfs.zip ${context.feedVersion}` },
     event: event_, mode: context.mode, line: context.line,
@@ -91,7 +92,7 @@ export async function composeBoard(reader: TimetableReader, stopId: string, now:
   const { meta } = reader;
   const manifest = meta.manifest;
   const [scheduled, routes, agencies, stopInfo] = await Promise.all([
-    scheduledEvents(reader, stopId, now, options.window ?? DEFAULT_WINDOW), reader.routes(), reader.agencies(), reader.stop(stopId),
+    scheduledEvents(reader, stopId, now, options.window ?? DEFAULT_WINDOW, { early: true }), reader.routes(), reader.agencies(), reader.stop(stopId),
   ]);
   const realtime = options.realtime;
   const snapshot = realtime?.snapshot;
@@ -126,6 +127,8 @@ export async function composeBoard(reader: TimetableReader, stopId: string, now:
       if (event.inexact && prediction.predictedAt === undefined && !prediction.report) continue;
       // An extension exists only through its live update; without usable realtime it is not shown.
       if (event.extended && prediction.predictedAt === undefined && !prediction.report) continue;
+      // Scheduled after the horizon: only an early prediction brings it onto the board.
+      if (event.beyondHorizon && !((prediction.predictedAt ?? Infinity) <= now + (options.window ?? DEFAULT_WINDOW).horizonMs)) continue;
       const row = toRow(event, prediction, {
         stop, line: route?.shortName || event.trip.routeId, mode, operator: route ? agencies.get(route.agencyId) : undefined,
         feedVersion: meta.feedVersion, retrievedAt, scheduleUpdatedAt, joinedBy: joined?.via,

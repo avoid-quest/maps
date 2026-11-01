@@ -63,7 +63,7 @@ export async function fetchResponse(url: string, options: RequestInit = {}, prov
   try {
     return await Promise.race([aborted, (async () => {
       // No provider needs cookies: 'omit' makes React Native use OkHttp's NO_COOKIES jar (never sent or stored).
-      const response = await fetch(url, { credentials: 'omit', ...options, signal: controller.signal, headers: { 'User-Agent': USER_AGENT, ...options.headers } });
+      const response = await fetch(url, { ...options, credentials: 'omit', signal: controller.signal, headers: { 'User-Agent': USER_AGENT, ...options.headers } });
       httpStatus = response.status;
       if (response.status === 429) throw new ServiceError('Il servizio ha limitato le richieste. Riprova tra un minuto.', 'rate-limit', 429);
       if (!response.ok) throw new ServiceError(`Servizio temporaneamente non disponibile (HTTP ${response.status}).`, 'unavailable', response.status);

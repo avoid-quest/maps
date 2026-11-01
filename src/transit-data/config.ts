@@ -7,11 +7,17 @@
  * - `tree`: `<base>manifest.json` and `<base>packages/gtt-<sha256>.json` (GitHub Pages)
  * - `flat`: `<base>manifest.json` and `<base>gtt-<sha256>.json` (release assets cannot contain '/')
  */
-export interface TimetableMirror { base: string; layout: 'tree' | 'flat' }
+export interface TimetableMirror {
+  base: string;
+  layout: 'tree' | 'flat';
+  /** Hosts that also receive the request through redirects (for privacy notices). */
+  redirectHosts?: readonly string[];
+}
 export const TIMETABLE_MIRRORS: readonly TimetableMirror[] = [
   { base: 'https://avoid-quest.github.io/maps/gtt/', layout: 'tree' },
   // Assets of the rolling `gtt-timetable` prerelease (never marked "latest").
-  { base: 'https://github.com/avoid-quest/maps/releases/download/gtt-timetable/', layout: 'flat' },
+  // Release downloads redirect to GitHub's asset CDN, which also sees the request.
+  { base: 'https://github.com/avoid-quest/maps/releases/download/gtt-timetable/', layout: 'flat', redirectHosts: ['release-assets.githubusercontent.com', 'objects.githubusercontent.com'] },
 ];
 
 export const manifestUrl = (mirror: TimetableMirror) => `${mirror.base}manifest.json`;
@@ -21,7 +27,7 @@ export const packageUrl = (mirror: TimetableMirror, packagePath: string) =>
 
 /** Host names for privacy notices ("which server sees the request"). */
 export function mirrorHosts(mirrors: readonly TimetableMirror[] = TIMETABLE_MIRRORS): string[] {
-  return [...new Set(mirrors.map(mirror => mirror.base.replace(/^https?:\/\/([^/]+).*$/, '$1')))];
+  return [...new Set(mirrors.flatMap(mirror => [mirror.base.replace(/^https?:\/\/([^/]+).*$/, '$1'), ...(mirror.redirectHosts ?? [])]))];
 }
 
 /** GTT's official static export: read directly (ranged) to remap rotated trip IDs. */

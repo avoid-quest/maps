@@ -65,11 +65,11 @@ def fetch_previous(site_url):
         with urllib.request.urlopen(request(site_url + "manifest.json"), timeout=TIMEOUT) as response:
             return json.loads(response.read())
     except urllib.error.HTTPError as error:
+        # Only "not found" means first publication; anything else fails closed so rollback
+        # packages are never dropped because of a transient error.
         if error.code == 404:
             return None
         raise
-    except urllib.error.URLError:
-        return None
 
 
 def fetch_bytes(url):
@@ -111,10 +111,14 @@ def carried_packages(previous, site_url, keep):
         seen.add(entry["package_hash"])
         try:
             data = fetch_bytes(site_url + entry["package_path"])
-        except (urllib.error.URLError, OSError):
+        except urllib.error.HTTPError as error:
+            if error.code != 404:
+                raise
+            # A package already gone from the site cannot be carried; report it, do not fail forever.
+            print(f"previous package {entry['package_hash']} no longer published; dropped", file=sys.stderr)
             continue
-        if gtt.sha256(data) == entry["package_hash"]:
-            carried.append((entry, data))
+        gtt.check(gtt.sha256(data) == entry["package_hash"], f"published package {entry['package_hash']} fails its hash")
+        carried.append((entry, data))
     return carried
 
 
@@ -194,6 +198,10 @@ def main():
             payload = gtt.encode(package)
             source["crc32"] = gtt.source_crcs(zip_path)
 
+    # Never publish an older GTT source over a newer one, whatever the build time.
+    if source is not None and previous is not None and gtt.compare_source(
+            {"feed_version": package["feed"]["feed_version"], "source_zip_hash": source["sha256"], "source_last_modified": source.get("last_modified")}, previous) < 0:
+        raise SystemExit(f"refusing to publish source {package['feed']['feed_version']} older than the published {previous['feed_version']}")
     unchanged = source is None or (previous is not None and gtt.sha256(payload) == previous["package_hash"])
     if unchanged:
         if previous is None:

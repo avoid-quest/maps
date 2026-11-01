@@ -44,11 +44,12 @@ export interface JoinedUpdates { byLocalTrip: Map<string, { update: TripUpdate; 
  * The update joined to this local trip (by trip_id, or by schedule identity), on the event's
  * service date and start time — never route or headsign guesses.
  */
-export function updateForEvent(join: JoinedUpdates, event: Pick<ScheduledEvent, 'trip' | 'serviceDate' | 'start'>): { update: TripUpdate; via: 'trip_id' | 'identity' } | undefined {
+export function updateForEvent(join: JoinedUpdates, event: Pick<ScheduledEvent, 'trip' | 'serviceDate' | 'start'> & Partial<Pick<ScheduledEvent, 'vector'>>): { update: TripUpdate; via: 'trip_id' | 'identity' } | undefined {
   const candidates = join.byLocalTrip.get(event.trip.tripId)?.filter(({ update }) => {
     const descriptor = update.trip ?? {};
     if (descriptor.startDate && descriptor.startDate !== event.serviceDate) return false;
-    if (descriptor.startTime && descriptor.startTime !== clock(event.start)) return false;
+    // start_time names the first arrival or the first departure (they differ with a dwell).
+    if (descriptor.startTime && descriptor.startTime !== clock(event.start) && descriptor.startTime !== clock(event.start + (event.vector?.departures[0] ?? 0))) return false;
     return true;
   }) ?? [];
   // Without a start date an update could belong to another service day: accept only an unambiguous one.
@@ -187,8 +188,11 @@ export function frequencyInstances(snapshot: RealtimeSnapshot, event: ScheduledE
   if (!event.frequency) return [];
   const { startSeconds: from, endSeconds: to } = event.frequency;
   const starts = new Set<number>();
-  for (const update of snapshot.byTrip.get(event.trip.tripId) ?? []) {
-    if (update.trip?.startDate && update.trip.startDate !== event.serviceDate) continue;
+  const updates = snapshot.byTrip.get(event.trip.tripId) ?? [];
+  for (const update of updates) {
+    // Same rule as exact joins: an update without a service date may belong to another day, so
+    // it is accepted only when it is the trip's single update.
+    if (update.trip?.startDate ? update.trip.startDate !== event.serviceDate : updates.length !== 1) continue;
     const start = startSeconds(update.trip?.startTime);
     if (start !== undefined && start >= from && start < to) starts.add(start);
   }

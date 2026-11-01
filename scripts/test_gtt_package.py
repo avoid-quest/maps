@@ -9,6 +9,7 @@ import sys
 import tempfile
 import unittest
 import unittest.mock
+import urllib.error
 import zipfile
 
 import gtt_package as gtt
@@ -125,10 +126,20 @@ class CompactionTests(unittest.TestCase):
         with self.assertRaisesRegex(gtt.PackageError, "expected at least"):
             self.build(trips=100)
 
+    def test_duplicate_and_dangling_source_rows_are_rejected(self):
+        for mutate, message in (
+            (lambda files: files.update({"trips.txt": files["trips.txt"] + "4U,ALL,T1,Gamma,0\n"}), "duplicate trip_id"),
+            (lambda files: files.update({"calendar.txt": files["calendar.txt"] + "ALL,1,1,1,1,1,1,1,20261020,20261130\n"}), "duplicate calendar service_id"),
+            (lambda files: files.update({"frequencies.txt": files["frequencies.txt"] + "NOPE,12:00:00,13:00:00,600,0\n"}), "unknown trips"),
+            (lambda files: files.update({"frequencies.txt": "trip_id,start_time,end_time,headway_secs,exact_times\nT1,12:00:00,13:00:00,1,0\n"}), "invalid frequency"),
+        ):
+            with self.subTest(message), self.assertRaisesRegex(gtt.PackageError, message):
+                self.build(mutate=mutate)
+
     def test_validation_rejects_broken_references(self):
         package = self.build()
         package["trips"]["pattern"][0] = len(package["patterns"])
-        with self.assertRaises((gtt.PackageError, IndexError)):
+        with self.assertRaisesRegex(gtt.PackageError, "out of range"):
             gtt.validate_package(package)
         package = self.build()
         package["patterns"][0][1] = [3, 2, 1][: len(package["patterns"][0][1])]
@@ -246,8 +257,30 @@ class PipelineTests(unittest.TestCase):
         def blank_time(files):
             files["stop_times.txt"] = files["stop_times.txt"].replace("T1,08:02:00,08:02:30", "T1,,")
         broken = synthetic_zip(self.dir / "broken.zip", mutate=blank_time)
+        before = set(self.dir.iterdir())
         with self.assertRaises(gtt.PackageError):
             self.run_pipeline(previous=None, source_zip=broken)
+        created = [path for path in set(self.dir.iterdir()) - before if path.name.startswith("site-")]
+        self.assertTrue(created and all(not any(path.iterdir()) for path in created), "nothing is written for a rejected source")
+
+    def test_older_sources_and_transient_errors_fail_closed(self):
+        newer = self.publish(self.run_pipeline(previous=None, source_zip=synthetic_zip(self.dir / "new.zip", version="20261102"))[0])
+        older = synthetic_zip(self.dir / "old.zip", version="20261101")
+        with self.assertRaisesRegex(SystemExit, "older than the published"):
+            self.run_pipeline(previous=newer, source_zip=older)
+        def offline(url, *args, **kwargs):
+            raise urllib.error.HTTPError(url, 503, "unavailable", {}, None)
+        fresh = load_pipeline()
+        with unittest.mock.patch.object(fresh.urllib.request, "urlopen", offline):
+            with self.assertRaises(urllib.error.HTTPError):
+                fresh.fetch_previous(self.SITE)
+        fresh.fetch_bytes = offline
+        with self.assertRaises(urllib.error.HTTPError, msg="a transient error never drops rollback packages"):
+            fresh.carried_packages(newer, self.SITE, 2)
+        def gone(url, *args, **kwargs):
+            raise urllib.error.HTTPError(url, 404, "gone", {}, None)
+        fresh.fetch_bytes = gone
+        self.assertEqual(fresh.carried_packages(newer, self.SITE, 2), [])
 
     def test_last_modified_round_trips_between_http_and_iso(self):
         self.assertEqual(self.pipeline.http_date_to_iso("Sun, 01 Nov 2026 02:26:59 GMT"), "2026-11-01T02:26:59Z")
@@ -262,7 +295,8 @@ class ShippedBundleTests(unittest.TestCase):
         self.assertEqual(gtt.sha256(payload), manifest["package_hash"])
         self.assertEqual(len(payload), manifest["package_bytes"])
         package = gtt.validate_package(json.loads(payload))
-        self.assertEqual(json.loads((data / "gtt-stops.json").read_text())["package_hash"], manifest["package_hash"])
+        self.assertEqual(json.loads((data / "gtt-stops.json").read_text()), gtt.stops_index(package, manifest["package_hash"]),
+                         "the stop index content matches the package, not just its hash")
         self.assertEqual(json.loads((data / "manifest.json").read_text())["gtt"]["packageSha256"], manifest["package_hash"])
         self.assertEqual(package["feed"]["feed_version"], manifest["feed_version"])
         self.assertFalse((data / "gtt-trips.json").exists(), "the old trip lookup is gone")

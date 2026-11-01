@@ -71,7 +71,8 @@ export function createTimetableService(deps: {
   async function save(refresh: RefreshState, extra: Partial<ScheduleStatus> = {}, preferences: Partial<Preferences> = {}) {
     const committed: RefreshState = { ...refresh, wifiOnly: status.refresh.wifiOnly, stopLive: status.refresh.stopLive, ...preferences };
     update({ refresh: committed, ...extra });
-    await store.writeState(committed).catch(() => undefined);
+    // A preference that could not be persisted would silently revert on restart: say so.
+    await store.writeState(committed).catch(() => update({ lastError: 'Impossibile salvare le impostazioni degli orari sul dispositivo.' }));
   }
   const activeMeta = (fallback: DatasetMeta) => store.active()?.meta ?? fallback;
 
@@ -79,6 +80,7 @@ export function createTimetableService(deps: {
     opening ??= (async () => {
       try {
         const dataset = await store.open();
+        if (store.rolledBack()) deps.events?.record('rolled-back');
         // Evidence (validators, confirmation) belongs to the package it was obtained for.
         const refresh = bindActive(await store.readState(), dataset.meta.packageHash);
         // The persisted preferences are the source at startup.
@@ -93,17 +95,23 @@ export function createTimetableService(deps: {
     return opening;
   }
 
-  async function fetchManifest(state: RefreshState): Promise<{ mirror: TimetableMirror; response: Response }> {
+  /** One deadline covers headers and body: a mirror stalling mid-body cannot block later checks. */
+  async function fetchManifest(state: RefreshState): Promise<{ mirror: TimetableMirror; status: number; etag?: string; body?: unknown }> {
     let lastError: unknown;
     for (const mirror of mirrors) {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 20_000);
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const deadline = new Promise<never>((_, reject) => { timer = setTimeout(() => { controller.abort(); reject(new PackageError('Il server orari non ha risposto in tempo.', 'network')); }, 20_000); });
       try {
         const etag = activeEvidence(state).validators?.[mirror.base];
         // Plain GET: only a cache validator, never identifiers, stop, location or query parameters.
-        const response = await deps.fetch(manifestUrl(mirror), { signal: controller.signal, credentials: 'omit', ...(etag ? { headers: { 'If-None-Match': etag } } : {}) });
-        if (response.status === 304 || response.ok) return { mirror, response };
-        lastError = new PackageError(`Manifest orari non disponibile (HTTP ${response.status}).`, 'network');
+        const result = await Promise.race([deadline, (async () => {
+          const response = await deps.fetch(manifestUrl(mirror), { signal: controller.signal, credentials: 'omit', ...(etag ? { headers: { 'If-None-Match': etag } } : {}) });
+          if (response.status === 304) return { mirror, status: 304 };
+          if (!response.ok) throw new PackageError(`Manifest orari non disponibile (HTTP ${response.status}).`, 'network');
+          return { mirror, status: response.status, etag: response.headers.get('ETag') ?? undefined, body: await response.json() as unknown };
+        })()]);
+        return result;
       } catch (error) { lastError = error; } finally { clearTimeout(timer); }
     }
     throw lastError ?? new PackageError('Nessun server orari configurato.', 'network');
@@ -112,7 +120,7 @@ export function createTimetableService(deps: {
   async function run(reason: CheckReason): Promise<CheckOutcome> {
     const dataset = await ready();
     let state = bindActive(status.refresh, activeMeta(dataset.meta).packageHash);
-    if (!shouldCheck(state, reason, now())) return 'throttled';
+    if (!shouldCheck(state, reason, now())) { update({ lastOutcome: 'throttled' }); return 'throttled'; }
     if (deps.networkAllowed) {
       const allowed = await deps.networkAllowed(state.wifiOnly).catch(() => !state.wifiOnly);
       if (!allowed) { update({ lastOutcome: 'skipped-network' }); return 'skipped-network'; }
@@ -123,12 +131,12 @@ export function createTimetableService(deps: {
     try {
       const fetched = await fetchManifest(state);
       mirror = fetched.mirror;
-      if (fetched.response.status === 304) {
+      if (fetched.status === 304) {
         await save(succeededCheck(state, now()), { checking: false, lastOutcome: 'not-modified', lastError: undefined });
         return 'not-modified';
       }
-      manifest = validateManifest(await fetched.response.json());
-      etag = fetched.response.headers.get('ETag') ?? undefined;
+      manifest = validateManifest(fetched.body);
+      etag = fetched.etag;
       const current = activeMeta(dataset.meta);
       const validator = { mirror: mirror.base, etag };
       if (manifest.package_hash === current.packageHash) {
@@ -193,11 +201,18 @@ export function createStaticTimetableService(open: () => Promise<ActiveDataset>)
   let status: ScheduleStatus = { phase: 'preparing', refresh: INITIAL_REFRESH_STATE, checking: false, updateSupported: false };
   const listeners = new Set<() => void>();
   let opening: Promise<ActiveDataset> | undefined;
+  const notify = () => listeners.forEach(listener => { try { listener(); } catch { /* observers cannot break data access */ } });
   const ready = () => {
     opening ??= open().then(dataset => {
       status = { ...status, phase: 'ready', meta: dataset.meta, refresh: bindActive(status.refresh, dataset.meta.packageHash) };
-      listeners.forEach(listener => listener());
+      notify();
       return dataset;
+    }, (error: unknown) => {
+      // Report and allow a retry, like the downloading service.
+      opening = undefined;
+      status = { ...status, phase: 'failed', lastError: error instanceof Error ? error.message : 'Orari non disponibili.' };
+      notify();
+      throw error;
     });
     return opening;
   };
@@ -206,7 +221,7 @@ export function createStaticTimetableService(open: () => Promise<ActiveDataset>)
     current: ready,
     status: () => status,
     subscribe(listener) { listeners.add(listener); return () => { listeners.delete(listener); }; },
-    async check() { return 'skipped-network'; },
+    async check() { status = { ...status, lastOutcome: 'skipped-network' }; notify(); return 'skipped-network'; },
     async setWifiOnly(value) { status = { ...status, refresh: { ...status.refresh, wifiOnly: value } }; listeners.forEach(listener => listener()); },
     async setStopLive(value) { status = { ...status, refresh: { ...status.refresh, stopLive: value } }; listeners.forEach(listener => listener()); },
     async updatesAllowed() { return false; },

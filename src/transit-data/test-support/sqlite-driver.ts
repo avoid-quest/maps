@@ -12,13 +12,22 @@ export function createBunDriver(directory: string, faults: { failRunAfter?: numb
     file,
     async open(name) {
       const db = new Database(file(name), { create: true });
+      const fault = () => { if (faults.failOn?.(name) && faults.failRunAfter !== undefined && ++runs > faults.failRunAfter) throw new Error('database or disk is full (SQLITE_FULL)'); };
       const wrapped: SqlDatabase = {
-        async exec(sql) { db.exec(sql); },
-        async run(sql, params = []) {
-          if (faults.failOn?.(name) && faults.failRunAfter !== undefined && ++runs > faults.failRunAfter) throw new Error('database or disk is full (SQLITE_FULL)');
-          const prepared = db.prepare(sql); prepared.run(...params); prepared.finalize();
+        // Writes through exec (schema, indexes) and run share one simulated full-disk budget.
+        async exec(sql) {
+          if (!/^\s*(BEGIN|COMMIT|ROLLBACK)/i.test(sql)) fault();
+          db.exec(sql);
         },
-        async all<T>(sql: string, params: readonly SqlValue[] = []) { const prepared = db.prepare<T>(sql); const rows = prepared.all(...params); prepared.finalize(); return rows; },
+        async run(sql, params = []) {
+          fault();
+          const prepared = db.prepare(sql);
+          try { prepared.run(...params); } finally { prepared.finalize(); }
+        },
+        async all<T>(sql: string, params: readonly SqlValue[] = []) {
+          const prepared = db.prepare<T>(sql);
+          try { return prepared.all(...params); } finally { prepared.finalize(); }
+        },
         async transaction(task) {
           db.exec('BEGIN');
           try { await task(); db.exec('COMMIT'); } catch (error) { db.exec('ROLLBACK'); throw error; }

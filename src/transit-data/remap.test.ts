@@ -43,7 +43,9 @@ function server(initial: Uint8Array) {
     log.push({ headers, status, bytes: refused || status === 304 ? 0 : slice.length });
     if (!accept.includes(status)) throw new ZipRangeError(`HTTP ${status}`, status === 200 ? 'changed' : 'unsupported');
     if (oversized) throw new ZipRangeError('too large', 'limit');
-    return { status, body: status === 304 ? new Uint8Array() : slice, header: (name: string) => ({ etag, 'last-modified': 'Sun, 01 Nov 2026 02:26:59 GMT', 'content-range': `bytes ${start}-${start + slice.length - 1}/${body.length}` } as Record<string, string>)[name.toLowerCase()] };
+    // Headers are snapshotted when the response is produced, like a real HTTP response.
+    const responseHeaders = { etag, 'last-modified': 'Sun, 01 Nov 2026 02:26:59 GMT', 'content-range': `bytes ${start}-${start + slice.length - 1}/${body.length}` } as Record<string, string>;
+    return { status, body: status === 304 ? new Uint8Array() : slice, header: (name: string) => responseHeaders[name.toLowerCase()] };
   };
   return { transport, log, replace(next: Uint8Array, tag: string) { body = next; etag = tag; } };
 }
@@ -69,9 +71,10 @@ test('ranged reads fetch only the directory and requested members, verified by C
   assert.ok(text['trips.txt']!.startsWith(TRIPS_HEADER));
   assert.ok(bytes + directory.bytes < zip.length / 2, 'stop_times.txt is never downloaded');
   assert.ok(log.every(entry => entry.status === 206));
-  // Corrupt one byte inside trips.txt: the CRC check rejects it.
-  const corrupt = zip.slice(); const entry = directory.entries.get('trips.txt')!; corrupt[entry.offset + 100] = corrupt[entry.offset + 100]! ^ 0xff;
-  await assert.rejects(readMembers(server(corrupt).transport, 'zip', directory, ['trips.txt'], () => undefined), ZipRangeError);
+  // A wrong CRC in the directory with intact compressed data: only the CRC check can catch it.
+  const wrongCrc = { ...directory, entries: new Map(directory.entries) };
+  wrongCrc.entries.set('trips.txt', { ...directory.entries.get('trips.txt')!, crc32: '00000000' });
+  await assert.rejects(readMembers(transport, 'zip', wrongCrc, ['trips.txt'], () => undefined), /CRC/);
 });
 
 test('remap: at most one attempt a day, conditional, never a full download, confirms an unchanged export', async () => {
@@ -79,6 +82,7 @@ test('remap: at most one attempt a day, conditional, never a full download, conf
   let clock = Date.parse('2026-11-01T10:00:00Z'); const confirmations: number[] = [];
   let activeCrc: Record<string, string> | undefined;
   const store = await createSqlRemapStore(await createBunDriver(fs.mkdtempSync(path.join(os.tmpdir(), 'gtt-remap-'))).open('gtt-remap.db'));
+  try {
   const service = createRemapService({ store, transport: site.transport, url: 'zip', now: () => clock, activeSourceCrc: () => activeCrc, onUpstreamConfirmed: at => confirmations.push(at) });
   const first = await service.refresh('unknown-trips');
   assert.equal(first.outcome, 'updated'); assert.equal(first.requests, 3, 'tail + two grouped member ranges');
@@ -109,8 +113,10 @@ test('remap: at most one attempt a day, conditional, never a full download, conf
   };
   const racing = createRemapService({ store, transport: changing, url: 'zip', now: () => clock + REMAP_POLICY.minIntervalMs });
   assert.equal((await racing.refresh('manual')).outcome, 'failed');
-  assert.ok(site.log.filter(entry => entry.status === 200).every(entry => entry.bytes === 0), 'no full-body download');
+  const refused = site.log.filter(entry => entry.status === 200);
+  assert.ok(refused.length >= 1 && refused.every(entry => entry.headers['If-Range'] && entry.bytes === 0), 'If-Range answered 200 and was refused without a body');
   assert.equal((await store.meta())?.feedVersion, '20261101', 'the previous remap stays intact');
+  } finally { await store.close?.(); }
 });
 
 test('remap respects the network preference and a missing transport', async () => {
@@ -191,4 +197,32 @@ test('a damaged remap database is discarded and recreated; storage failures neve
   const writeFails = { ...createMemoryRemapStore(), replace: async () => { throw new Error('SQLITE_FULL'); }, reset: async () => { resets++; } };
   assert.equal((await createRemapService({ store: writeFails, transport: server(archive('y')).transport, url: 'zip' }).refresh('manual')).outcome, 'failed');
   assert.equal(resets, 2, 'a storage failure while saving discards the partial remap');
+  await store.reset();
+});
+
+test('malformed or ambiguous remap rows reject the whole remap; CSV quoting must close', async () => {
+  const cases: [string, (trips: string) => Record<string, Uint8Array>][] = [
+    ['duplicate trip_id', trips => ({ 'trips.txt': strToU8(trips + '4U,SVC0,20261101-0,X,0,b,4A0\n') })],
+    ['direction_id', trips => ({ 'trips.txt': strToU8(trips.replace(',0,b0,', ',north,b0,')) })],
+    ['calendar.txt', () => ({ 'calendar.txt': strToU8('service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,start_date,end_date\nSVC0,1,1,1,1,1,0,0,20261231,20261001\n') })],
+    ['calendar_dates.txt', () => ({ 'calendar_dates.txt': strToU8('service_id,date,exception_type\nSVC1,2026-11-02,1\n') })],
+  ];
+  for (const [label, override] of cases) {
+    let trips = TRIPS_HEADER;
+    for (let index = 0; index < 1500; index++) trips += `4U,SVC${index % 3},20261101-${index},X,${index % 2},b${index},4A${index % 2}\n`;
+    const base = { 'calendar.txt': strToU8('service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,start_date,end_date\nSVC0,1,1,1,1,1,0,0,20261001,20261231\n'),
+      'calendar_dates.txt': strToU8('service_id,date,exception_type\n'), 'trips.txt': strToU8(trips), 'feed_info.txt': strToU8('feed_version\n1\n') };
+    const store = createMemoryRemapStore();
+    const report = await createRemapService({ store, transport: server(zipSync({ ...base, ...override(trips) })).transport, url: 'zip' }).refresh('manual');
+    assert.equal(report.outcome, 'failed', label);
+    assert.equal(await store.meta(), undefined, `${label}: nothing stored`);
+  }
+  assert.throws(() => csvRows(() => undefined)('a\n"open', true), /virgolette/);
+  // An empty deflated member is malformed.
+  const empty = zipSync({ 'trips.txt': new Uint8Array(0) }, { level: 6 });
+  const directory = await readCentralDirectory(server(empty).transport, 'zip');
+  if (directory === 'not-modified') throw new Error('unexpected');
+  const entry = directory.entries.get('trips.txt')!;
+  const forged = { ...directory, entries: new Map([['trips.txt', { ...entry, method: 8, compressedSize: 0 }]]) };
+  await assert.rejects(readMembers(server(empty).transport, 'zip', forged, ['trips.txt'], () => undefined), /vuoti/);
 });
