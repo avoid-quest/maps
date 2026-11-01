@@ -31,6 +31,12 @@ Keep current quality separate from retained coordinates. The native snapshot sup
 
 Prioritize the next instruction, map, current problem and Stop action. Present recovery beside the problem. Keep voice status and setup in navigation details. Anchor the active transit confirmation beside Stop. Preserve transit confirmation controls and uncertainty when simplifying the layout. Route previews remain planning; native voice, position and background behavior require the separate [navigation acceptance checks](navigation.md).
 
+## Task model and modules
+
+`src/features/app/task-model.ts` is the source of truth for which task owns the sheet: one root (map, search, Trasporti or Salvati), the detail tasks opened from it (place, stop, planner, journey stop) and Privacy e fonti on top. Android Back and the sheet's back arrow unwind that stack; returning restores the task beneath with its context. The reducer holds task choices only. Typed text, fixes, fetched payloads and refresh timing stay in feature hooks.
+
+Each feature under `src/features/` exposes a hook and context with intent-level actions such as `openPlace`, `openStop`, `beginRoute` and `startGuidance`. Request controllers react to task transitions synchronously: a task moved behind another task suspends, and a closed or replaced planner resets. `AppProviders` composes features in dependency order; `AppShell` lays out the map, controls and sheet. Shared primitives live in `src/ui/`.
+
 ## Acceptance
 
 1. Cold launch with authorized, denied and disabled location. Confirm the neutral map and accurate acquisition/failure states; verify no category selection, discovery pins or result sheet before an action. Repeat without a usable fix.
