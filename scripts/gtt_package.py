@@ -17,8 +17,8 @@ import re
 import zipfile
 
 FORMAT = "avoid-maps.gtt-timetable"
-SCHEMA_VERSION = 1
-BUILDER_VERSION = "1"
+SCHEMA_VERSION = 2
+BUILDER_VERSION = "2"
 SOURCE_URL = "https://www.gtt.to.it/open_data/gtt_gtfs.zip"
 LICENCE_URL = "https://www.gtt.to.it/gtt_gtfs_license.html"
 ATTRIBUTION = "Data source: GTT S.p.A. – Gruppo Torinese Trasporti"
@@ -77,18 +77,18 @@ def build_package(zip_path):
         feed = (rows("feed_info.txt", required=False) or [{}])[0]
         agencies = sorted((row["agency_id"], row["agency_name"]) for row in rows("agency.txt"))
         for row in rows("agency.txt"):
-            check(row.get("agency_timezone", TIMEZONE) == TIMEZONE, f"agency {row['agency_id']} is not in {TIMEZONE}")
+            check((row.get("agency_timezone") or TIMEZONE) == TIMEZONE, f"agency {row['agency_id']} is not in {TIMEZONE}")
         route_rows = sorted(rows("routes.txt"), key=lambda row: row["route_id"])
         route_index = {row["route_id"]: index for index, row in enumerate(route_rows)}
-        routes = [[row["route_id"], row.get("agency_id", ""), int(row["route_type"]),
-                   row.get("route_short_name", ""), row.get("route_long_name", "")] for row in route_rows]
+        routes = [[row["route_id"], (row.get("agency_id") or ""), int(row["route_type"]),
+                   (row.get("route_short_name") or ""), (row.get("route_long_name") or "")] for row in route_rows]
 
         stop_rows = sorted(rows("stops.txt"), key=lambda row: row["stop_id"])
         stop_index = {row["stop_id"]: index for index, row in enumerate(stop_rows)}
         check(len(stop_index) == len(stop_rows), "duplicate stop_id")
-        stops = [[row["stop_id"], row.get("stop_code", ""), row["stop_name"],
+        stops = [[row["stop_id"], (row.get("stop_code") or ""), row["stop_name"],
                   round(float(row["stop_lat"]), 6), round(float(row["stop_lon"]), 6),
-                  row.get("parent_station", ""), int(row.get("location_type") or 0)] for row in stop_rows]
+                  (row.get("parent_station") or ""), int(row.get("location_type") or 0)] for row in stop_rows]
 
         services = {}
         for row in rows("calendar.txt", required=False):
@@ -120,7 +120,8 @@ def build_package(zip_path):
 
         frequencies = [row for row in rows("frequencies.txt", required=False)]
         patterns, pattern_ids, vectors, vector_ids, headsigns, headsign_ids = [], {}, [], {}, [], {}
-        columns = {key: [] for key in ("trip_id", "route", "service", "pattern", "vector", "start", "headsign", "direction")}
+        shapes, shape_ids = [], {}
+        columns = {key: [] for key in ("trip_id", "route", "service", "pattern", "vector", "start", "headsign", "direction", "shape")}
         trip_position = {}
         for trip_id in sorted(trip_rows):
             row, stop_visits = trip_rows[trip_id], sorted(visits[trip_id])
@@ -143,16 +144,22 @@ def build_package(zip_path):
             if vector_key not in vector_ids:
                 vector_ids[vector_key] = len(vectors)
                 vectors.append(encode_vector(arrivals, departures))
-            headsign = row.get("trip_headsign", "")
+            headsign = row.get("trip_headsign") or ""
             if headsign not in headsign_ids:
                 headsign_ids[headsign] = len(headsigns)
                 headsigns.append(headsign)
+            # shape_id is part of the schedule identity used to re-join rotated trip IDs.
+            shape = row.get("shape_id") or ""
+            if shape not in shape_ids:
+                shape_ids[shape] = len(shapes)
+                shapes.append(shape)
             trip_position[trip_id] = len(columns["trip_id"])
             for key, value in (("trip_id", trip_id), ("route", route_index[row["route_id"]]),
                                ("service", service_index[row["service_id"]]), ("pattern", pattern_ids[pattern_key]),
                                ("vector", vector_ids[vector_key]), ("start", start),
                                ("headsign", headsign_ids[headsign]),
-                               ("direction", int(row["direction_id"]) if row.get("direction_id", "") != "" else -1)):
+                               ("direction", int(row["direction_id"]) if row.get("direction_id") else -1),
+                               ("shape", shape_ids[shape])):
                 columns[key].append(value)
 
         frequency_rows = sorted([trip_position[row["trip_id"]], seconds(row["start_time"], "frequencies"),
@@ -166,7 +173,7 @@ def build_package(zip_path):
         "feed": {"feed_version": feed.get("feed_version", ""), "valid_from": valid_from, "valid_to": valid_to,
                  "timezone": TIMEZONE, "publisher": feed.get("feed_publisher_name", "")},
         "agencies": [list(agency) for agency in agencies], "routes": routes, "stops": stops,
-        "services": service_list, "patterns": patterns, "vectors": vectors, "headsigns": headsigns,
+        "services": service_list, "patterns": patterns, "vectors": vectors, "headsigns": headsigns, "shapes": shapes,
         "trips": columns, "frequencies": frequency_rows,
     }
     validate_package(package)
@@ -232,6 +239,7 @@ def validate_package(package):
         arrivals, departures = decode_vector([increments, dwell])
         check(all(b >= a for a, b in zip(departures, arrivals[1:])) and departures[-1] <= 48 * 3600, "departure after next arrival")
     count = len(trips["trip_id"])
+    check(isinstance(package.get("shapes"), list) and all(isinstance(shape, str) for shape in package["shapes"]), "invalid shapes")
     check(all(len(column) == count for column in trips.values()), "trip column length mismatch")
     check(len(set(trips["trip_id"])) == count, "duplicate trip_id")
     for index in range(count):
@@ -240,9 +248,19 @@ def validate_package(package):
         check(0 <= pattern < len(patterns) and 0 <= vector < len(vectors) and 0 <= trips["headsign"][index] < len(package["headsigns"]), "trip reference out of range")
         check(len(vectors[vector][0]) == len(patterns[pattern][0]), f"trip {trips['trip_id'][index]} vector/pattern length mismatch")
         check(0 <= trips["start"][index] <= 48 * 3600, f"trip {trips['trip_id'][index]} starts outside 0-48h")
+        check(0 <= trips["shape"][index] < len(package["shapes"]), "trip shape out of range")
     for frequency in package["frequencies"]:
         check(0 <= frequency[0] < count and frequency[1] < frequency[2] and frequency[3] > 0 and frequency[4] in (0, 1), "invalid frequency")
     return package
+
+
+CRC_MEMBERS = ("trips.txt", "stop_times.txt", "calendar.txt", "calendar_dates.txt", "routes.txt", "stops.txt")
+
+
+def source_crcs(zip_path):
+    """CRC-32 (8 hex digits) of the members a device compares against GTT's central directory."""
+    with zipfile.ZipFile(zip_path) as archive:
+        return {info.filename: f"{info.CRC:08x}" for info in archive.infolist() if info.filename in CRC_MEMBERS}
 
 
 def manifest_for(payload, package, source, checked_at, built_at, previous=()):
@@ -260,6 +278,9 @@ def manifest_for(payload, package, source, checked_at, built_at, previous=()):
         "source_zip_hash": source["sha256"],
         "source_last_modified": source.get("last_modified"),
         "source_etag": source.get("etag"),
+        # CRC-32 of the ZIP members, as listed in GTT's central directory: a device can compare them
+        # with a ~2 KB ranged read to confirm or refute that this package matches GTT's current export.
+        "source_crc32": source.get("crc32", {}),
         "upstream_checked_at": checked_at,
         "built_at": built_at,
         "attribution": ATTRIBUTION,

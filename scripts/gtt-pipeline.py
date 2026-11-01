@@ -132,6 +132,15 @@ def write_site(output, manifest, packages):
         "They are hashed for integrity, not signed.\n", encoding="utf-8")
 
 
+def write_flat(directory, manifest, packages):
+    """Release assets cannot contain '/': same manifest bytes, packages under their file names."""
+    directory.mkdir(parents=True, exist_ok=True)
+    gtt.check(not any(directory.iterdir()), "--release-output must be empty")
+    for path, data in packages.items():
+        (directory / pathlib.PurePosixPath(path).name).write_bytes(data)
+    (directory / "manifest.json").write_bytes(gtt.encode(manifest))
+
+
 def set_output(name, value):
     path = os.environ.get("GITHUB_OUTPUT")
     if path:
@@ -148,6 +157,7 @@ def main():
     parser.add_argument("--zip-last-modified", help="preserved Last-Modified (ISO 8601) from the --zip download response")
     parser.add_argument("--zip-checked-at", help="preserved time (ISO 8601) the --zip was retrieved from GTT; "
                         "without it the manifest records no upstream confirmation")
+    parser.add_argument("--release-output", help="also write a flat copy (manifest.json + gtt-<sha256>.json) for the GitHub Releases mirror")
     parser.add_argument("--bundle-dir", help="also write the APK bundle files (gtt-timetable*.json, gtt-stops.json, manifest.json gtt section)")
     parser.add_argument("--heartbeat-hours", type=float, default=20)
     parser.add_argument("--keep", type=int, default=2, help="previous packages kept beside the current one")
@@ -182,6 +192,7 @@ def main():
         if source is not None:
             package = gtt.build_package(zip_path)
             payload = gtt.encode(package)
+            source["crc32"] = gtt.source_crcs(zip_path)
 
     unchanged = source is None or (previous is not None and gtt.sha256(payload) == previous["package_hash"])
     if unchanged:
@@ -195,7 +206,8 @@ def main():
             return
         manifest = dict(previous, upstream_checked_at=checked_at or confirmed)
         if source is not None:
-            manifest.update(source_zip_hash=source["sha256"], source_etag=source["etag"], source_last_modified=source["last_modified"] or previous.get("source_last_modified"))
+            manifest.update(source_zip_hash=source["sha256"], source_etag=source["etag"], source_crc32=source["crc32"],
+                            source_last_modified=source["last_modified"] or previous.get("source_last_modified"))
         carried = carried_packages(previous, site_url, args.keep + 1)
         if not carried or carried[0][0]["package_hash"] != manifest["package_hash"]:
             raise SystemExit("current package could not be re-verified from the published site")
@@ -208,6 +220,8 @@ def main():
         packages = {manifest["package_path"]: payload, **{entry["package_path"]: data for entry, data in carried}}
         print(f"built {manifest['package_path']} ({len(payload)} bytes) from feed {manifest['feed_version']}: {manifest['counts']}")
     write_site(output, manifest, packages)
+    if args.release_output:
+        write_flat(pathlib.Path(args.release_output), manifest, packages)
     if args.bundle_dir:
         write_bundle(pathlib.Path(args.bundle_dir), manifest, packages[manifest["package_path"]], package)
     set_output("publish", "true")

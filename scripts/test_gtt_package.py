@@ -89,6 +89,20 @@ class CompactionTests(unittest.TestCase):
         self.assertEqual(package["feed"]["valid_from"], "20261020")
         self.assertEqual(len(package["patterns"]), 3, "T1/TLATE share a pattern; 5000 filler trips share one")
 
+    def test_shapes_and_source_crcs_support_identity_joins(self):
+        zip_path = synthetic_zip(self.dir / "shapes.zip", mutate=lambda files: files.update(
+            {"trips.txt": files["trips.txt"].replace("route_id,service_id,trip_id,trip_headsign,direction_id\n", "route_id,service_id,trip_id,trip_headsign,direction_id,shape_id\n")
+                          .replace("4U,ALL,T1,Gamma,0\n", "4U,ALL,T1,Gamma,0,4A\n").replace("4U,ALL,TLATE,Gamma,0\n", "4U,ALL,TLATE,Gamma,0,4A\n")}))
+        package = gtt.build_package(zip_path)
+        index = package["trips"]["trip_id"].index("T1")
+        self.assertEqual(package["shapes"][package["trips"]["shape"][index]], "4A")
+        self.assertEqual(package["schema_version"], 2)
+        crcs = gtt.source_crcs(zip_path)
+        with zipfile.ZipFile(zip_path) as archive:
+            self.assertEqual(crcs["trips.txt"], f"{archive.getinfo('trips.txt').CRC:08x}")
+        manifest = gtt.manifest_for(gtt.encode(package), package, {"sha256": "0" * 64, "crc32": crcs}, None, "2026-10-21T03:15:00Z")
+        self.assertEqual(manifest["source_crc32"], crcs)
+
     def test_encoding_is_deterministic_ascii(self):
         first = gtt.encode(self.build())
         second = gtt.encode(gtt.build_package(synthetic_zip(self.dir / "again.zip")))
@@ -218,6 +232,15 @@ class PipelineTests(unittest.TestCase):
         output, log = self.run_pipeline(previous=manifest, extra=("--zip", str(zip_path)))
         self.assertIn("publish=true", log)
         self.assertIsNone(json.loads((output / "manifest.json").read_text())["upstream_checked_at"])
+
+    def test_release_mirror_output_is_flat_with_the_same_manifest(self):
+        zip_path = synthetic_zip(self.dir / "flat.zip")
+        release = self.dir / "release"
+        output, _ = self.run_pipeline(previous=None, extra=("--zip", str(zip_path), "--release-output", str(release)))
+        manifest = json.loads((output / "manifest.json").read_text())
+        self.assertEqual((release / "manifest.json").read_bytes(), (output / "manifest.json").read_bytes())
+        self.assertEqual(sorted(path.name for path in release.iterdir()), sorted(["manifest.json", f"gtt-{manifest['package_hash']}.json"]))
+        self.assertEqual((release / f"gtt-{manifest['package_hash']}.json").read_bytes(), (output / manifest["package_path"]).read_bytes())
 
     def test_rejected_source_publishes_nothing(self):
         def blank_time(files):

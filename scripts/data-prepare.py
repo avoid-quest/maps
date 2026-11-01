@@ -32,7 +32,8 @@ def prepare_gtfs(path, last_modified=None, checked_at=None):
     package = gtt_package.build_package(path)
     encoded_package = gtt_package.encode(package)
     now = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-    source = {"sha256": sha256(payload), "etag": None, "last_modified": utc_iso(last_modified, "--gtfs-last-modified")}
+    source = {"sha256": sha256(payload), "etag": None, "last_modified": utc_iso(last_modified, "--gtfs-last-modified"),
+              "crc32": gtt_package.source_crcs(path)}
     manifest = gtt_package.manifest_for(encoded_package, package, source, utc_iso(checked_at, "--gtfs-checked-at"), now)
     return gtt_package.bundle_files(encoded_package, package, manifest), gtt_package.bundle_metadata(manifest)
 
