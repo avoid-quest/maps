@@ -53,3 +53,12 @@ export function createViewportStore(storage: ViewportStorage) {
     },
   };
 }
+
+/**
+ * Whether a passively settled camera (padding change, programmatic fit) may persist the viewport.
+ * After "Dimentica l'ultima vista" only a new deliberate camera choice may save again, so closing a
+ * sheet cannot silently recreate the forgotten view.
+ */
+export function mayPersistSettledView(state: { engaged: boolean; forgotten: boolean }): boolean {
+  return state.engaged && !state.forgotten;
+}

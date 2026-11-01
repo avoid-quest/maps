@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { TURIN_OVERVIEW } from './coordinates';
 import { createRecenterIntent } from './recenter-intent';
-import { createViewportStore, parseViewport, serializeViewport, VIEWPORT_KEY } from './viewport-store';
+import { createViewportStore, mayPersistSettledView, parseViewport, serializeViewport, VIEWPORT_KEY } from './viewport-store';
 
 test('Locate centres on the first fix even when the permission dialog suspended the request', () => {
   const intent = createRecenterIntent();
@@ -72,4 +72,10 @@ test('a fit away from the launch overview stops being labelled as the overview',
   assert.equal(movedFromOverview({ latitude: TURIN_OVERVIEW.center.latitude + 0.0002, longitude: TURIN_OVERVIEW.center.longitude }, TURIN_OVERVIEW.zoom + 0.1), false, 'settling jitter');
   assert.equal(movedFromOverview({ latitude: 45.062, longitude: 7.678 }, 15), true, 'framed results');
   assert.equal(movedFromOverview(TURIN_OVERVIEW.center, 14), true, 'zoomed in on the same centre');
+});
+
+test('a forgotten view is not recreated by passive camera settles', () => {
+  assert.equal(mayPersistSettledView({ engaged: true, forgotten: false }), true, 'programmatic fits persist once the user engaged');
+  assert.equal(mayPersistSettledView({ engaged: false, forgotten: false }), false, 'nothing persists before engagement');
+  assert.equal(mayPersistSettledView({ engaged: true, forgotten: true }), false, 'closing a sheet after "Dimentica l\'ultima vista" must not save again');
 });

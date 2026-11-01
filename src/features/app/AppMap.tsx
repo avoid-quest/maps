@@ -67,7 +67,7 @@ export function AppMap({ height, padding, attributionLeft, attributionTop }: {
         route={navigating ? navRoute : routeGeometry}
         routeFitKey={navigating ? undefined : planner.fitKey}
         resultFrame={navigating ? undefined : resultFrame}
-        onViewChanged={coordinate => camera.viewSettled(toCoordinate(coordinate))}
+        onViewChanged={(coordinate, zoom) => camera.viewSettled(toCoordinate(coordinate), zoom)}
         cameraPadding={padding}
         attributionLeft={attributionLeft}
         attributionTop={attributionTop}
