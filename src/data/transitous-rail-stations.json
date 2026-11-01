@@ -1,0 +1,310 @@
+{
+ "provider": "transitous",
+ "verifiedAt": "2026-11-01",
+ "dataset": "it_trenitalia.gtfs.zip",
+ "attribution": "BusOne (https://busone.app) and Trenitalia",
+ "sourcesUrl": "https://transitous.org/sources/",
+ "method": "Stop IDs, names and coordinates from one bounded GET https://api.transitous.org/api/v6/map/stops request over the Turin area (44.95,7.45 to 45.25,7.85); each ID then resolved by GET /api/v6/stoptimes (n=3) and returned Trenitalia departures on 2026-11-01. A station name equivalence also returns other operators at the same station (e.g. SNCF at Porta Susa). Coordinates are Transitous values, not surveyed positions.",
+ "excluded": [
+  {
+   "name": "Torino Dora",
+   "reason": "No rail stop in Transitous on 2026-11-01; geocode returned only regional-bus nodes."
+  },
+  {
+   "name": "Torino Zappata",
+   "reason": "No rail stop in Transitous on 2026-11-01."
+  },
+  {
+   "name": "Torino San Paolo",
+   "reason": "No rail stop in Transitous on 2026-11-01."
+  }
+ ],
+ "stations": [
+  {
+   "key": "torino-porta-nuova",
+   "name": "Torino Porta Nuova",
+   "transitousStopId": "it-trenitalia_00219",
+   "transitousName": "TORINO PORTA NUOVA",
+   "coordinate": {
+    "latitude": 45.060971,
+    "longitude": 7.677471
+   },
+   "transitousModes": [
+    "HIGHSPEED_RAIL",
+    "LONG_DISTANCE",
+    "NIGHT_RAIL",
+    "REGIONAL_RAIL",
+    "SUBURBAN",
+    "BUS"
+   ]
+  },
+  {
+   "key": "torino-porta-susa",
+   "name": "Torino Porta Susa",
+   "transitousStopId": "it-trenitalia_00222",
+   "transitousName": "TORINO PORTA SUSA",
+   "coordinate": {
+    "latitude": 45.074102,
+    "longitude": 7.667251
+   },
+   "transitousModes": [
+    "HIGHSPEED_RAIL",
+    "NIGHT_RAIL",
+    "REGIONAL_RAIL",
+    "SUBURBAN",
+    "BUS"
+   ]
+  },
+  {
+   "key": "torino-lingotto",
+   "name": "Torino Lingotto",
+   "transitousStopId": "it-trenitalia_00452",
+   "transitousName": "TORINO LINGOTTO",
+   "coordinate": {
+    "latitude": 45.026604,
+    "longitude": 7.65747
+   },
+   "transitousModes": [
+    "HIGHSPEED_RAIL",
+    "LONG_DISTANCE",
+    "NIGHT_RAIL",
+    "REGIONAL_RAIL",
+    "SUBURBAN",
+    "BUS"
+   ]
+  },
+  {
+   "key": "torino-rebaudengo-fossata",
+   "name": "Torino Rebaudengo Fossata",
+   "transitousStopId": "it-trenitalia_00060",
+   "transitousName": "Torino Reb.Foss.",
+   "coordinate": {
+    "latitude": 45.098367,
+    "longitude": 7.685623
+   },
+   "transitousModes": [
+    "REGIONAL_RAIL",
+    "SUBURBAN"
+   ]
+  },
+  {
+   "key": "torino-stura",
+   "name": "Torino Stura",
+   "transitousStopId": "it-trenitalia_00228",
+   "transitousName": "TORINO STURA",
+   "coordinate": {
+    "latitude": 45.121935,
+    "longitude": 7.713213
+   },
+   "transitousModes": [
+    "SUBURBAN"
+   ]
+  },
+  {
+   "key": "torino-grosseto",
+   "name": "Torino Grosseto",
+   "transitousStopId": "it-trenitalia_00097",
+   "transitousName": "Torino Grosseto",
+   "coordinate": {
+    "latitude": 45.10551,
+    "longitude": 7.66674
+   },
+   "transitousModes": [
+    "REGIONAL_RAIL",
+    "SUBURBAN"
+   ]
+  },
+  {
+   "key": "grugliasco",
+   "name": "Grugliasco",
+   "transitousStopId": "it-trenitalia_00059",
+   "transitousName": "Grugliasco",
+   "coordinate": {
+    "latitude": 45.068368,
+    "longitude": 7.599178
+   },
+   "transitousModes": [
+    "SUBURBAN"
+   ]
+  },
+  {
+   "key": "collegno",
+   "name": "Collegno",
+   "transitousStopId": "it-trenitalia_00217",
+   "transitousName": "COLLEGNO",
+   "coordinate": {
+    "latitude": 45.078852,
+    "longitude": 7.574138
+   },
+   "transitousModes": [
+    "SUBURBAN"
+   ]
+  },
+  {
+   "key": "alpignano",
+   "name": "Alpignano",
+   "transitousStopId": "it-trenitalia_00216",
+   "transitousName": "ALPIGNANO",
+   "coordinate": {
+    "latitude": 45.091078,
+    "longitude": 7.523752
+   },
+   "transitousModes": [
+    "SUBURBAN"
+   ]
+  },
+  {
+   "key": "moncalieri",
+   "name": "Moncalieri",
+   "transitousStopId": "it-trenitalia_00453",
+   "transitousName": "MONCALIERI",
+   "coordinate": {
+    "latitude": 44.998193,
+    "longitude": 7.678027
+   },
+   "transitousModes": [
+    "REGIONAL_RAIL",
+    "SUBURBAN",
+    "BUS"
+   ]
+  },
+  {
+   "key": "moncalieri-sangone",
+   "name": "Moncalieri Sangone",
+   "transitousStopId": "it-trenitalia_00510",
+   "transitousName": "MONCALIERI SANGONE",
+   "coordinate": {
+    "latitude": 45.000398,
+    "longitude": 7.667996
+   },
+   "transitousModes": [
+    "SUBURBAN"
+   ]
+  },
+  {
+   "key": "nichelino",
+   "name": "Nichelino",
+   "transitousStopId": "it-trenitalia_00511",
+   "transitousName": "NICHELINO",
+   "coordinate": {
+    "latitude": 44.991322,
+    "longitude": 7.642079
+   },
+   "transitousModes": [
+    "SUBURBAN"
+   ]
+  },
+  {
+   "key": "trofarello",
+   "name": "Trofarello",
+   "transitousStopId": "it-trenitalia_00455",
+   "transitousName": "TROFARELLO",
+   "coordinate": {
+    "latitude": 44.980469,
+    "longitude": 7.735206
+   },
+   "transitousModes": [
+    "REGIONAL_RAIL",
+    "SUBURBAN",
+    "BUS"
+   ]
+  },
+  {
+   "key": "chieri",
+   "name": "Chieri",
+   "transitousStopId": "it-trenitalia_00500",
+   "transitousName": "CHIERI",
+   "coordinate": {
+    "latitude": 45.007014,
+    "longitude": 7.827088
+   },
+   "transitousModes": [
+    "SUBURBAN"
+   ]
+  },
+  {
+   "key": "settimo-torinese",
+   "name": "Settimo Torinese",
+   "transitousStopId": "it-trenitalia_00229",
+   "transitousName": "SETTIMO",
+   "coordinate": {
+    "latitude": 45.13984,
+    "longitude": 7.769335
+   },
+   "transitousModes": [
+    "REGIONAL_RAIL",
+    "SUBURBAN"
+   ]
+  },
+  {
+   "key": "venaria-reale-rigola-stadio",
+   "name": "Venaria Reale Rigola Stadio",
+   "transitousStopId": "it-trenitalia_00084",
+   "transitousName": "Venaria Reale Rigola Stadio",
+   "coordinate": {
+    "latitude": 45.116684,
+    "longitude": 7.649186
+   },
+   "transitousModes": [
+    "REGIONAL_RAIL",
+    "SUBURBAN"
+   ]
+  },
+  {
+   "key": "venaria-reale-reggia",
+   "name": "Venaria Reale Reggia",
+   "transitousStopId": "it-trenitalia_00085",
+   "transitousName": "Venaria Reale Reggia",
+   "coordinate": {
+    "latitude": 45.132426,
+    "longitude": 7.634769
+   },
+   "transitousModes": [
+    "REGIONAL_RAIL",
+    "SUBURBAN"
+   ]
+  },
+  {
+   "key": "borgaro-torinese",
+   "name": "Borgaro Torinese",
+   "transitousStopId": "it-trenitalia_00086",
+   "transitousName": "Borgaro",
+   "coordinate": {
+    "latitude": 45.153039,
+    "longitude": 7.648796
+   },
+   "transitousModes": [
+    "REGIONAL_RAIL",
+    "SUBURBAN"
+   ]
+  },
+  {
+   "key": "caselle-torinese",
+   "name": "Caselle Torinese",
+   "transitousStopId": "it-trenitalia_00087",
+   "transitousName": "Caselle Torinese",
+   "coordinate": {
+    "latitude": 45.175619,
+    "longitude": 7.644844
+   },
+   "transitousModes": [
+    "REGIONAL_RAIL",
+    "SUBURBAN"
+   ]
+  },
+  {
+   "key": "torino-aeroporto-caselle",
+   "name": "Torino Aeroporto di Caselle",
+   "transitousStopId": "it-trenitalia_00088",
+   "transitousName": "Torino Aeroporto di Caselle",
+   "coordinate": {
+    "latitude": 45.19195,
+    "longitude": 7.641637
+   },
+   "transitousModes": [
+    "REGIONAL_RAIL",
+    "SUBURBAN"
+   ]
+  }
+ ]
+}
