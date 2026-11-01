@@ -73,7 +73,10 @@ export function useMapCamera(): MapCamera {
   const viewportRef = useRef<Coordinate>(TURIN_OVERVIEW.center);
   const zoomRef = useRef<number>(TURIN_OVERVIEW.zoom);
   const touched = useRef(false);
+  /** An explicit Locate centred the camera: user engagement. */
   const located = useRef(false);
+  /** A passive launch fix was adopted: blocks a late restore but is not engagement, so it is not saved. */
+  const adopted = useRef(false);
   // Set by forgetLastView; cleared only by a deliberate camera choice (pan, focus, Locate).
   const forgotten = useRef(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -95,7 +98,8 @@ export function useMapCamera(): MapCamera {
   useEffect(() => {
     let active = true;
     void viewportStore.load().then(stored => {
-      if (!active || !stored || touched.current || located.current) return;
+      // A late load never overrides a fix or a choice, nor resurrects a view the user just forgot.
+      if (!active || !stored || touched.current || located.current || adopted.current || forgotten.current) return;
       setCenter(stored.center); setCameraZoom(stored.zoom); setSearchCenter(stored.center); setView('restored');
     });
     return () => { active = false; };
@@ -111,7 +115,7 @@ export function useMapCamera(): MapCamera {
     },
     adoptInitialFix: (coordinate: Coordinate) => {
       if (touched.current) return;
-      located.current = true;
+      adopted.current = true;
       setCenter(coordinate); setCameraZoom(15); setSearchCenter(coordinate); setView('located');
     },
     searchHere: () => { setSearchCenter(viewportRef.current); setAreaChanged(false); },

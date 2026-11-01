@@ -20,7 +20,8 @@ export function TransitTimeForm({ value, onSubmit, disabled }: {
   const [{ kind, date, time }, updateDraft] = useReducer(transitTimeDraftReducer, value, createTransitTimeDraft);
   const [error, setError] = useState('');
   const colors = useThemeColors();
-  const hairlines = useHairlines();
+  // Editable fields need a 3:1 boundary (WCAG 1.4.11); the decorative hairline is about 1.2:1.
+  const inputBorder = { borderWidth: 1, borderColor: colors.textSecondary };
   function submit() {
     try {
       const next = draftTransitTime(kind, date.trim(), time.trim());
@@ -56,7 +57,7 @@ export function TransitTimeForm({ value, onSubmit, disabled }: {
                 inputMode="text"
                 maxLength={10}
                 placeholderTextColor={colors.textSecondary}
-                style={hairlines.box}
+                style={inputBorder}
                 className="min-h-12 min-w-0 rounded-xl px-3 py-2 font-mono text-base text-primary"
               />
             </View>
@@ -73,7 +74,7 @@ export function TransitTimeForm({ value, onSubmit, disabled }: {
                 returnKeyType="search"
                 onSubmitEditing={disabled ? undefined : submit}
                 placeholderTextColor={colors.textSecondary}
-                style={hairlines.box}
+                style={inputBorder}
                 className="min-h-12 min-w-0 rounded-xl px-3 py-2 font-mono text-base text-primary"
               />
             </View>

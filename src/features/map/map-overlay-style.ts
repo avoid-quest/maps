@@ -25,7 +25,9 @@ export function overlayPaint(map: MapColors): OverlayPaint {
     routeLine: { 'line-color': map.routeLine, 'line-width': 5 },
     markers: {
       'circle-radius': ['case', ['get', 'selected'], 12, 7],
-      'circle-color': ['case', ['==', ['get', 'kind'], 'stop'], map.stopMarker, map.placeMarker],
+      // A selected marker inverts to the normal stroke colour inside the selection ring, so the
+      // ring stays visible on every marker kind (a place fill equals the ring colour).
+      'circle-color': ['case', ['get', 'selected'], map.markerStroke, ['==', ['get', 'kind'], 'stop'], map.stopMarker, map.placeMarker],
       'circle-stroke-width': ['case', ['get', 'selected'], 4, 3],
       'circle-stroke-color': ['case', ['get', 'selected'], map.selectedMarkerStroke, map.markerStroke],
     },

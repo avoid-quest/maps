@@ -67,7 +67,8 @@ export function AppMap({ height, padding, attributionLeft, attributionTop }: {
         route={navigating ? navRoute : routeGeometry}
         routeFitKey={navigating ? undefined : planner.fitKey}
         resultFrame={navigating ? undefined : resultFrame}
-        onViewChanged={(coordinate, zoom) => camera.viewSettled(toCoordinate(coordinate), zoom)}
+        // Guidance follows the live position: those camera moves are never the saved browsing view.
+        onViewChanged={navigating ? undefined : (coordinate, zoom) => camera.viewSettled(toCoordinate(coordinate), zoom)}
         cameraPadding={padding}
         attributionLeft={attributionLeft}
         attributionTop={attributionTop}
