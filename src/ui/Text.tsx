@@ -1,4 +1,6 @@
+import { Children, type ReactNode } from "react";
 import { Text as NativeText, type TextProps } from "react-native";
+import { numericRuns } from "./numeric-runs";
 
 const explicitFamily = /(^|\s)font-(sans|mono|display)(\s|$)/;
 
@@ -11,9 +13,15 @@ export function Text({ className, ...props }: TextProps & { className?: string }
   return <NativeText className={explicitFamily.test(className ?? "") ? className : `font-sans ${className ?? ""}`} {...props} />;
 }
 
-/** Times, minutes, distances, stop codes and accuracy: Geist Mono with tabular figures. */
-export function Num({ className, style, ...props }: TextProps & { className?: string }) {
-  return <NativeText className={`font-mono ${className ?? ""}`} style={[{ fontVariant: ["tabular-nums"] }, style]} {...props} />;
+/**
+ * Times, minutes, distances, stop codes and accuracy: digits in Geist Mono with tabular figures;
+ * spaces, colons and units in Geist Sans so "64 m" and "23:33" stay tight (see numeric-runs.ts).
+ */
+export function Num({ className, style, children, ...props }: TextProps & { className?: string }) {
+  const parts = Children.toArray(children).flatMap((child): ReactNode[] => typeof child === "string" || typeof child === "number"
+    ? numericRuns(String(child)).map((run, index) => run.numeric ? run.text : <NativeText key={`${index}:${run.text}`} className="font-sans">{run.text}</NativeText>)
+    : [child]);
+  return <NativeText className={`font-mono ${className ?? ""}`} style={[{ fontVariant: ["tabular-nums"] }, style]} {...props}>{parts}</NativeText>;
 }
 
 /** Large display text: Mona Sans, heavy and tight (letter-spacing about -0.04 em). */
