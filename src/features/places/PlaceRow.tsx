@@ -5,7 +5,11 @@ import { Icon, ListRow, type IconName } from "../../ui";
 import { distanceFrom, type DistanceReference } from "../map/distance-reference";
 import { placeCategoryLabel } from "./category-label";
 
-function placeIcon(place: Place): IconName {
+export function placeIcon(place: Place): IconName {
+  if (place.kind === "address") return "home-outline";
+  if (place.kind === "street") return "trail-sign-outline";
+  if (place.kind === "area") return "map-outline";
+  if (place.category === "Fermata GTT") return "bus-outline";
   const label = `${place.name} ${place.category ?? ""}`.toLowerCase();
   return /bar|caff|caf|coffee/.test(label) ? "cafe-outline"
     : /shop|nego|cloth|abbigl/.test(label) ? "bag-handle-outline"

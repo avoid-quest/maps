@@ -3,6 +3,8 @@ import { Keyboard, type TextInput } from 'react-native';
 import type { SearchPolicy, SearchResult } from '../../domain/types';
 import { searchLocalResult, searchPlaces } from '../../services';
 import { searchPreferences } from '../../services/search-preferences';
+import { EMPTY_TRANSIT_SEARCH, searchTransit, type TransitSearch } from '../../services/transit-search';
+import { catalogVersion, subscribeCatalog } from '../../transit-data/stop-catalog';
 import { createFeatureContext } from '../app/feature-context';
 import type { SheetState } from '../app/sheet';
 import { rootTab, searchRoot } from '../app/task-model';
@@ -21,6 +23,8 @@ export interface Search {
   /** The term is long enough to show results. */
   hasSearch: boolean;
   result: SearchResult;
+  /** GTT stops and lines named by the typed text (bundled catalog, never sent anywhere). */
+  transit: TransitSearch;
   policy: SearchPolicy;
   searching: boolean;
   error: string;
@@ -38,6 +42,8 @@ export interface Search {
   clear(): void;
 }
 
+const catalogHash = () => catalogVersion().packageHash;
+
 /** Local results immediately, then online results when the search policy allows them. */
 export function useSearch({ tasks, camera, location, sheet, appActive, navigationVisible }: {
   tasks: TaskModel; camera: MapCamera; location: DeviceLocation; sheet: SheetState; appActive: boolean; navigationVisible: boolean;
@@ -51,6 +57,9 @@ export function useSearch({ tasks, camera, location, sheet, appActive, navigatio
   const searchCenter = camera.searchCenter;
   const preference = useSyncExternalStore(searchPreferences.subscribe, searchPreferences.getSnapshot, searchPreferences.getSnapshot);
   const policy: SearchPolicy = preference.ready && preference.preferenceKnown ? preference.policy : 'local-only';
+  const catalog = useSyncExternalStore(subscribeCatalog, catalogHash, catalogHash);
+  // Typed text only: a category shortcut never lists stops. Line stops are nearest the searched area.
+  const transit = useMemo(() => { void catalog; return query.trim().length ? searchTransit(query, searchCenter) : EMPTY_TRANSIT_SEARCH; }, [query, searchCenter, catalog]);
   const localResult = useMemo(() => searchLocalResult(query.trim() || category, searchCenter), [query, category, searchCenter]);
   const [completed, setCompleted] = useState<{ result: SearchResult; policy: SearchPolicy; local: SearchResult } | null>(null);
   const result = completed?.policy === policy && completed.local === localResult ? completed.result : localResult;
@@ -141,7 +150,7 @@ export function useSearch({ tasks, camera, location, sheet, appActive, navigatio
   }, [retry, location]);
   const clear = useCallback(() => { setQuery(''); dispatchFrame({ type: 'cancel' }); }, []);
   const frame = useMemo(() => frameState.pending ? { key: `results:${frameState.pending.revision}`, settled: frameState.pending.settled } : null, [frameState.pending]);
-  return { inputRef, query, category, term, hasSearch, result, policy, searching, error, frame, focus, changeQuery, chooseCategory, submit, retry, clear };
+  return { inputRef, query, category, term, hasSearch, result, transit, policy, searching, error, frame, focus, changeQuery, chooseCategory, submit, retry, clear };
 }
 
 export const [SearchProvider, useSearchContext] = createFeatureContext<Search>('Search');

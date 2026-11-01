@@ -1,23 +1,31 @@
 import { Linking, View } from "react-native";
 import { Text } from "../../ui/Text";
 import { useThemeColors } from "../../theme";
-import { Button, Disclosure, Display, Icon, IconButton, Notice, Num, SegmentedControl, useHairlines } from "../../ui";
+import { Button, Disclosure, Icon, ListRow, Notice, Num, SegmentedControl, useHairlines } from "../../ui";
 import { formatDistance } from "../../ui/format";
 import type { PlannerTask } from "../app/task-model";
-import { useMapContext } from "../map/useMapModel";
 import { useNavigationContext } from "../navigation/useNavigation";
 import { useTransitContext } from "../transit/useTransit";
-import { JourneyResults, TransitTimeForm } from "./JourneyPlanner";
+import { useFeedback } from "../app/feedback";
+import { EndpointEditor } from "./EndpointEditor";
+import { JourneyResults } from "./JourneyPlanner";
+import { PlannerEndpoints } from "./PlannerEndpoints";
+import { TransitTimeControl } from "./TransitTimeControl";
 import { journeyDate, journeyTime } from "./journey-presentation";
 import { TRAVEL_MODES } from "./travel-modes";
 import { usePlannerContext } from "./usePlanner";
 
 /** Route planning preview: origin, mode, time, alternatives and saving. */
 export function PlannerSheet({ task, now }: { task: PlannerTask; now: number }) {
+  if (task.editing) return <EndpointEditor endpoint={task.editing} current={task.editing === "origin" ? task.origin.place ?? null : task.destination} />;
+  return <PlannerPreview task={task} now={now} />;
+}
+
+function PlannerPreview({ task, now }: { task: PlannerTask; now: number }) {
   const colors = useThemeColors();
   const hairlines = useHairlines();
   const planner = usePlannerContext();
-  const { location, locate } = useMapContext();
+  const { openInOtherApp } = useFeedback();
   const navigation = useNavigationContext();
   const { openJourneyStop } = useTransitContext();
   const { route, plans, error, loading: routing, refresh, retainedSelection } = planner.routes;
@@ -28,17 +36,10 @@ export function PlannerSheet({ task, now }: { task: PlannerTask; now: number }) 
   return (
     <View className="gap-3 px-4 py-2">
       {navigation.error ? <Notice tone="danger" text={navigation.error} action="Impostazioni app" onAction={() => { void Linking.openSettings(); }} /> : null}
-      <View style={hairlines.bottom} className="flex-row items-center gap-1 pb-1">
-        <View className="min-w-0 flex-1 py-2">
-          <Text numberOfLines={1} className="text-sm text-secondary">Da: {task.origin.label}</Text>
-          <Display numberOfLines={1} size={20} className="mt-0.5 text-primary">{task.destination.name}</Display>
-        </View>
-        <IconButton icon="locate-outline" label="Parti dalla mia posizione" disabled={location.locating} onPress={locate} />
-        <IconButton icon="map-outline" label="Scegli la partenza sulla mappa" active={pickingOrigin} onPress={planner.pickOriginOnMap} />
-      </View>
+      <PlannerEndpoints task={task} />
       <SegmentedControl accessibilityLabel="Mezzo di trasporto" options={TRAVEL_MODES.map(item => ({ value: item.id, label: item.label, icon: item.icon }))} value={mode} onChange={planner.setMode} />
       {mode === "transit" ? (
-        <TransitTimeForm key={JSON.stringify(transitTime)} value={transitTime} disabled={routing || originPending || pickingOrigin} onSubmit={planner.submitTransitTime} />
+        <TransitTimeControl value={transitTime} disabled={originPending || pickingOrigin} onChange={planner.submitTransitTime} />
       ) : null}
       {pickingOrigin ? null : mode === "transit" && route ? (
         <JourneyResults plans={plans} selected={route} onSelect={planner.selectJourney} onRefresh={refresh} loading={routing} error={error}
@@ -79,6 +80,12 @@ export function PlannerSheet({ task, now }: { task: PlannerTask; now: number }) 
           )}
         </View>
       ) : null}
+      {pickingOrigin ? null : (
+        <View style={hairlines.top} className="-mx-4">
+          <ListRow kind="external" icon="map-outline" title="Apri in un’altra app" subtitle={`${task.destination.name} · Organic Maps o un’altra app di mappe`} divider={false}
+            accessibilityHint="Sceglie un’app sul dispositivo; nessun dato viene inviato a servizi" onPress={() => { void openInOtherApp(task.destination); }} />
+        </View>
+      )}
     </View>
   );
 }

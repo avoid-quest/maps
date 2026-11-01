@@ -37,16 +37,20 @@ export function AppMap({ height, padding, attributionLeft, attributionTop }: {
   const searchPlaces = search.result.places;
   const shownPlaces = useMemo(() => tab === "saved" ? places.saved : search.hasSearch ? searchPlaces : [], [tab, places.saved, search.hasSearch, searchPlaces]);
   const nearbyStops = transit.nearbyStops;
+  // A typed stop code or line leads the results; its stops are pinned and framed.
+  const leadStops = useMemo(() => tab === "explore" && search.hasSearch
+    ? search.transit.code ? [search.transit.code] : search.transit.line?.stops ?? [] : [], [tab, search.hasSearch, search.transit]);
   const markers = useMemo(() => taskMarkers(
-    tab === "transit" ? nearbyStops.map(stopMarker) : shownPlaces.map(placeMarker), selected, board,
-  ), [tab, nearbyStops, shownPlaces, selected, board]);
+    tab === "transit" ? nearbyStops.map(stopMarker) : [...leadStops.map(stopMarker), ...shownPlaces.map(placeMarker)], selected, board,
+  ), [tab, nearbyStops, leadStops, shownPlaces, selected, board]);
   // Submitted searches and category choices frame their settled results once (see MapCanvas).
   const frame = search.frame;
   const resultFrame = useMemo(() => {
     if (tab !== "explore" || !search.hasSearch || !frame) return undefined;
-    const ready = frame.settled && !selected && !board && searchPlaces.length > 0;
-    return { key: frame.key, ready, bounds: ready ? resultFrameBounds(searchPlaces.map(place => place.coordinate), camera.searchCenter) : null };
-  }, [tab, search.hasSearch, frame, selected, board, searchPlaces, camera.searchCenter]);
+    const coordinates = leadStops.length ? leadStops.map(stop => stop.coordinate) : searchPlaces.map(place => place.coordinate);
+    const ready = frame.settled && !selected && !board && coordinates.length > 0;
+    return { key: frame.key, ready, bounds: ready ? resultFrameBounds(coordinates, camera.searchCenter) : null };
+  }, [tab, search.hasSearch, frame, selected, board, searchPlaces, leadStops, camera.searchCenter]);
   const route = planner.routes.route;
   const routeGeometry = useMemo<LineString | null>(
     () => route && route.geometry.length > 1 ? { type: "LineString", coordinates: route.geometry.map(toMapCoordinate) } : null,
@@ -91,6 +95,8 @@ export function AppMap({ height, padding, attributionLeft, attributionTop }: {
             const next = nearbyStops.find((item) => item.id === id);
             if (next) transit.openStop(next);
           } else {
+            const stop = leadStops.find((item) => item.id === id);
+            if (stop) { transit.openStop(stop); return; }
             const next = shownPlaces.find((item) => item.id === id);
             if (next) places.openPlace(next);
           }

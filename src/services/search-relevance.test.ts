@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { searchLocalPlaces, searchLocalResult, searchPlaces, categoryLabel, createLocalPlaceSearch } from "./search";
+import { distanceMeters } from "./geo";
 import { createPlaceCatalog, placeCatalog, type PlaceCatalog, type CatalogPlace, type PlaceSearchEntry } from './place-catalog';
 const docks = { latitude: 45.0937, longitude: 7.6832 };
 
@@ -275,4 +276,96 @@ test("common food and shopping categories have useful Italian labels", () => {
   assert.equal(categoryLabel("bakery"), "Panetteria");
   assert.equal(categoryLabel("ice_cream_shop"), "Gelateria");
   assert.equal(categoryLabel("clothing_store"), "Abbigliamento");
+});
+
+const centre = { latitude: 45.0703, longitude: 7.6869 };
+const sanSalvario = { latitude: 45.05495, longitude: 7.68015 };
+const lingotto = { latitude: 45.02615, longitude: 7.64989 };
+
+test("multi-word queries match words across name, address, category and neighbourhood", () => {
+  const viaPo = searchLocalPlaces("farmacia via po", centre);
+  assert.ok(viaPo.length >= 4);
+  assert.ok(viaPo.slice(0, 4).every((place) => place.category === "pharmacy" && /^Via Po\b/i.test(place.address ?? "")), "pharmacies on Via Po lead");
+  assert.equal(viaPo[0]?.name, "Farmacia Po");
+  assert.deepEqual(searchLocalPlaces("farmacia in via po", centre).map((place) => place.id), viaPo.map((place) => place.id), "linking words are optional");
+
+  const bars = searchLocalPlaces("bar san salvario", centre);
+  assert.ok(bars.length >= 10);
+  for (const place of bars.slice(0, 10)) {
+    assert.ok(distanceMeters(place.coordinate, sanSalvario) <= 2000 || /san salvario/i.test(place.name), place.name);
+  }
+  assert.ok(!bars.some((place) => /Barbagusto|Baretti/i.test(`${place.name} ${place.address}`) && !/bar|cafe|coffee|pub/.test(place.category ?? "")),
+    "a category word is not a prefix of other names or streets");
+
+  const address = searchLocalPlaces("via nizza 230", centre);
+  assert.ok(address.length >= 10);
+  assert.ok(address.slice(0, 10).every((place) => /Via Nizza,? 230/i.test(place.address ?? "")), "the numbered address leads");
+  assert.ok(!searchLocalPlaces("via nizza 23", centre).slice(0, 10).some((place) => /Via Nizza,? 230/i.test(place.address ?? "")), "house numbers match exactly");
+});
+
+test("a neighbourhood alone is offered as an area, not a list of every business in it", () => {
+  const area = searchLocalPlaces("San Salvario", centre);
+  assert.equal(area[0]?.kind, "area");
+  assert.equal(area[0]?.name, "San Salvario");
+  assert.equal(area[0]?.attributions[0], "© OpenStreetMap contributors · ODbL");
+  assert.ok(area.slice(1).every((place) => /san salvario/i.test(`${place.name} ${place.address}`)));
+  assert.equal(searchLocalPlaces("Lingotto", centre)[0]?.kind, "area");
+  // Exact business names still lead over the neighbourhood reading of their words.
+  assert.equal(searchLocalPlaces("Rough San Salvario", centre)[0]?.name, "Rough San Salvario");
+  assert.equal(searchLocalPlaces("Da Mido", centre)[0]?.name, "Da Mido | San Salvario");
+});
+
+test("Eataly Lingotto: Photon is asked once with the typed words, then with the name near the neighbourhood", async () => {
+  // Public OSM objects returned by Photon on 2026-11-02 for "Eataly" biased to the Lingotto node.
+  const features = [
+    { geometry: { coordinates: [7.667453, 45.03535] }, properties: { osm_type: "W", osm_id: 96238045, osm_key: "shop", osm_value: "supermarket", type: "house", name: "Eataly", street: "Via Nizza", housenumber: "224", postcode: "10126", city: "Torino" } },
+    { geometry: { coordinates: [7.683867, 45.067292] }, properties: { osm_type: "N", osm_id: 1478015126, osm_key: "amenity", osm_value: "restaurant", type: "house", name: "Eataly Lagrange", street: "Via Giuseppe Luigi Lagrange", housenumber: "3", postcode: "10123", city: "Torino" } },
+  ];
+  assert.equal(searchLocalPlaces("Eataly Lingotto", centre).length, 0, "the local package has no Lingotto branch");
+  const original = global.fetch;
+  const urls: URL[] = [];
+  try {
+    global.fetch = async (input) => {
+      const url = new URL(String(input));
+      urls.push(url);
+      return Response.json({ features: url.searchParams.get("q") === "Eataly" ? features : [] });
+    };
+    const result = await searchPlaces("Eataly Lingotto", { center: centre, policy: "local-and-online" });
+    assert.deepEqual(urls.map((url) => url.searchParams.get("q")), ["Eataly Lingotto", "Eataly"]);
+    assert.equal(urls[0]!.searchParams.get("lat"), String(centre.latitude));
+    assert.equal(urls[1]!.searchParams.get("lat"), String(lingotto.latitude), "the retry is biased to the public neighbourhood node");
+    assert.deepEqual(result.places.map((place) => place.name), ["Eataly"], "answers outside the neighbourhood are dropped");
+    assert.equal(result.places[0]?.address, "Via Nizza 224, 10126 Torino");
+    assert.equal(result.places[0]?.kind, "place");
+    assert.ok(Math.abs(result.places[0]!.distanceMeters! - distanceMeters(centre, result.places[0]!.coordinate)) < 1, "distance from the search centre, not the bias");
+    // Cached for five minutes: the same search makes no new request.
+    await searchPlaces("Eataly Lingotto", { center: centre, policy: "local-and-online" });
+    assert.equal(urls.length, 2);
+  } finally { global.fetch = original; }
+});
+
+test("category, neighbourhood and stop words alone stay local; online answers are labelled as addresses, streets or areas", async () => {
+  const original = global.fetch;
+  let requests = 0;
+  try {
+    global.fetch = async () => {
+      requests += 1;
+      return Response.json({ features: [
+        { geometry: { coordinates: [7.6666, 45.0354] }, properties: { osm_type: "N", osm_id: 1, osm_key: "place", osm_value: "house", type: "house", street: "Via Nizza", housenumber: "230", postcode: "10126", city: "Torino" } },
+        { geometry: { coordinates: [7.67, 45.04] }, properties: { osm_type: "W", osm_id: 2, osm_key: "highway", osm_value: "secondary", type: "street", name: "Via Nizza", postcode: "10126", city: "Torino" } },
+        { geometry: { coordinates: [7.68, 45.055] }, properties: { osm_type: "N", osm_id: 3, osm_key: "place", osm_value: "suburb", type: "district", name: "San Salvario", city: "Torino" } },
+      ] });
+    };
+    await searchPlaces("bar san salvario", { center: centre, policy: "local-and-online" });
+    await searchPlaces("pizzeria a lingotto", { center: centre, policy: "local-and-online" });
+    // Stop codes and line names are answered from the bundled GTT catalog.
+    for (const query of ["472", "fermata 472", "M1", "linea 4", "10N"]) await searchPlaces(query, { center: centre, policy: "local-and-online" });
+    assert.equal(requests, 0);
+    const result = await searchPlaces("via nizza 230 online fixture", { center: centre, policy: "local-and-online" });
+    const byId = new Map(result.places.map((place) => [place.id, place]));
+    assert.deepEqual([byId.get("osm:N:1")?.kind, byId.get("osm:N:1")?.name, byId.get("osm:N:1")?.address], ["address", "Via Nizza 230", "10126 Torino"]);
+    assert.equal(byId.get("osm:W:2")?.kind, "street");
+    assert.equal(byId.get("osm:N:3")?.kind, "area");
+    assert.equal(requests, 1);
+  } finally { global.fetch = original; }
 });
