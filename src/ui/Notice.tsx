@@ -33,7 +33,8 @@ export function Notice({ text, tone = "info", title, action, onAction }: {
     <View style={tone === "info" ? hairlines.box : undefined} className={`flex-row items-start gap-3 rounded-2xl px-4 py-3 ${style.surface}`}>
       <View className="pt-0.5"><Icon name={style.icon} size={20} color={colors[style.color]} /></View>
       <View className="flex-1">
-        <View accessible accessibilityLabel={`${style.spoken}: ${title ? `${title}. ` : ""}${text}`} className="gap-0.5">
+        {/* A live region so TalkBack announces notices that appear or change after render. */}
+        <View accessible accessibilityLiveRegion={tone === "danger" ? "assertive" : "polite"} accessibilityLabel={`${style.spoken}: ${title ? `${title}. ` : ""}${text}`} className="gap-0.5">
           {title ? <Text className="text-base font-semibold text-primary">{title}</Text> : null}
           <Text className="text-sm leading-5 text-primary">{text}</Text>
         </View>

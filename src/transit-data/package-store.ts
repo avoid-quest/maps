@@ -104,16 +104,28 @@ export function createPackageStore(deps: { driver: SqlDriver; files: PackageFile
       if (/full|SQLITE_FULL|ENOSPC|disk/i.test(String((error as Error)?.message))) throw new PackageError('Spazio di archiviazione insufficiente per aggiornare gli orari.', 'storage');
       throw error;
     }
+    // Open the validated candidate before the registry switch, so a failure leaves registry and
+    // in-memory active package agreeing on the old one.
+    let next: Awaited<ReturnType<typeof openDataset>>;
+    try { next = await openDataset({ package_hash: manifest.package_hash, db_name: name, role: 'active', manifest: JSON.stringify(manifest), source }); } catch (error) {
+      await driver.remove(name).catch(() => undefined);
+      throw error;
+    }
     const registryDb = await openRegistry();
     const before = await rows();
     const retired = before.find(row => row.role === 'previous');
-    await registryDb.transaction(async () => {
-      await registryDb.run("DELETE FROM package WHERE role = 'previous'");
-      await registryDb.run("UPDATE package SET role = 'previous' WHERE role = 'active'");
-      await registryDb.run("INSERT INTO package (package_hash, db_name, role, installed_at, source, manifest) VALUES (?, ?, 'active', ?, ?, ?)", [manifest.package_hash, name, now(), source, JSON.stringify(manifest)]);
-    });
+    try {
+      await registryDb.transaction(async () => {
+        await registryDb.run("DELETE FROM package WHERE role = 'previous'");
+        await registryDb.run("UPDATE package SET role = 'previous' WHERE role = 'active'");
+        await registryDb.run("INSERT INTO package (package_hash, db_name, role, installed_at, source, manifest) VALUES (?, ?, 'active', ?, ?, ?)", [manifest.package_hash, name, now(), source, JSON.stringify(manifest)]);
+      });
+    } catch (error) {
+      await next.db.close().catch(() => undefined);
+      await driver.remove(name).catch(() => undefined);
+      throw error;
+    }
     if (retired) await driver.remove(retired.db_name).catch(() => undefined);
-    const next = await openDataset({ package_hash: manifest.package_hash, db_name: name, role: 'active', manifest: JSON.stringify(manifest), source });
     if (active) closeLater(active.db);
     active = next;
     return next;
@@ -131,7 +143,9 @@ export function createPackageStore(deps: { driver: SqlDriver; files: PackageFile
     if (current && active && active.meta.packageHash === current.package_hash) { const closing = active.db; active = undefined; await closing.close().catch(() => undefined); }
     if (current) await driver.remove(current.db_name).catch(() => undefined);
     if (!previous) return undefined;
-    try { return active = await openDataset({ ...previous, role: 'active' }); } catch {
+    try { return active = await openDataset({ ...previous, role: 'active' }); } catch (error) {
+      // As in open(): a transient error keeps the retained package (now registered active) for a retry.
+      if (!integrityFailure(error)) throw error;
       await registryDb.run('DELETE FROM package WHERE db_name = ?', [previous.db_name]);
       await driver.remove(previous.db_name).catch(() => undefined);
       return undefined;

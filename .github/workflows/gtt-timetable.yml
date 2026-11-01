@@ -3,8 +3,10 @@ name: GTT timetable
 # the package changed (or the upstream confirmation needs a heartbeat) to two optional mirrors:
 # GitHub Pages (primary) and the assets of ONE rolling prerelease tag `gtt-timetable` (mirror).
 # The prerelease is never marked "latest", so release trackers such as Obtainium keep following
-# the app's own releases. Requires Settings → Pages → Source: "GitHub Actions". No signing material
-# or secrets are used; the app works fully without either mirror.
+# the app's own releases. The Pages deployment is opt-in: set the repository variable
+# GTT_PAGES_ENABLED to 'true' after Settings → Pages → Source: "GitHub Actions"; without it only the
+# Releases mirror is updated. No signing material or secrets are used; the app works fully without
+# either mirror.
 on:
   schedule:
     # GTT republishes daily around 02:26 UTC.
@@ -36,7 +38,7 @@ jobs:
           --output _site/gtt
           --release-output _release
       - uses: actions/upload-pages-artifact@v3
-        if: steps.pipeline.outputs.publish == 'true'
+        if: steps.pipeline.outputs.publish == 'true' && vars.GTT_PAGES_ENABLED == 'true'
         with:
           path: _site
       - uses: actions/upload-artifact@v4
@@ -47,7 +49,8 @@ jobs:
           retention-days: 3
   deploy:
     needs: build
-    if: needs.build.outputs.publish == 'true'
+    # Opt-in: deploy-pages fails while Pages is not enabled for the repository.
+    if: needs.build.outputs.publish == 'true' && vars.GTT_PAGES_ENABLED == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

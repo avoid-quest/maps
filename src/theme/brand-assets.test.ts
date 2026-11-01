@@ -8,6 +8,7 @@ const root = new URL('../../', import.meta.url);
 test('in-app font notices reproduce every bundled OFL text unchanged', () => {
   const notices = JSON.parse(readFileSync(new URL('./font-notices.json', import.meta.url), 'utf8')) as { id: string; text: string; url: string }[];
   const licences = readdirSync(new URL('assets/fonts/LICENSES/', root));
+  assert.deepEqual(licences.sort(), ['Geist-OFL.txt', 'MonaSans-OFL.txt'], 'both bundled families keep their licence');
   assert.deepEqual(notices.map(notice => notice.id).sort(), licences.sort());
   for (const notice of notices) {
     assert.equal(notice.text, readFileSync(new URL(`assets/fonts/LICENSES/${notice.id}`, root), 'utf8'));

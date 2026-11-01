@@ -33,7 +33,8 @@ export function EndpointEditor({ endpoint, current }: { endpoint: PlannerEndpoin
   return (
     <View className="gap-2 py-2">
       <View className="px-4">
-        <View style={hairlines.floating} className="min-h-12 flex-row items-center rounded-full px-1">
+        {/* Editable fields need a 3:1 boundary (WCAG 1.4.11); the decorative hairline is about 1.2:1. */}
+        <View style={{ backgroundColor: hairlines.floating.backgroundColor, borderWidth: 1, borderColor: colors.textSecondary }} className="min-h-12 flex-row items-center rounded-full px-1">
           <IconButton icon="arrow-back" label="Torna al percorso" onPress={planner.closeEndpointEditor} />
           <TextInput
             autoFocus

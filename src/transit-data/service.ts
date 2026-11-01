@@ -74,6 +74,14 @@ export function createTimetableService(deps: {
     // A preference that could not be persisted would silently revert on restart: say so.
     await store.writeState(committed).catch(() => update({ lastError: 'Impossibile salvare le impostazioni degli orari sul dispositivo.' }));
   }
+  /**
+   * Without an opened dataset the persisted state was never read: writing now would replace it
+   * (the other preference and package evidence) with defaults. Apply in memory and say so.
+   */
+  async function setPreference(preference: Partial<Preferences>) {
+    if (await ready().then(() => true, () => false)) return save(status.refresh, {}, preference);
+    update({ refresh: { ...status.refresh, ...preference }, lastError: 'Impossibile salvare le impostazioni degli orari sul dispositivo.' });
+  }
   const activeMeta = (fallback: DatasetMeta) => store.active()?.meta ?? fallback;
 
   function ready() {
@@ -125,7 +133,8 @@ export function createTimetableService(deps: {
       const allowed = await deps.networkAllowed(state.wifiOnly).catch(() => !state.wifiOnly);
       if (!allowed) { update({ lastOutcome: 'skipped-network' }); return 'skipped-network'; }
     }
-    state = startedCheck(state, reason, now());
+    // Preferences may have changed during the network-type await: never revert them in memory.
+    state = startedCheck({ ...state, wifiOnly: status.refresh.wifiOnly, stopLive: status.refresh.stopLive }, reason, now());
     update({ checking: true, refresh: state });
     let manifest: PackageManifest | undefined; let etag: string | undefined; let mirror: TimetableMirror | undefined;
     try {
@@ -178,11 +187,11 @@ export function createTimetableService(deps: {
     subscribe(listener) { listeners.add(listener); return () => { listeners.delete(listener); }; },
     check(reason) {
       if (inFlight) return inFlight;
-      inFlight = run(reason).catch((): CheckOutcome => 'failed').finally(() => { inFlight = undefined; });
+      inFlight = run(reason).catch((): CheckOutcome => { update({ checking: false, lastOutcome: 'failed' }); return 'failed'; }).finally(() => { inFlight = undefined; });
       return inFlight;
     },
-    async setWifiOnly(value) { await ready().catch(() => undefined); await save(status.refresh, {}, { wifiOnly: value }); },
-    async setStopLive(value) { await ready().catch(() => undefined); await save(status.refresh, {}, { stopLive: value }); },
+    async setWifiOnly(value) { await setPreference({ wifiOnly: value }); },
+    async setStopLive(value) { await setPreference({ stopLive: value }); },
     async updatesAllowed() {
       await ready().catch(() => undefined);
       const wifiOnly = status.refresh.wifiOnly;

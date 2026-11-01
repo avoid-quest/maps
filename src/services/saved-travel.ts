@@ -292,11 +292,16 @@ function createSlot<T>(key: string, empty: T, parse: (raw: string) => T, seriali
   };
 }
 
+/** The dataset a saved stop came from; a blank feed_version (the format allows one) falls back to the package hash. */
+export function datasetLabel(version: { feedVersion: string; packageHash: string }): string {
+  return version.feedVersion.trim() || version.packageHash;
+}
+
 export function createSavedTravel(options: StoreOptions = {}) {
   const now = options.now ?? Date.now;
   // The installed (active) package's stops; saved stops record the package's feed version.
   const getStop = options.getStop ?? catalogStop;
-  const datasetVersion = () => options.datasetVersion ?? catalogVersion().feedVersion;
+  const datasetVersion = () => options.datasetVersion ?? datasetLabel(catalogVersion());
   function onFailure(state: SavedTravelFailureEvent) {
     try { options.onFailure?.(state); } catch { /* Diagnostics must not change persistence outcomes. */ }
   }

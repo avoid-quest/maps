@@ -2,6 +2,7 @@ import { identityKey, type PatternInfo, type TimetableReader, type TripIdentity,
 import { startSeconds, type RealtimeSnapshot, type TripUpdate } from './realtime';
 import type { RemapStore } from './remap';
 import { activeServiceIds, addDays, weekday } from './calendar';
+import { validDate } from './package-format';
 
 /**
  * Joins every TripUpdate of a feed to the installed timetable once per feed and package:
@@ -84,7 +85,7 @@ async function identityJoins(snapshot: RealtimeSnapshot, reader: TimetableReader
     for (const update of updates) {
       const start = startSeconds(update.trip?.startTime); const date = update.trip?.startDate;
       // Identity joins need the descriptor's own service date and first-departure time: no guessing.
-      if (start === undefined || !date || !/^\d{8}$/.test(date)) { result.rejected.mismatch++; continue; }
+      if (start === undefined || !validDate(date)) { result.rejected.mismatch++; continue; }
       pending.push({ update, identity: { routeId: target.routeId, direction: target.direction, shapeId: target.shapeId, start }, serviceId: target.serviceId, date });
     }
   }

@@ -8,10 +8,14 @@ import { addDays, romeCivilTimes, romeDate } from './calendar';
  * attached to a specific trip, and never replacing a trip-joined prediction.
  */
 const normalizeDirection = (text?: string) => (text ?? '').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Z0-9]+/g, ' ').trim();
-/** Same direction when one destination text starts with the other (GTT abbreviates either side). */
+/**
+ * Same direction when one destination's words begin the other's (GTT abbreviates either side).
+ * Whole words only: 'PORTA' must not match 'PORTANUOVA' and suppress a real passage.
+ */
 export function sameDirection(a?: string, b?: string): boolean {
   const [left, right] = [normalizeDirection(a), normalizeDirection(b)];
-  return !!left && !!right && (left.startsWith(right) || right.startsWith(left));
+  const begins = (text: string, prefix: string) => text === prefix || text.startsWith(prefix + ' ');
+  return !!left && !!right && (begins(left, right) || begins(right, left));
 }
 
 export const STOP_LIVE_SETTING = 'Tempo reale esteso dalla fermata (GTT)';

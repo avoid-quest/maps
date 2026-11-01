@@ -20,6 +20,7 @@ import email.utils
 import json
 import os
 import pathlib
+import re
 import sys
 import tempfile
 import urllib.error
@@ -102,8 +103,8 @@ def carried_packages(previous, site_url, keep):
     """Previously published packages, re-verified by hash so the site stays self-contained."""
     if not previous:
         return []
-    entries = [{"package_hash": previous["package_hash"], "package_path": previous["package_path"],
-                "feed_version": previous["feed_version"]}] + list(previous.get("previous", []))
+    entries = [published_entry(entry) for entry in [{"package_hash": previous["package_hash"], "package_path": previous["package_path"],
+                                                     "feed_version": previous["feed_version"]}] + list(previous.get("previous", []))]
     carried, seen = [], set()
     for entry in entries:
         if len(carried) >= keep or entry["package_hash"] in seen:
@@ -198,11 +199,16 @@ def main():
             payload = gtt.encode(package)
             source["crc32"] = gtt.source_crcs(zip_path)
 
-    # Never publish an older GTT source over a newer one, whatever the build time.
-    if source is not None and previous is not None and gtt.compare_source(
-            {"feed_version": package["feed"]["feed_version"], "source_zip_hash": source["sha256"], "source_last_modified": source.get("last_modified")}, previous) < 0:
-        raise SystemExit(f"refusing to publish source {package['feed']['feed_version']} older than the published {previous['feed_version']}")
     unchanged = source is None or (previous is not None and gtt.sha256(payload) == previous["package_hash"])
+    # Never publish an older GTT source over a newer one, whatever the build time. A different source
+    # that cannot be ordered would never be installed by devices (isUpgrade), so it fails closed too.
+    if source is not None and previous is not None:
+        order = gtt.compare_source(
+            {"feed_version": package["feed"]["feed_version"], "source_zip_hash": source["sha256"], "source_last_modified": source.get("last_modified")}, previous)
+        if order < 0:
+            raise SystemExit(f"refusing to publish source {package['feed']['feed_version']} older than the published {previous['feed_version']}")
+        if order == 0 and not unchanged and source["sha256"] != previous.get("source_zip_hash"):
+            raise SystemExit(f"refusing to publish changed source {package['feed']['feed_version']} that cannot be ordered after the published one")
     if unchanged:
         if previous is None:
             raise SystemExit("upstream unchanged but no published manifest exists; rerun with --no-previous")
@@ -249,11 +255,25 @@ def evidence_time(parser, value):
     return iso(moment.astimezone(datetime.timezone.utc).replace(microsecond=0))
 
 
+PACKAGE_HASH = re.compile(r"[0-9a-f]{64}")
+
+
+def published_entry(entry):
+    """A published package reference; its path is derived from a hash so it can never leave packages/."""
+    gtt.check(isinstance(entry, dict), "published package entry is not an object")
+    for key in ("package_hash", "package_path", "feed_version"):
+        gtt.check(isinstance(entry.get(key), str) and entry[key], f"published package entry lacks {key}")
+    gtt.check(PACKAGE_HASH.fullmatch(entry["package_hash"]) is not None, "published package hash is invalid")
+    gtt.check(entry["package_path"] == f"packages/gtt-{entry['package_hash']}.json", "published manifest path mismatch")
+    return entry
+
+
 def gtt_manifest(manifest):
     """Minimal structural validation of a published manifest before trusting its validators."""
-    for key in ("package_hash", "package_path", "feed_version"):
-        gtt.check(isinstance(manifest.get(key), str) and manifest[key], f"published manifest lacks {key}")
-    gtt.check(manifest["package_path"] == f"packages/gtt-{manifest['package_hash']}.json", "published manifest path mismatch")
+    published_entry(manifest)
+    gtt.check(isinstance(manifest.get("previous", []), list), "published manifest has an invalid previous list")
+    for entry in manifest.get("previous", []):
+        published_entry(entry)
     gtt.check(manifest.get("upstream_checked_at") is None or isinstance(manifest["upstream_checked_at"], str), "published manifest has an invalid confirmation time")
     return manifest
 

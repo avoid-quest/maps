@@ -10,12 +10,14 @@ import { usePlannerContext } from './usePlanner';
 export function PlannerEndpoints({ task }: { task: PlannerTask }) {
   const planner = usePlannerContext();
   const hairlines = useHairlines();
+  const colors = useThemeColors();
   const origin = task.originStep === 'locating' ? 'Cerco la tua posizione…'
     : task.originStep === 'picking' ? 'Tocca la mappa per la partenza'
       : task.origin.ready ? task.origin.label : ORIGIN_LABELS.unset;
   const canSwap = task.origin.ready && task.originStep === 'idle';
   return (
-    <View style={hairlines.box} className="flex-row items-center overflow-hidden rounded-2xl pr-1">
+    // The two fields are editable controls: a 3:1 outline (WCAG 1.4.11), a hairline between them.
+    <View style={{ borderWidth: 1, borderColor: colors.textSecondary }} className="flex-row items-center overflow-hidden rounded-2xl pr-1">
       <View className="min-w-0 flex-1">
         <EndpointField endpoint="origin" label="Da" value={origin} pending={!task.origin.ready || task.originStep !== 'idle'} onPress={() => planner.editEndpoint('origin')} />
         <View style={hairlines.top} className="ml-12" />

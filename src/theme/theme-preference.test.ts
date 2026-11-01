@@ -19,7 +19,7 @@ test('preference resolves against the system scheme only when following the syst
   for (const unknown of [null, undefined, 'unspecified']) assert.equal(resolveColorScheme('system', unknown), 'light');
   assert.equal(resolveColorScheme('dark', 'light'), 'dark');
   assert.equal(resolveColorScheme('light', 'dark'), 'light');
-  assert.deepEqual(themePreferenceOptions.map(option => option.label), ['Sistema', 'Chiaro', 'Scuro']);
+  assert.deepEqual(themePreferenceOptions, [{ value: 'system', label: 'Sistema' }, { value: 'light', label: 'Chiaro' }, { value: 'dark', label: 'Scuro' }]);
 });
 
 test('startup follows the system while hydration is pending, then restores a saved choice', async () => {

@@ -197,6 +197,11 @@ test('a damaged remap database is discarded and recreated; storage failures neve
   const writeFails = { ...createMemoryRemapStore(), replace: async () => { throw new Error('SQLITE_FULL'); }, reset: async () => { resets++; } };
   assert.equal((await createRemapService({ store: writeFails, transport: server(archive('y')).transport, url: 'zip' }).refresh('manual')).outcome, 'failed');
   assert.equal(resets, 2, 'a storage failure while saving discards the partial remap');
+  const memory = createMemoryRemapStore();
+  const throttled = createRemapService({ store: { ...memory, replace: async () => { throw new Error('SQLITE_FULL'); } }, transport: server(archive('z')).transport, url: 'zip' });
+  assert.equal((await throttled.refresh('unknown-trips')).outcome, 'failed');
+  assert.equal((await memory.readState()).failures, 1, 'the attempt survives the reset');
+  assert.equal((await throttled.refresh('unknown-trips')).outcome, 'throttled', 'no second download the same day');
   await store.reset();
 });
 
@@ -206,6 +211,7 @@ test('malformed or ambiguous remap rows reject the whole remap; CSV quoting must
     ['direction_id', trips => ({ 'trips.txt': strToU8(trips.replace(',0,b0,', ',north,b0,')) })],
     ['calendar.txt', () => ({ 'calendar.txt': strToU8('service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,start_date,end_date\nSVC0,1,1,1,1,1,0,0,20261231,20261001\n') })],
     ['calendar_dates.txt', () => ({ 'calendar_dates.txt': strToU8('service_id,date,exception_type\nSVC1,2026-11-02,1\n') })],
+    ['duplicate calendar_dates', () => ({ 'calendar_dates.txt': strToU8('service_id,date,exception_type\nSVC1,20261102,1\nSVC1,20261102,2\n') })],
   ];
   for (const [label, override] of cases) {
     let trips = TRIPS_HEADER;
@@ -218,6 +224,8 @@ test('malformed or ambiguous remap rows reject the whole remap; CSV quoting must
     assert.equal(await store.meta(), undefined, `${label}: nothing stored`);
   }
   assert.throws(() => csvRows(() => undefined)('a\n"open', true), /virgolette/);
+  assert.throws(() => csvRows(() => undefined)('a,b\nx"y,1\n', true), /virgolette/, 'a quote inside an unquoted field');
+  assert.throws(() => csvRows(() => undefined)('a,b\n"x"y,1\n', true), /virgolette/, 'text after a closing quote');
   // An empty deflated member is malformed.
   const empty = zipSync({ 'trips.txt': new Uint8Array(0) }, { level: 6 });
   const directory = await readCentralDirectory(server(empty).transport, 'zip');

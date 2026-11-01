@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { AA_NON_TEXT, AA_TEXT, contrastRatio, parseHex, rgbChannels } from './contrast';
 import { themeVariables } from './css-variables';
+import { overlayPaint } from '../features/map/map-overlay-style';
 import { kebabTokenName, palettes, themeColorNames, type ThemeColors } from './palette';
 
 const surfaces = ['chrome', 'surface', 'surfaceRaised', 'surfaceMuted'] as const;
@@ -57,6 +58,8 @@ for (const palette of Object.values(palettes)) {
     }
     assert.ok(contrastRatio(map.selectedMarkerStroke, map.background) >= AA_NON_TEXT, 'selection ring on basemap');
     assert.ok(contrastRatio(map.selectedMarkerStroke, map.markerStroke) >= AA_NON_TEXT, 'selection ring differs from the normal stroke');
+    const markers = overlayPaint(map).markers;
+    assert.deepEqual((markers['circle-color'] as unknown[]).slice(0, 3), ['case', ['get', 'selected'], map.markerStroke], 'a selected marker fills with the stroke colour inside its ring');
     assert.ok(contrastRatio(map.userLocation, map.userLocationStroke) >= AA_NON_TEXT, 'location dot on stroke');
     assert.ok(contrastRatio(map.labelText, map.labelHalo) >= AA_TEXT, 'label on halo');
   });

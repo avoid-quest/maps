@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Coordinate } from '../../domain/types';
 import { TURIN_OVERVIEW } from './coordinates';
-import { createViewportStore } from './viewport-store';
+import { createViewportStore, mayPersistSettledView } from './viewport-store';
 
 /** What the camera currently shows, so a fallback is never presented as the user's position. */
 export type CameraView = 'overview' | 'restored' | 'located' | 'chosen';
@@ -73,7 +73,12 @@ export function useMapCamera(): MapCamera {
   const viewportRef = useRef<Coordinate>(TURIN_OVERVIEW.center);
   const zoomRef = useRef<number>(TURIN_OVERVIEW.zoom);
   const touched = useRef(false);
+  /** An explicit Locate centred the camera: user engagement. */
   const located = useRef(false);
+  /** A passive launch fix was adopted: blocks a late restore but is not engagement, so it is not saved. */
+  const adopted = useRef(false);
+  // Set by forgetLastView; cleared only by a deliberate camera choice (pan, focus, Locate).
+  const forgotten = useRef(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const setCenter = useCallback((next: Coordinate) => {
     viewportRef.current = next;
@@ -93,7 +98,8 @@ export function useMapCamera(): MapCamera {
   useEffect(() => {
     let active = true;
     void viewportStore.load().then(stored => {
-      if (!active || !stored || touched.current || located.current) return;
+      // A late load never overrides a fix or a choice, nor resurrects a view the user just forgot.
+      if (!active || !stored || touched.current || located.current || adopted.current || forgotten.current) return;
       setCenter(stored.center); setCameraZoom(stored.zoom); setSearchCenter(stored.center); setView('restored');
     });
     return () => { active = false; };
@@ -101,20 +107,20 @@ export function useMapCamera(): MapCamera {
   const actions = useMemo(() => ({
     viewport: () => viewportRef.current,
     touch: () => { touched.current = true; },
-    focus: (coordinate: Coordinate) => { touched.current = true; setCameraZoom(15); setCenter(coordinate); setView('chosen'); scheduleSave(); },
+    focus: (coordinate: Coordinate) => { touched.current = true; forgotten.current = false; setCameraZoom(15); setCenter(coordinate); setView('chosen'); scheduleSave(); },
     moveTo: setCenter,
     centerOnFix: (coordinate: Coordinate) => {
-      located.current = true;
+      located.current = true; forgotten.current = false;
       setCenter(coordinate); setCameraZoom(15); setSearchCenter(coordinate); setAreaChanged(false); setView('located'); scheduleSave();
     },
     adoptInitialFix: (coordinate: Coordinate) => {
       if (touched.current) return;
-      located.current = true;
+      adopted.current = true;
       setCenter(coordinate); setCameraZoom(15); setSearchCenter(coordinate); setView('located');
     },
     searchHere: () => { setSearchCenter(viewportRef.current); setAreaChanged(false); },
     userMoved: (coordinate: Coordinate, nextZoom?: number) => {
-      touched.current = true;
+      touched.current = true; forgotten.current = false;
       viewportRef.current = coordinate;
       if (nextZoom !== undefined && Number.isFinite(nextZoom)) zoomRef.current = nextZoom;
       setView('chosen');
@@ -129,13 +135,13 @@ export function useMapCamera(): MapCamera {
       // A fit to results or a route away from the launch overview is no longer "Panoramica di Torino".
       if (movedFromOverview(coordinate, zoomRef.current)) setView(current => current === 'overview' ? 'chosen' : current);
       // Programmatic fits are what the user last saw too; persist them once the user has engaged.
-      if (touched.current || located.current) scheduleSave();
+      if (mayPersistSettledView({ engaged: touched.current || located.current, forgotten: forgotten.current })) scheduleSave();
     },
     stopFollowing: () => setFollowing(false),
     follow: () => setFollowing(true),
     recenterGuidance: () => { setFollowing(true); setRevision(value => value + 1); },
     frameRoute: () => setFrameRevision(value => value + 1),
-    forgetLastView: () => { clearTimeout(saveTimer.current); return viewportStore.clear(); },
+    forgetLastView: () => { forgotten.current = true; clearTimeout(saveTimer.current); return viewportStore.clear(); },
   }), [setCenter, setCameraZoom, setSearchCenter, scheduleSave]);
   return { center, zoom, revision, searchCenter, areaChanged, following, frameRevision, view, viewCenter, ...actions };
 }

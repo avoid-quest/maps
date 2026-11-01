@@ -1,5 +1,5 @@
 import type { CalendarException, CalendarRow } from './calendar';
-import { decodeVector, PackageError, type TimetablePackage } from './package-format';
+import { decodeVector, PackageError, validateManifest, type PackageManifest, type TimetablePackage } from './package-format';
 import type { DatasetMeta, PatternInfo, RouteInfo, StopInfo, StopVisit, TimetableReader, TimingVector, TripInfo } from './reader';
 import { placeholders, type SqlDatabase, type SqlValue } from './sql';
 
@@ -75,9 +75,13 @@ export async function readMeta(db: SqlDatabase): Promise<DatasetMeta> {
   const values = Object.fromEntries(rows.map(row => [row.key, row.value]));
   if (values.db_schema_version !== String(DB_SCHEMA_VERSION) || !values.package_hash || !values.manifest
     || !Number.isFinite(Number(values.max_trip_seconds)) || !Number.isFinite(Number(values.max_event_seconds))) throw new PackageError('Database orari incompleto.');
+  // A damaged manifest is integrity evidence (PackageError), so startup rolls back instead of failing.
+  let manifest: PackageManifest;
+  try { manifest = validateManifest(JSON.parse(values.manifest)); } catch { throw new PackageError('Manifest del database orari non valido.'); }
+  if (manifest.package_hash !== values.package_hash) throw new PackageError('Manifest del database orari non valido.');
   return {
     packageHash: values.package_hash, feedVersion: values.feed_version ?? '', validFrom: values.valid_from ?? '', validTo: values.valid_to ?? '',
-    maxTripSeconds: Number(values.max_trip_seconds), maxEventSeconds: Number(values.max_event_seconds), source: values.source === 'bundled' ? 'bundled' : 'downloaded', manifest: JSON.parse(values.manifest),
+    maxTripSeconds: Number(values.max_trip_seconds), maxEventSeconds: Number(values.max_event_seconds), source: values.source === 'bundled' ? 'bundled' : 'downloaded', manifest,
   };
 }
 

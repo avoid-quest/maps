@@ -263,6 +263,41 @@ test('a check completing after a preference change never restores the old prefer
   assert.equal((await store.readState()).stopLive, false, 'persisted');
 });
 
+test('a preference changed while the network type is looked up is not reverted', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gtt-service-'));
+  const pkg = fixturePackage(); const text = encodePackage(pkg); const manifest = fixtureManifest(text, pkg);
+  const store = createPackageStore({ driver: createBunDriver(path.join(directory, 'db')), files: createTestFiles(path.join(directory, 'files'), new Map()), sha256, bundled: { manifest, load: async () => text }, closeLater: db => void db.close() });
+  let allow!: (value: boolean) => void;
+  const fetch = (async () => new Response(JSON.stringify(manifest), { status: 200 })) as unknown as typeof globalThis.fetch;
+  const service = createTimetableService({ store, fetch, mirrors: [{ base: BASE, layout: 'tree' }], now: () => rome('20261021', '08:00'),
+    networkAllowed: () => new Promise<boolean>(resolve => { allow = resolve; }) });
+  await service.ready();
+  const pending = service.check('manual');
+  await new Promise(resolve => setTimeout(resolve, 0));
+  await service.setStopLive(true);
+  allow(true);
+  await pending;
+  assert.equal(service.status().refresh.stopLive, true);
+});
+
+test('a preference set while the dataset cannot open never overwrites the stored state', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gtt-service-'));
+  const pkg = fixturePackage(); const text = encodePackage(pkg); const manifest = fixtureManifest(text, pkg);
+  const store = createPackageStore({ driver: createBunDriver(path.join(directory, 'db')), files: createTestFiles(path.join(directory, 'files'), new Map()), sha256, bundled: { manifest, load: async () => text }, closeLater: db => void db.close() });
+  await store.open();
+  await store.writeState({ ...INITIAL_REFRESH_STATE, wifiOnly: true, stopLive: true });
+  let writes = 0;
+  const broken = { ...store, open: async () => { throw new Error('SQLITE_BUSY'); }, writeState: async () => { writes++; } } as typeof store;
+  const service = createTimetableService({ store: broken, fetch: globalThis.fetch, mirrors: [] });
+  await service.setWifiOnly(false);
+  assert.equal(writes, 0, 'defaults are not persisted over the stored state');
+  assert.equal(service.status().refresh.wifiOnly, false, 'the choice applies for this session');
+  assert.match(service.status().lastError ?? '', /Impossibile salvare/);
+  assert.equal(await service.check('manual'), 'failed');
+  assert.equal(service.status().lastOutcome, 'failed', 'status agrees with the check outcome');
+  assert.equal((await store.readState()).stopLive, true);
+});
+
 test('service robustness: throttled outcome, clock skew, stalled body, malformed state, persistence errors', async () => {
   // Throttled checks report their outcome.
   const env = setup();

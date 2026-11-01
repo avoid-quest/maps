@@ -282,6 +282,24 @@ class PipelineTests(unittest.TestCase):
         fresh.fetch_bytes = gone
         self.assertEqual(fresh.carried_packages(newer, self.SITE, 2), [])
 
+    def test_changed_source_that_cannot_be_ordered_fails_closed(self):
+        first = self.publish(self.run_pipeline(previous=None, source_zip=synthetic_zip(self.dir / "a.zip"))[0])
+        same_version = synthetic_zip(self.dir / "b.zip", trips=5001)
+        with self.assertRaisesRegex(SystemExit, "cannot be ordered"):
+            self.run_pipeline(previous=first, source_zip=same_version)
+
+    def test_published_package_paths_are_validated_before_use(self):
+        first = self.publish(self.run_pipeline(previous=None, source_zip=synthetic_zip(self.dir / "a.zip"))[0])
+        bad_hash = "../" + "0" * 61
+        tampered = dict(first, previous=[{"package_hash": bad_hash, "package_path": f"packages/gtt-{bad_hash}.json", "feed_version": "1"}])
+        with self.assertRaises(gtt.PackageError):
+            self.pipeline.gtt_manifest(tampered)
+        fetched = []
+        self.pipeline.fetch_bytes = lambda url: fetched.append(url) or b""
+        with self.assertRaises(gtt.PackageError):
+            self.pipeline.carried_packages(tampered, self.SITE, 3)
+        self.assertEqual(fetched, [], "nothing is fetched or written for an invalid path")
+
     def test_last_modified_round_trips_between_http_and_iso(self):
         self.assertEqual(self.pipeline.http_date_to_iso("Sun, 01 Nov 2026 02:26:59 GMT"), "2026-11-01T02:26:59Z")
         self.assertEqual(self.pipeline.iso_to_http_date("2026-11-01T02:26:59Z"), "Sun, 01 Nov 2026 02:26:59 GMT")

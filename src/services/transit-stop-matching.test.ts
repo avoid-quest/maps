@@ -58,6 +58,11 @@ test('journey stop matching follows the active package catalog; the newest adopt
     assert.equal(catalogVersion().packageHash, other.meta.packageHash, 'a slower, older adoption cannot overwrite the newer one');
     const alfa = { id: 'mato:gtt:101', code: '101', name: 'Alfa', coordinate: { latitude: 45.07, longitude: 7.68 } };
     assert.equal(matchJourneyStop(alfa)?.id, 'A', 'resolved against the adopted package');
+    // Rolling back to the package already shown cancels a pending adoption of another one.
+    const pending = adoptCatalog({ ...slow, meta: fixture.meta });
+    await adoptCatalog(other);
+    await pending;
+    assert.equal(catalogVersion().packageHash, other.meta.packageHash, 'the latest request (the current package) wins');
   } finally {
     await adoptCatalog((await timetableService.current()).reader);
   }

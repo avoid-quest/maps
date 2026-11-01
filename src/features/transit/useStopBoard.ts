@@ -51,15 +51,17 @@ export function useStopBoard({ stopId, active }: { stopId?: string; active: bool
     if (shownHash.current && packageHash && shownHash.current !== packageHash) setGeneration(value => value + 1);
     if (packageHash) shownHash.current = packageHash;
   }, [packageHash]);
+  // Rows from the previous package must never survive into the new one (a stop may be absent
+  // there), so the board's resource identity includes the package generation.
+  const boardKey = identity ? `${identity}\u0000${generation}` : '';
   useLayoutEffect(() => {
-    void generation;
-    updateArrivals({ type: 'identity', identity });
+    updateArrivals({ type: 'identity', identity: boardKey });
     updateAlerts({ type: 'identity', identity });
     if (!identity) return;
     const scheduled = new AbortController();
     // Scheduled-first: the local timetable renders before any network request completes.
     void getScheduledBoard(identity, { signal: scheduled.signal })
-      .then(data => { if (!scheduled.signal.aborted) updateArrivals({ type: 'placeholder', identity, data }); })
+      .then(data => { if (!scheduled.signal.aborted) updateArrivals({ type: 'placeholder', identity: boardKey, data }); })
       .catch(() => undefined);
     const next = {
       arrivals: createActiveRefresh({
@@ -68,13 +70,13 @@ export function useStopBoard({ stopId, active }: { stopId?: string; active: bool
           const board = await getStopBoard(identity, { signal });
           return { value: board, fetchedAt: board.realtime.retrievedAt ?? board.generatedAt };
         },
-        onSuccess: data => updateArrivals({ type: 'success', identity, data }),
+        onSuccess: data => updateArrivals({ type: 'success', identity: boardKey, data }),
         onError: error => {
           // Realtime failed: keep fresh scheduled rows while the controller backs off.
-          if (error instanceof RealtimeUnavailableError) updateArrivals({ type: 'success', identity, data: error.board });
-          updateArrivals({ type: 'failure', identity, error: error instanceof Error ? error.message : 'Arrivi non disponibili.' });
+          if (error instanceof RealtimeUnavailableError) updateArrivals({ type: 'success', identity: boardKey, data: error.board });
+          updateArrivals({ type: 'failure', identity: boardKey, error: error instanceof Error ? error.message : 'Arrivi non disponibili.' });
         },
-        onLoadingChange: loading => updateArrivals({ type: 'loading', identity, loading }),
+        onLoadingChange: loading => updateArrivals({ type: 'loading', identity: boardKey, loading }),
       }),
       alerts: createActiveRefresh({
         intervalMs: REFRESH_INTERVALS.alerts,
@@ -97,7 +99,7 @@ export function useStopBoard({ stopId, active }: { stopId?: string; active: bool
       for (const controller of Object.values(next)) controller.dispose();
       if (controllers.current === next) controllers.current = null;
     };
-  }, [identity, generation]);
+  }, [identity, boardKey]);
   useLayoutEffect(() => {
     if (controllers.current) for (const controller of Object.values(controllers.current)) controller.setActive(active);
   }, [active, identity]);
@@ -113,7 +115,7 @@ export function useStopBoard({ stopId, active }: { stopId?: string; active: bool
   const setStopLive = useCallback((value: boolean) => {
     void timetableService.setStopLive(value).then(() => controllers.current?.arrivals.refresh());
   }, []);
-  const board = visibleResource(arrivals, identity);
+  const board = visibleResource(arrivals, boardKey);
   const notices = visibleResource(alerts, identity);
   return {
     board: board.data, alerts: notices.data,

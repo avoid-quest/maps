@@ -83,7 +83,9 @@ export function useSearch({ tasks, camera, location, sheet, appActive, navigatio
     const settleFrame = () => { if (pendingFrame) dispatchFrame({ type: 'settled', revision: pendingFrame }); };
     if (!preference.ready || policy === 'local-only') {
       setSearching(false);
-      settleFrame();
+      // Until the stored preference is known (it always resolves, also on storage failure) an
+      // online search may still follow: keep the one-shot frame for the results that answer it.
+      if (preference.ready) settleFrame();
       return () => { unsubscribe(); controller.abort(); };
     }
     setSearching(true);

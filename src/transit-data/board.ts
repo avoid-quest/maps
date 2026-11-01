@@ -58,7 +58,8 @@ function toRow(event: ScheduledEvent, prediction: Prediction, context: {
     stop: context.stop,
     ...(scheduledAt !== undefined ? { scheduledAt } : {}),
     ...(detail === 'fresh' ? { predictedAt: prediction.predictedAt } : detail === 'stale' ? { providerTimeAt: prediction.predictedAt } : {}),
-    timeBasis: predicted && prediction.propagated ? 'propagated' : neutral.basis,
+    // A stale report without a usable prediction (e.g. an aged cancellation) shows only the scheduled time.
+    timeBasis: predicted && prediction.propagated ? 'propagated' : !predicted && neutral.basis === 'predicted' ? 'scheduled' : neutral.basis,
     realtimeState: neutral.state,
     tripCancelled: detail === 'cancelled',
     tripRef: `gtt:${event.trip.tripId}:${event.serviceDate}`,
