@@ -34,6 +34,16 @@ The basemap follows the resolved appearance: OpenFreeMap Liberty in light, OpenF
 
 Build screens from `src/ui`: Button (primary, secondary, quiet), IconButton (48 dp, required label), ListRow, Chip and SegmentedControl, SectionHeader, SheetHeader, Notice (info, caution, danger, success; icon and wording, never colour alone) and TransitLineBadge. Line badges use the operator's route colour when supplied, with an AA text fallback, and distinct shapes and glyphs for metro, tram, bus and rail. GTT departures carry only line names, so only the metro (`M1`) is classified. Body text is 16 sp; departure times are larger tabular numerals. In a stop sheet, departures come first and saving is an icon action.
 
+## Brand
+
+The app belongs to the avoid.quest family. Launcher name: **avoid maps** (development: **avoid maps dev**). Wordmark: `maps.avoid.quest` in Geist Mono, lowercase, in About within Privacy e fonti.
+
+- **Colour:** pure black chrome (`chrome`, the window, system bars and guidance bar) over near-black zinc surfaces. White is the only accent: the primary action is a white pill with black text. Light mirrors this with off-white surfaces and a black pill. Colour carries meaning only: signal green for live/verified, amber for caution and stale data, red for disruption and cancellations. Everything else is greyscale; transit line colours appear only on small badges. Every state keeps its text label.
+- **Type:** Geist Sans for UI text (16 sp body), Geist Mono with tabular figures for times, minutes, distances, stop codes and accuracy, and Mona Sans (heavy, letter-spacing about −0.04 em) for sheet titles, departure minutes and the next-turn distance. Use `Text`, `Num` and `Display` from `src/ui`; a test rejects `Text` imported directly from React Native. Font scaling stays enabled.
+- **Minimalism:** hairline dividers instead of cards, few filled surfaces and no decorative shadows. Lists read like a departure board: badge or glyph, then name, then a right-aligned mono value.
+- **Live switches:** pressable surfaces and dividers take colours inline from `useThemeColors()` (`src/ui/control-styles.ts`, `useHairlines()`). Android did not repaint NativeWind colour classes on `Pressable` after a live scheme change. A test rejects colour classes on pressables and `border-divider`.
+- **Mark:** `assets/brand/mark.svg` adapts the avoid.quest sun disc cut by two horizon lines, bolder for launcher sizes. `scripts/render-brand-assets.mjs` renders the icon, adaptive foreground, Android 13+ themed (monochrome) layer, splash icon and favicon reproducibly. The Android 12+ splash masks its icon to a circle, so the splash shows the mark only, on black.
+
 ## Stable geometry and camera intent
 
 Keep one map mounted across browsing, sheet expansion and navigation. Small inset task cards overlay that viewport at a compact height or an explicitly expanded height; keyboard resizing may reduce the sheet's available space while preserving the map. Status, loading and error updates change content inside reserved regions. Anchor route actions outside scrolling details, and keep navigation instruction, trip summary, Retry and Stop geometry independent of position quality.
