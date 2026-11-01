@@ -150,15 +150,19 @@ export const basemapInks: Record<ColorScheme, BasemapInk> = {
 };
 
 /**
- * Category words for the amenities a pedestrian looks for. Shown under the name, or alone when the
- * feature is unnamed (most toilets and drinking fountains), so the category never depends on colour.
+ * Category words for the amenities a pedestrian looks for, keyed by the OpenMapTiles POI `subclass` (the
+ * OSM tag value). Shown under the name, or alone when the feature is unnamed (most toilets and drinking
+ * fountains), so the category never depends on colour. Matching `subclass` rather than `class` keeps
+ * siblings out: `bar/nightclub` is not a bar and `fast_food/food_court` is not a fast-food outlet.
+ * `shop/chemist` is deliberately absent: in Italy it is a drugstore, not a pharmacy (`amenity=pharmacy`).
  */
 export const poiCategoryLabels: Record<string, string> = {
   restaurant: 'Ristorante',
   fast_food: 'Fast food',
   cafe: 'Caffè',
   bar: 'Bar',
-  beer: 'Pub',
+  pub: 'Pub',
+  biergarten: 'Pub',
   ice_cream: 'Gelateria',
   bakery: 'Panetteria',
   pharmacy: 'Farmacia',
@@ -169,8 +173,9 @@ export const poiCategoryLabels: Record<string, string> = {
 /** Local names: Turin's labels read "Torino" and "Duomo di Torino", matching Italian search results. */
 const localName = ['get', 'name'];
 const poiClass = ['get', 'class'];
-const category = ['match', poiClass, ...Object.entries(poiCategoryLabels).flat(), ''];
-const hasCategory = ['match', poiClass, Object.keys(poiCategoryLabels), true, false];
+const poiSubclass = ['get', 'subclass'];
+const category = ['match', poiSubclass, ...Object.entries(poiCategoryLabels).flat(), ''];
+const hasCategory = ['match', poiSubclass, Object.keys(poiCategoryLabels), true, false];
 const transitStop = ['all', ['match', poiClass, ['bus', 'railway'], true, false], ['match', ['get', 'subclass'], ['bus_stop', 'bus_station', 'tram_stop'], true, false]];
 const station = ['all', ['==', poiClass, 'railway'], ['match', ['get', 'subclass'], ['station', 'halt', 'subway'], true, false]];
 const transitClass = ['match', poiClass, ['bus', 'railway'], true, false];

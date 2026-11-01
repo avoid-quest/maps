@@ -9,4 +9,6 @@ config.resolver.blockList = [
 ];
 // The bundled GTT timetable ships as a file asset (read once for import), not as a JS module.
 config.resolver.assetExts = [...config.resolver.assetExts, 'gttpkg'];
-module.exports = withNativeWind(config, { input: './global.css' });
+// NativeWind compiles rem as 14 px on native by default, which made text-base 14 sp and h-12 42 dp.
+// 16 keeps the 16 sp body and 48 dp targets the classes describe, as on web.
+module.exports = withNativeWind(config, { input: './global.css', inlineRem: 16 });

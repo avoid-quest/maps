@@ -8,11 +8,12 @@ The app's two basemaps, `avoid-dark` and `avoid-light`, are derivative works of 
 
 The file is the unmodified response body. At retrieval, [hyperknot/openfreemap-styles](https://github.com/hyperknot/openfreemap-styles) `main` was commit `006ea5796803ba2df4330888836cb0a8f17473b4`. `map-style.test.ts` checks this hash.
 
-**Modifications.** `brandRecipe` in [`../brand-basemap.ts`](../brand-basemap.ts) describes every change and `transformStyle` in [`../map-style-transform.ts`](../map-style-transform.ts) applies it. The recipe must account for every upstream layer (patched, kept or removed), so a refreshed upstream document with added, renamed or missing layers or properties fails instead of rendering partially restyled. The derived styles:
+**Modifications.** `brandRecipe` in [`../brand-basemap.ts`](../brand-basemap.ts) describes every change and `transformStyle` in [`../map-style-transform.ts`](../map-style-transform.ts) applies it. The recipe must account for every upstream layer (patched, kept or removed), and every property it replaces or drops must exist upstream, so a refreshed document with added, renamed or missing layers, or with changes to the properties the recipe touches, fails to build. Properties the recipe does not mention pass through; `map-style.test.ts` therefore also fails if any colour in the derived styles is outside the greyscale bound or any layer draws a sprite icon or pattern. The derived styles:
 
 - replace Liberty's colours with greyscale palettes (`basemapInks`), with a faint green hint on parks;
 - use local OpenStreetMap names instead of English names;
-- replace POI, transit, place-dot, airport and road-shield sprite icons with circle layers and text; key amenities show an Italian category word;
+- replace POI sprite icons with small circle layers and text, and transit icons with stop and station rings and text; key amenities show an Italian category word;
+- remove the place-dot, airport and road-shield sprite icons, keeping their text;
 - remove the shaded-relief raster, one-way arrows, 3D building extrusions and United States shield layers; flat building footprints continue at all zooms;
 - add dedicated stop and station layers for OpenMapTiles' `railway` POI class, which Liberty's transit layer does not match.
 

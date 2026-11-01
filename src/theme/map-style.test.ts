@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
-import { Color, validateStyleMin, type StyleSpecification } from '@maplibre/maplibre-gl-style-spec';
+import { Color, createExpression, latest, validateStyleMin, type StyleSpecification } from '@maplibre/maplibre-gl-style-spec';
 import { basemapInks, brandRecipe, type BasemapInk } from './brand-basemap';
 import { AA_NON_TEXT, AA_TEXT, contrastRatio } from './contrast';
 import { mapColorsFor, mapStyleFor, mapStyleJsonFor } from './map-style';
@@ -182,4 +182,36 @@ test('in-app map-style notices reproduce NOTICE.md and every bundled licence tex
     assert.equal(notice.text, readFileSync(new URL(`./map-styles/${notice.id}`, import.meta.url), 'utf8'), `${notice.id} copy is verbatim`);
     assert.match(notice.url, /^https:\/\//);
   }
+});
+
+test('the transform needs no structuredClone, which Hermes does not implement', () => {
+  const original = globalThis.structuredClone;
+  try {
+    (globalThis as { structuredClone?: unknown }).structuredClone = undefined;
+    for (const scheme of schemes) assert.deepEqual(transformStyle(liberty(), brandRecipe(scheme)), mapStyleFor(scheme));
+  } finally {
+    globalThis.structuredClone = original;
+  }
+});
+
+test('POI labels name key amenities by OSM subclass, not by the broader class', () => {
+  const style = mapStyleFor('dark');
+  const field = createExpression(layerOf(style, 'poi_r1')?.layout?.['text-field'], latest.layout_symbol['text-field'] as never);
+  assert.equal(field.result, 'success');
+  const text = (properties: Record<string, unknown>) => {
+    if (field.result !== 'success') throw new Error('invalid text-field');
+    const value = field.value.evaluate({ zoom: 17 }, { type: 'Point', properties } as never) as { sections: { text: string }[] };
+    return value.sections.map(section => section.text).join('');
+  };
+  assert.equal(text({ class: 'pharmacy', subclass: 'pharmacy', name: 'Farmacia Centrale' }), 'Farmacia Centrale\nFarmacia');
+  assert.equal(text({ class: 'toilets', subclass: 'toilets' }), 'WC');
+  assert.equal(text({ class: 'beer', subclass: 'pub', name: 'Old Wild' }), 'Old Wild\nPub');
+  assert.equal(text({ class: 'bar', subclass: 'nightclub', name: 'Club' }), 'Club', 'a nightclub is not labelled Bar');
+  assert.equal(text({ class: 'shop', subclass: 'chemist', name: 'Acqua & Sapone' }), 'Acqua & Sapone', 'a drugstore is not labelled Farmacia');
+  const visible = createExpression(layerOf(style, 'avoid_poi_dot_r1')?.filter, { type: 'boolean' } as never);
+  assert.equal(visible.result, 'success');
+  const shown = (properties: Record<string, unknown>) => visible.result === 'success' && visible.value.evaluate({ zoom: 17 }, { type: 'Point', properties } as never);
+  assert.equal(shown({ class: 'drinking_water', subclass: 'drinking_water', rank: 1 }), true, 'unnamed fountains stay visible');
+  assert.equal(shown({ class: 'waste_basket', subclass: 'waste_basket', rank: 1 }), false, 'unnamed bins stay hidden');
+  assert.equal(shown({ class: 'railway', subclass: 'tram_stop', rank: 1, name: 'Castello' }), false, 'stops use the transit rings');
 });

@@ -36,8 +36,8 @@ export interface MapCamera {
   adoptInitialFix(coordinate: Coordinate): void;
   searchHere(): void;
   userMoved(coordinate: Coordinate, zoom?: number): void;
-  /** Any settled camera move reported by the map, including fits and animations. */
-  viewSettled(coordinate: Coordinate): void;
+  /** Any settled camera move reported by the map outside guidance, including fits and animations. */
+  viewSettled(coordinate: Coordinate, zoom?: number): void;
   stopFollowing(): void;
   follow(): void;
   recenterGuidance(): void;
@@ -47,6 +47,12 @@ export interface MapCamera {
 }
 
 const viewportStore = createViewportStore(AsyncStorage);
+
+/** Whether a settled view differs from the launch overview (about 50 m or a quarter zoom level). */
+export function movedFromOverview(center: Coordinate, zoom: number): boolean {
+  return Math.abs(center.latitude - TURIN_OVERVIEW.center.latitude) + Math.abs(center.longitude - TURIN_OVERVIEW.center.longitude) > 0.0006
+    || Math.abs(zoom - TURIN_OVERVIEW.zoom) > 0.25;
+}
 const SAVE_DELAY_MS = 1500;
 
 /**
@@ -116,9 +122,14 @@ export function useMapCamera(): MapCamera {
       const area = searchCenterRef.current;
       if (Math.abs(coordinate.longitude - area.longitude) + Math.abs(coordinate.latitude - area.latitude) > 0.004) setAreaChanged(true);
     },
-    viewSettled: (coordinate: Coordinate) => {
+    viewSettled: (coordinate: Coordinate, settledZoom?: number) => {
       viewportRef.current = coordinate;
+      if (settledZoom !== undefined && Number.isFinite(settledZoom)) zoomRef.current = settledZoom;
       setViewCenter(current => Math.abs(current.latitude - coordinate.latitude) + Math.abs(current.longitude - coordinate.longitude) < 1e-6 ? current : coordinate);
+      // A fit to results or a route away from the launch overview is no longer "Panoramica di Torino".
+      if (movedFromOverview(coordinate, zoomRef.current)) setView(current => current === 'overview' ? 'chosen' : current);
+      // Programmatic fits are what the user last saw too; persist them once the user has engaged.
+      if (touched.current || located.current) scheduleSave();
     },
     stopFollowing: () => setFollowing(false),
     follow: () => setFollowing(true),

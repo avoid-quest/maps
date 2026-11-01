@@ -57,6 +57,14 @@ export interface StyleRecipe {
   insert: { before: string; layer: StyleLayer }[];
 }
 
+/**
+ * Style documents are plain JSON, so a JSON round trip is a complete deep copy. It avoids depending on
+ * `structuredClone`, which Hermes does not implement (Expo's runtime currently polyfills it).
+ */
+export function cloneJson<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
 function replaceDeclared(id: string, kind: string, current: Json, values: Json | undefined): Json {
   const missing = Object.keys(values ?? {}).filter(key => !(key in current));
   if (missing.length) throw new Error(`Map style layer ${id} lacks ${kind} ${missing.join(', ')}`);
@@ -123,10 +131,10 @@ export function transformStyle(upstream: StyleDocument, recipe: StyleRecipe): St
 
   const layers: StyleLayer[] = [];
   for (const layer of upstream.layers) {
-    for (const entry of recipe.insert) if (entry.before === layer.id) layers.push(structuredClone(entry.layer));
+    for (const entry of recipe.insert) if (entry.before === layer.id) layers.push(cloneJson(entry.layer));
     if (recipe.remove.includes(layer.id)) continue;
     const patch = recipe.patch[layer.id];
-    layers.push(patch ? applyLayerPatch(structuredClone(layer), patch) : structuredClone(layer));
+    layers.push(patch ? applyLayerPatch(cloneJson(layer), patch) : cloneJson(layer));
   }
-  return { ...structuredClone(upstream), name: recipe.name, layers };
+  return { ...cloneJson(upstream), name: recipe.name, layers };
 }

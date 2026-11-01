@@ -46,10 +46,11 @@ const GENERIC = 'Attività';
 
 /** A specific Italian label, the generic business family, or null when the value is unknown. */
 function knownLabel(value: string): string | null {
-  const osm = OSM_LABELS[value.toLowerCase()];
-  if (osm) return osm;
-  const overture = categoryLabel(value);
-  return overture !== value ? overture : null;
+  const key = value.toLowerCase();
+  // Provider strings such as "constructor" must not resolve inherited object properties.
+  if (Object.hasOwn(OSM_LABELS, key)) return OSM_LABELS[key]!;
+  const overture: unknown = categoryLabel(value);
+  return typeof overture === 'string' && overture !== value ? overture : null;
 }
 
 /**

@@ -16,7 +16,8 @@ module.exports = {
       colors: Object.fromEntries(roles.map(name => [name, semantic(name)])),
       // Bundled brand faces (assets/fonts; Android via the expo-font plugin, web via src/theme/fonts.web.ts).
       // UI text: Geist Sans. Numbers and codes: Geist Mono. Large display: Mona Sans.
-      fontFamily: { sans: ['Geist'], mono: ['GeistMono'], display: ['MonaSans'] },
+      // Native keeps only the first family; the web gets system fallbacks if a bundled face fails to load.
+      fontFamily: { sans: ['Geist', 'system-ui', 'sans-serif'], mono: ['GeistMono', 'ui-monospace', 'monospace'], display: ['MonaSans', 'system-ui', 'sans-serif'] },
       // Text-only roles: `text-primary`, `text-secondary` (no bg-primary).
       textColor: { primary: semantic('text-primary'), secondary: semantic('text-secondary') },
     },

@@ -1,7 +1,9 @@
 import { View } from "react-native";
 import { Text } from "../../ui/Text";
 import type { Place } from "../../domain/types";
-import { Button, Disclosure, ListRow } from "../../ui";
+import { Button, Disclosure, ListRow, Num } from "../../ui";
+import { detailDistance } from "../map/distance-reference";
+import { useDistanceReference } from "../map/useDistanceReference";
 import { useFeedback } from "../app/feedback";
 import { usePlannerContext } from "../planner/usePlanner";
 import { placeCategoryLabel } from "./category-label";
@@ -12,15 +14,17 @@ export function PlaceDetail({ place }: { place: Place }) {
   const { beginRoute } = usePlannerContext();
   const { openLink } = useFeedback();
   const saved = isSaved(place.id);
+  // A selected place shows a distance only from a fresh device fix (see distance-reference.ts).
+  const distance = detailDistance(useDistanceReference(), place.coordinate);
   return (
     <View className="gap-3 py-2">
       <View className="gap-1 px-4">
-        <Text className="text-base text-secondary">{placeCategoryLabel(place.category)}</Text>
+        <Text accessibilityLabel={`${placeCategoryLabel(place.category)}${distance ? `, ${distance.spoken}` : ""}`} className="text-base text-secondary">{placeCategoryLabel(place.category)}{distance ? <> · <Num className="text-base text-secondary">{distance.value}</Num></> : null}</Text>
         {place.address ? <Text className="text-base leading-6 text-primary">{place.address}</Text> : null}
       </View>
       <View className="flex-row gap-2 px-4">
         <View className="flex-1"><Button icon="navigate-outline" onPress={() => beginRoute()}>Indicazioni</Button></View>
-        <Button variant="secondary" icon={saved ? "bookmark" : "bookmark-outline"} accessibilityLabel={saved ? "Rimuovi dai salvati" : "Salva luogo"} onPress={() => toggleSaved(place)}>
+        <Button variant="secondary" icon={saved ? "bookmark" : "bookmark-outline"} accessibilityLabel={saved ? "Salvato, rimuovi dai salvati" : "Salva luogo"} onPress={() => toggleSaved(place)}>
           {saved ? "Salvato" : "Salva"}
         </Button>
       </View>
@@ -36,7 +40,7 @@ export function PlaceDetail({ place }: { place: Place }) {
             {place.dataUpdatedAt ? `\nDati del ${place.dataUpdatedAt}` : ""}
             {place.attributions.length ? `\n${place.attributions.join("\n")}` : ""}
           </Text>
-          <Button variant="quiet" icon="open-outline" onPress={() => openLink(`https://www.openstreetmap.org/?mlat=${place.coordinate.latitude}&mlon=${place.coordinate.longitude}#map=19/${place.coordinate.latitude}/${place.coordinate.longitude}`)}>
+          <Button variant="quiet" role="link" icon="open-outline" onPress={() => openLink(`https://www.openstreetmap.org/?mlat=${place.coordinate.latitude}&mlon=${place.coordinate.longitude}#map=19/${place.coordinate.latitude}/${place.coordinate.longitude}`)}>
             Visualizza su OpenStreetMap
           </Button>
         </Disclosure>

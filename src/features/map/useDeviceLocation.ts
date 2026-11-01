@@ -90,7 +90,8 @@ export function useDeviceLocation({ tasks, camera, appActive, navigationVisible 
     const id = request.current;
     setLocating(true);
     void getAuthorizedLocation().then(position => {
-      if (!position) { recenter.notAuthorized(); return; }
+      // Only this check's own outcome may end the intent; a newer Locate is not cancelled by it.
+      if (!position) { if (id === request.current) recenter.notAuthorized(); return; }
       if (!active) return;
       setMessage('');
       const next = toCoordinate(position.coordinate);

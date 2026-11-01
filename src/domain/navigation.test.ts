@@ -100,3 +100,17 @@ test('a missed connection while aboard is flagged', () => {
     canConfirmWalking: false, canConfirmBoarding: false, canConfirmAlighting: true, journeyArrivalAt: now + 600_000, nextBoardingAt: now - 300_000 };
   assert.match(navigationPresentation({ ...idleNavigation, sessionId: 's', mode: 'transit', status: 'navigating', transit }, now).transitWarning ?? '', /già partita/);
 });
+
+test('off-route, rerouting and routing keep their own headers; only location loss pauses guidance', () => {
+  const location = { latitude: 45, longitude: 7, accuracyMeters: 8, timestamp: now };
+  const base: NavigationSnapshot = { ...road, mode: 'walk', locationUsable: true, location, instruction: 'Svolta a destra', lastFixAccuracyMeters: 8 };
+  assert.equal(navigationPresentation({ ...base, status: 'off-route' }, now).header, 'Fuori percorso');
+  assert.equal(navigationPresentation({ ...base, status: 'rerouting' }, now).header, 'Ricalcolo del percorso');
+  assert.equal(navigationPresentation({ ...base, status: 'routing' }, now).header, 'Calcolo dalla tua posizione');
+  for (const status of ['off-route', 'rerouting', 'routing'] as const) {
+    const text = navigationPresentation({ ...base, status }, now);
+    assert.equal(text.paused, false); assert.equal(text.signal, null);
+  }
+  assert.equal(navigationPresentation({ ...base, status: 'location-degraded', locationUsable: false, problem: 'location-inaccurate' }, now).header, 'Guida in pausa · Ultima indicazione');
+  assert.equal(navigationPresentation({ ...base, status: 'navigating', locationUsable: false }, now).paused, true);
+});

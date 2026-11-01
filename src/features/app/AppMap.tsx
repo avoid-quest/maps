@@ -41,11 +41,12 @@ export function AppMap({ height, padding, attributionLeft, attributionTop }: {
     tab === "transit" ? nearbyStops.map(stopMarker) : shownPlaces.map(placeMarker), selected, board,
   ), [tab, nearbyStops, shownPlaces, selected, board]);
   // Submitted searches and category choices frame their settled results once (see MapCanvas).
+  const frame = search.frame;
   const resultFrame = useMemo(() => {
-    if (tab !== "explore" || !search.hasSearch || search.frameRevision === 0) return undefined;
-    const ready = !search.searching && !selected && !board && searchPlaces.length > 0;
-    return { key: `results:${search.frameRevision}`, ready, bounds: ready ? resultFrameBounds(searchPlaces.map(place => place.coordinate), camera.searchCenter) : null };
-  }, [tab, search.hasSearch, search.frameRevision, search.searching, selected, board, searchPlaces, camera.searchCenter]);
+    if (tab !== "explore" || !search.hasSearch || !frame) return undefined;
+    const ready = frame.settled && !selected && !board && searchPlaces.length > 0;
+    return { key: frame.key, ready, bounds: ready ? resultFrameBounds(searchPlaces.map(place => place.coordinate), camera.searchCenter) : null };
+  }, [tab, search.hasSearch, frame, selected, board, searchPlaces, camera.searchCenter]);
   const route = planner.routes.route;
   const routeGeometry = useMemo<LineString | null>(
     () => route && route.geometry.length > 1 ? { type: "LineString", coordinates: route.geometry.map(toMapCoordinate) } : null,

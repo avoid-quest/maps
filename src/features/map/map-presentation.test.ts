@@ -39,3 +39,15 @@ test('a submitted search frames its leading nearby results, never the whole coun
   assert.deepEqual(resultFrameBounds([rome], turin)!.map(value => Math.round(value)), [12, 42, 13, 42], 'only far results: frame the first one');
   assert.equal(resultFrameBounds([], turin), null);
 });
+
+test('result frames fire once per submitted search and survive leaving and returning', async () => {
+  const { createOnceFraming } = await import('./map-presentation');
+  const frames = createOnceFraming();
+  assert.equal(frames.claim('results:1', false), false, 'not before the search settles');
+  assert.equal(frames.claim('results:1', true), true);
+  assert.equal(frames.claim(undefined, false), false);
+  assert.equal(frames.claim('results:1', true), false, 'returning to the same search does not reframe');
+  frames.userMoved('results:2');
+  assert.equal(frames.claim('results:2', true), false, 'a pan before results arrive keeps the user view');
+  assert.equal(frames.claim('results:3', true), true);
+});

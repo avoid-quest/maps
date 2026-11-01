@@ -19,11 +19,13 @@ export function useSheetState(contentKey: string): SheetState {
   const [requested, setRequested] = useState<SheetSnap | null>(null);
   useEffect(() => { setRequested(null); }, [contentKey]);
   const collapse = useCallback(() => setRequested(null), []);
+  const current = useRef<SheetSnap | null>(null);
+  current.current = requested;
   const request = useCallback((snap: SheetSnap) => {
-    setRequested(current => {
-      if (current !== snap && snap === 'full') Keyboard.dismiss();
-      return snap;
-    });
+    // Side effect outside the updater: React may run updaters during render, or twice in StrictMode.
+    if (current.current !== snap && snap === 'full') Keyboard.dismiss();
+    current.current = snap;
+    setRequested(snap);
   }, []);
   const heights = useRef<SheetHeights | null>(null);
   return { requested, request, collapse, heights };

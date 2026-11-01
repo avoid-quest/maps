@@ -67,7 +67,7 @@ export function StopBoardPanel({ stop, state, now, onLink, onDirections, actions
       {alerts.alerts.length ? alerts.alerts.map(alert => <View key={alert.id} className="gap-1 rounded-2xl bg-caution-subtle p-4">
         <Text className="text-base font-semibold text-primary">{alert.title}</Text>
         <Text className="text-sm leading-5 text-primary">{alert.description}</Text>
-        {alert.url ? <View className="self-start"><Button variant="quiet" icon="open-outline" onPress={() => onLink(alert.url!)}>Dettagli avviso</Button></View> : null}
+        {alert.url ? <View className="self-start"><Button variant="quiet" role="link" icon="open-outline" onPress={() => onLink(alert.url!)}>Dettagli avviso</Button></View> : null}
       </View>) : <Text className="text-sm leading-5 text-secondary">Nessun avviso alla consultazione.</Text>}
     </View> : null}
     <View className="px-4 pt-2"><Button variant="secondary" icon="walk-outline" onPress={onDirections}>Raggiungi la fermata</Button></View>
@@ -114,7 +114,7 @@ function DepartureRow({ row, now }: { row: GttBoardRow; now: number }) {
   // Colour follows the aged row, the same one the written state describes.
   const tone = stateClass(view.row, view.live);
   const line = row.line ?? '—';
-  const spokenTime = view.timeText === '—' ? '' : countdown != null ? `tra ${countdown} minuti` : /^\d|^~/.test(view.timeText) ? `alle ${view.timeText.replace('~', 'circa ')}` : view.timeText;
+  const spokenTime = view.timeText === '—' ? '' : countdown != null ? `tra ${countdown} ${countdown === '1' ? 'minuto' : 'minuti'}` : /^\d|^~/.test(view.timeText) ? `alle ${view.timeText.replace('~', 'circa ')}` : view.timeText;
   return <View accessible accessibilityLabel={`${row.line ? `Linea ${row.line}` : 'Linea non indicata'}, ${row.headsign || 'direzione non indicata'}, ${lines.status ? `${lines.status}, ` : ''}${lines.provenance}${spokenTime ? `, ${spokenTime}` : ''}${view.note ? `. ${view.note}` : ''}`}
     style={hairlines.bottom} className="min-h-16 flex-row items-center gap-3 px-4 py-3">
     <TransitLineBadge line={line} mode={row.line ? transitModeFromLineName(row.line) : undefined} />

@@ -4,7 +4,7 @@ import { Text } from '../../ui/Text';
 import type { SearchPolicy } from '../../domain/types';
 import { searchPreferences } from '../../services/search-preferences';
 import { useThemeColors } from '../../theme';
-import { Button, Notice, useHairlines } from '../../ui';
+import { Button, Notice, switchColors, useHairlines } from '../../ui';
 
 export function DiscoverySettings() {
   const snapshot = useSyncExternalStore(searchPreferences.subscribe, searchPreferences.getSnapshot, searchPreferences.getSnapshot);
@@ -24,7 +24,7 @@ export function DiscoverySettings() {
         <Text className="text-base font-semibold text-primary">Solo ricerca locale</Text>
         <Text className="mt-1 text-sm text-secondary">{!snapshot.ready ? 'Caricamento della preferenza…' : !snapshot.preferenceKnown ? 'Attiva per precauzione' : snapshot.policy === 'local-only' ? 'Attiva' : 'Disattivata'}</Text>
       </View>
-      <Switch accessibilityLabel="Solo ricerca locale" value={snapshot.policy === 'local-only'} disabled={!snapshot.ready || busy} onValueChange={local => void choose(local ? 'local-only' : 'local-and-online')} trackColor={{ true: colors.action, false: colors.surfaceMuted }} thumbColor={snapshot.policy === 'local-only' ? colors.onAction : colors.textSecondary} />
+      <Switch accessibilityLabel="Solo ricerca locale" value={snapshot.policy === 'local-only'} disabled={!snapshot.ready || busy} onValueChange={local => void choose(local ? 'local-only' : 'local-and-online')} {...switchColors(colors, snapshot.policy === 'local-only')} />
     </View>
     <Text className="text-sm leading-6 text-secondary">Attiva: cerca nel pacchetto locale, che può essere incompleto. Disattiva: invia nome e area a Photon.</Text>
     <Text className="text-sm leading-6 text-secondary">Mappe, percorsi e arrivi restano online.</Text>

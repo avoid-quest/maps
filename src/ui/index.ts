@@ -12,5 +12,6 @@ export { lineBadgeColors, transitModeFromLeg, transitModeFromLineName, type Tran
 export { AppSheet, SheetFlatList, SheetScrollView } from "./Sheet";
 export { SHEET_SNAPS, type SheetHeights, type SheetSnap } from "./sheet-snaps";
 export { Divider, useHairlines } from "./Divider";
+export { switchColors } from "./control-styles";
 export { Display, Num, Text } from "./Text";
 export { Wordmark } from "./Wordmark";
