@@ -1,4 +1,4 @@
-import type { IconName } from '../../ui/Controls';
+import type { IconName } from '../../ui';
 
 /** Category shortcuts offered inside the empty search interaction. */
 export const SEARCH_CATEGORIES: { label: string; query: string; icon: IconName }[] = [

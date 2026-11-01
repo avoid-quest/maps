@@ -1,5 +1,5 @@
 import { savedTravel } from "../../services/saved-travel";
-import { EmptyState } from "../../ui/Controls";
+import { EmptyState } from "../../ui";
 import { usePlannerContext } from "../planner/usePlanner";
 import { SavedTravelPanel } from "../transit/SavedTravelPanel";
 import { useTransitContext } from "../transit/useTransit";

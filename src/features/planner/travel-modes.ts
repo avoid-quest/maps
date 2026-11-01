@@ -1,5 +1,5 @@
 import type { TravelMode } from '../../domain/types';
-import type { IconName } from '../../ui/Controls';
+import type { IconName } from '../../ui';
 
 export const TRAVEL_MODES: { id: TravelMode; label: string; icon: IconName }[] = [
   { id: 'walk', label: 'A piedi', icon: 'walk-outline' },

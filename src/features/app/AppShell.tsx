@@ -1,8 +1,8 @@
 import { useRef } from "react";
-import { ActivityIndicator, Pressable, StatusBar, Text, useWindowDimensions, View } from "react-native";
+import { ActivityIndicator, Pressable, Text, useWindowDimensions, View } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { colors } from "../../theme/tokens";
-import { Button, Icon, IconButton, Notice } from "../../ui/Controls";
+import { useThemeColors } from "../../theme";
+import { Button, Icon, IconButton, Notice } from "../../ui";
 import { formatDistance } from "../../ui/format";
 import { mapCameraPadding } from "../map/map-presentation";
 import { useMapContext } from "../map/useMapModel";
@@ -27,6 +27,7 @@ const ROOT_SHORTCUTS = [
 
 /** Screen layout: one map, the search bar, map controls, and one task sheet or guidance. */
 export function AppShell() {
+  const colors = useThemeColors();
   const { width, height, fontScale } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   // Android resizes the window for the keyboard; the geographic viewport stays put.
@@ -52,8 +53,7 @@ export function AppShell() {
   const dismissMessage = () => location.message ? location.setMessage("") : feedback.dismiss();
   const overlayPosition = { bottom: !wide && panelVisible ? currentSheetHeight + 24 : 88, left: wide && panelVisible ? 442 : 16, right: 16 };
   return (
-    <SafeAreaView className="flex-1 bg-white" edges={["top", "bottom"]}>
-      <StatusBar barStyle="dark-content" backgroundColor="white" />
+    <SafeAreaView className="flex-1 bg-surface" edges={["top", "bottom"]}>
       <View className="flex-1">
         <AppMap
           height={mapHeight}
@@ -71,7 +71,7 @@ export function AppShell() {
             className="absolute left-3 right-3 top-20 flex-row items-start justify-between"
           >
             <View className="flex-1" pointerEvents="none">
-              {location.locating ? <Text accessibilityLiveRegion="polite" className="self-start rounded-lg bg-white px-3 py-2 text-sm text-[#59667A]">Ricerca della posizione…</Text> : null}
+              {location.locating ? <Text accessibilityLiveRegion="polite" className="self-start rounded-full bg-surface-raised px-3 py-2 text-sm text-secondary">Ricerca della posizione…</Text> : null}
             </View>
             <View
               style={{
@@ -81,11 +81,12 @@ export function AppShell() {
               }}
             >
               {location.locating ? (
-                <View className="h-12 w-12 items-center justify-center rounded-full bg-white">
-                  <ActivityIndicator color={colors.blue} />
+                <View className="h-12 w-12 items-center justify-center rounded-full bg-surface-raised">
+                  <ActivityIndicator color={colors.action} />
                 </View>
               ) : (
                 <IconButton
+                  floating
                   icon="locate-outline"
                   label="Usa la mia posizione"
                   onPress={locate}
@@ -93,19 +94,20 @@ export function AppShell() {
               )}
             </View>
           </View>
-          {message ? <View style={overlayPosition} className="absolute left-4 right-4"><Notice text={message} action="Chiudi" onAction={dismissMessage} /></View> : null}
+          {message ? <View style={overlayPosition} className="absolute left-4 right-4"><Notice tone="caution" text={message} action="Chiudi" onAction={dismissMessage} /></View> : null}
           {camera.areaChanged && (search.hasSearch || tab === "transit") && !selectedPlace(tasks) && !selectedStop(tasks) ? (
-            <View style={overlayPosition} className="absolute max-w-[95%] self-center rounded-2xl bg-white">
-              <Button icon="search-outline" secondary onPress={searchArea}>
+            <View style={overlayPosition} className="absolute max-w-[95%] self-center rounded-2xl bg-surface-raised">
+              <Button icon="search-outline" variant="secondary" onPress={searchArea}>
                 Cerca in quest’area
               </Button>
-              <Text className="px-3 pb-2 text-center text-xs text-[#59667A]">{tab === "transit" ? "Fermate intorno al centro" : search.result.coverage.radiusMeters !== null ? `Raggio ${formatDistance(search.result.coverage.radiusMeters)} dal centro` : search.policy === "local-only" ? "Nomi nell’intero pacchetto locale" : "Nomi nel pacchetto; area come riferimento online"}</Text>
+              <Text className="px-3 pb-2 text-center text-sm text-secondary">{tab === "transit" ? "Fermate intorno al centro" : search.result.coverage.radiusMeters !== null ? `Raggio ${formatDistance(search.result.coverage.radiusMeters)} dal centro` : search.policy === "local-only" ? "Nomi nell’intero pacchetto locale" : "Nomi nel pacchetto; area come riferimento online"}</Text>
             </View>
           ) : null}
           <View className="absolute left-0 right-0 top-0 px-3 py-2">
             <View className="flex-row items-center gap-2">
               <SearchField />
               <IconButton
+                floating
                 icon="options-outline"
                 label="Privacy e fonti"
                 active={tasks.settings}
@@ -120,12 +122,13 @@ export function AppShell() {
                 key={item.id}
                 accessibilityRole="button"
                 onPress={() => shell.openTab(item.id)}
-                className="min-h-12 flex-row items-center justify-center gap-2 rounded-full bg-white px-5"
+                style={{ elevation: 3 }}
+                className="min-h-12 flex-row items-center justify-center gap-2 rounded-full bg-surface-raised px-5"
               >
                 <View className="items-center">
-                  <Icon name={item.icon} size={23} color={colors.muted} />
+                  <Icon name={item.icon} size={22} color={colors.action} />
                 </View>
-                <Text className="text-sm text-[#59667A]">{item.label}</Text>
+                <Text className="text-base font-medium text-primary">{item.label}</Text>
               </Pressable>
             ))}
           </View> : null}

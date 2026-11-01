@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { validateStyleMin, type StyleSpecification } from '@maplibre/maplibre-gl-style-spec';
 import { AA_NON_TEXT, AA_TEXT, contrastRatio } from './contrast';
 import { applyPaintOverrides, darkPaintAdditions, darkPaintOverrides, mapColorsFor, mapStyleFor, mapStyleJsonFor } from './map-style';
@@ -88,4 +88,14 @@ test('dark basemap labels and app overlays remain legible', () => {
   }
   const lightRoad = '#ffffff';
   assert.ok(contrastRatio(palettes.light.map.routeLine, lightRoad) >= AA_NON_TEXT, 'light route line over white Liberty roads');
+});
+
+test('in-app map-style notices reproduce NOTICE.md and every bundled licence text unchanged', () => {
+  const notices = JSON.parse(readFileSync(new URL('./map-styles/notices.json', import.meta.url), 'utf8')) as { id: string; title: string; url: string; text: string }[];
+  const licences = readdirSync(new URL('./map-styles/LICENSES/', import.meta.url)).map(file => `LICENSES/${file}`);
+  assert.deepEqual(notices.map(notice => notice.id).sort(), ['NOTICE.md', ...licences].sort(), 'every licence file reaches the in-app notices');
+  for (const notice of notices) {
+    assert.equal(notice.text, readFileSync(new URL(`./map-styles/${notice.id}`, import.meta.url), 'utf8'), `${notice.id} copy is verbatim`);
+    assert.match(notice.url, /^https:\/\//);
+  }
 });

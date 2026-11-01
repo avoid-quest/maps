@@ -33,3 +33,8 @@
 .maplibregl-map .maplibregl-ctrl-attrib-button { width: 44px; height: 44px; background-repeat: no-repeat; background-position: center; }
 
 .maplibregl-map .maplibregl-ctrl-attrib.maplibregl-compact:not([open]) { width: 44px; padding: 0; border-radius: 22px; }
+
+/* Attribution follows the app appearance; the variables come from ThemeProvider. */
+.maplibregl-map .maplibregl-ctrl-attrib { background-color: rgb(var(--color-surface-raised) / 0.92); color: rgb(var(--color-text-primary)); }
+.maplibregl-map .maplibregl-ctrl-attrib a { color: rgb(var(--color-text-primary)); }
+[data-scheme="dark"] .maplibregl-ctrl-attrib-button { filter: invert(1); }

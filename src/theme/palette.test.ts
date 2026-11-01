@@ -5,7 +5,6 @@ import { createRequire } from 'node:module';
 import { AA_NON_TEXT, AA_TEXT, contrastRatio, parseHex, rgbChannels } from './contrast';
 import { themeVariables } from './css-variables';
 import { kebabTokenName, palettes, themeColorNames, type ThemeColors } from './palette';
-import { colors as legacyColors } from './tokens';
 
 const surfaces = ['surface', 'surfaceRaised', 'surfaceMuted'] as const;
 const textRoles = ['textPrimary', 'textSecondary', 'action', 'caution', 'danger', 'success', 'live', 'scheduled', 'stale', 'cancelled'] as const;
@@ -15,6 +14,9 @@ const pairs: [foreground: keyof ThemeColors, background: keyof ThemeColors][] = 
   ['caution', 'cautionSubtle'], ['textPrimary', 'cautionSubtle'],
   ['danger', 'dangerSubtle'], ['textPrimary', 'dangerSubtle'],
   ['success', 'successSubtle'], ['textPrimary', 'successSubtle'],
+  // Notice actions on tinted notices, and the neutral transit line badge (surface text on a primary fill).
+  ['action', 'cautionSubtle'], ['action', 'dangerSubtle'], ['action', 'successSubtle'],
+  ['surface', 'textPrimary'],
 ];
 
 test('contrast arithmetic matches WCAG reference values', () => {
@@ -78,10 +80,4 @@ test('global.css light fallbacks match the light palette', () => {
   const root = /:root\s*\{([^}]*)\}/.exec(css)?.[1] ?? '';
   const declared = Object.fromEntries([...root.matchAll(/(--color-[a-z-]+):\s*([^;]+);/g)].map(match => [match[1], match[2]!.trim()]));
   assert.deepEqual(declared, themeVariables('light'));
-});
-
-test('legacy tokens remain available for existing importers', () => {
-  assert.deepEqual(Object.keys(legacyColors).sort(), ['amber', 'blue', 'ink', 'line', 'muted', 'paleBlue', 'paper', 'surface', 'teal']);
-  assert.equal(legacyColors.blue, palettes.light.colors.action);
-  assert.equal(legacyColors.ink, palettes.light.colors.textPrimary);
 });

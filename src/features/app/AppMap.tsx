@@ -12,6 +12,7 @@ import { useSearchContext } from "../search/useSearch";
 import { useTransitContext } from "../transit/useTransit";
 import { boardStop, journeyStop, rootTab, selectedPlace, selectedStop } from "./task-model";
 import { useTaskState } from "./useTaskModel";
+import { useTheme } from "../../theme";
 
 /** The one mounted map: task pins, planning or guidance route, and camera intent. */
 export function AppMap({ height, padding, attributionLeft, attributionTop }: {
@@ -20,6 +21,7 @@ export function AppMap({ height, padding, attributionLeft, attributionTop }: {
   attributionLeft: number;
   attributionTop: number;
 }) {
+  const theme = useTheme();
   const tasks = useTaskState();
   const { camera, location, userPanned } = useMapContext();
   const navigation = useNavigationContext();
@@ -48,7 +50,7 @@ export function AppMap({ height, padding, attributionLeft, attributionTop }: {
   const navCenter = navigation.snapshot.location ?? navigation.snapshot.destination ?? camera.center;
   const navigating = navigation.visible;
   return (
-    <View testID="map-viewport" style={{ position: "absolute", top: 0, left: 0, right: 0, height, backgroundColor: "#DFE8EB" }}>
+    <View testID="map-viewport" style={{ position: "absolute", top: 0, left: 0, right: 0, height, backgroundColor: theme.map.background }}>
       <MapCanvas
         center={tuple(navigating ? navCenter : camera.center)}
         markers={navigating ? [] : markers}

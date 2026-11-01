@@ -1,78 +1,57 @@
 import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { DATA_LICENSES, PROVIDER_NOTICES } from "../../services";
-import { ActionRow } from "../../ui/ActionRow";
-import { Disclosure, Icon, type IconName } from "../../ui/Controls";
+import { MAP_STYLE_NOTICES, ThemePreferenceControl, useThemeColors } from "../../theme";
+import { Disclosure, Icon, ListRow, type IconName } from "../../ui";
 import { useFeedback } from "../app/feedback";
 import { NavigationNotices } from "../navigation/NavigationNotices";
 import { DiagnosticsPanel } from "./DiagnosticsPanel";
 import { DiscoverySettings } from "./DiscoverySettings";
 
-/** Privacy e fonti: local data, discovery, diagnostics and attribution. */
-export function SettingsSheet() {
-  const { openLink: onLink } = useFeedback();
-  const [expanded, setExpanded] = useState<string | null>(null);
-  const icons: IconName[] = [
-    "map-outline",
-    "location-outline",
-    "search-outline",
-    "navigate-outline",
-    "bus-outline",
-    "train-outline",
-  ];
+const PROVIDER_ICONS: IconName[] = ["map-outline", "location-outline", "search-outline", "navigate-outline", "bus-outline", "train-outline"];
+
+/** A licence or notice whose full text expands in place and stays readable offline. */
+function LicenceText({ id, title, text, expanded, onToggle }: { id: string; title: string; text: string; expanded: boolean; onToggle: (id: string) => void }) {
+  const colors = useThemeColors();
   return (
-    <View className="gap-3 p-4">
-      <Text className="text-sm text-[#59667A]">Salvataggi sul dispositivo. Nessun account o telemetria.</Text>
+    <View className="border-b border-divider pb-2">
+      <Pressable accessibilityRole="button" accessibilityState={{ expanded }} onPress={() => onToggle(id)} className="min-h-12 flex-row items-center justify-between gap-2">
+        <Text className="flex-1 text-base font-medium text-primary">{title}</Text>
+        <Icon name={expanded ? "chevron-up" : "chevron-down"} size={18} color={colors.textSecondary} />
+      </Pressable>
+      {expanded ? <Text selectable className="text-sm leading-5 text-secondary">{text}</Text> : null}
+    </View>
+  );
+}
+
+/** Privacy e fonti: appearance, local data, discovery, diagnostics and attribution. */
+export function SettingsSheet() {
+  const { openLink } = useFeedback();
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const toggle = (id: string) => setExpanded(current => current === id ? null : id);
+  return (
+    <View className="gap-4 px-4 py-2">
+      <ThemePreferenceControl />
+      <Text className="text-sm text-secondary">Salvataggi sul dispositivo. Nessun account o telemetria.</Text>
       <Disclosure title="Posizione e privacy">
-        <Text className="text-sm leading-5 text-[#59667A]">La mappa usa la posizione se autorizzata. La navigazione richiede un fix preciso e mantiene attivi GPS e voce fino a Stop o arrivo, anche a schermo spento se Android lo consente.</Text>
-        <Text className="text-sm leading-5 text-[#59667A]">Mappe e percorsi inviano area, partenza o destinazione ai fornitori, che ricevono anche l’indirizzo IP. La guida usa una voce italiana offline; le sessioni interrotte richiedono Riprendi.</Text>
+        <Text className="text-sm leading-5 text-secondary">La mappa usa la posizione se autorizzata. La navigazione richiede un fix preciso e mantiene attivi GPS e voce fino a Stop o arrivo, anche a schermo spento se Android lo consente.</Text>
+        <Text className="text-sm leading-5 text-secondary">L’ultima vista della mappa resta su questo dispositivo per riaprire l’app nello stesso punto; non è la tua posizione e non viene inviata.</Text>
+        <Text className="text-sm leading-5 text-secondary">Mappe e percorsi inviano area, partenza o destinazione ai fornitori, che ricevono anche l’indirizzo IP. La guida usa una voce italiana offline; le sessioni interrotte richiedono Riprendi.</Text>
       </Disclosure>
       <DiscoverySettings />
       <Disclosure title="Diagnostica locale"><DiagnosticsPanel /></Disclosure>
       <Disclosure title="Fonti e licenze">
-      {PROVIDER_NOTICES.map((notice, index) => (
-        <View key={notice.name}>
-          <ActionRow
-            icon={icons[index] ?? "information-circle-outline"}
-            title={notice.name}
-            subtitle="Informazioni sulla fonte"
-            onPress={() => onLink(notice.url)}
-          />
-          <Text className="mt-2 text-sm leading-5 text-[#59667A]">
-            {notice.text}
-          </Text>
+        <View className="-mx-4">
+          {PROVIDER_NOTICES.map((notice, index) => (
+            <ListRow key={notice.name} kind="external" divider={false} icon={PROVIDER_ICONS[index] ?? "information-circle-outline"} title={notice.name} subtitle={notice.text} onPress={() => openLink(notice.url)} accessibilityHint="Apre la pagina della fonte" />
+          ))}
         </View>
-      ))}
-
-      <NavigationNotices onLink={onLink} />
-      <Text className="mt-2 text-lg font-semibold text-[#17243C]">
-        Licenze dei dati
-      </Text>
-      {DATA_LICENSES.map((license) => (
-        <View key={license.id} className="border-b border-[#E2E8F0] pb-3">
-          <Pressable
-            accessibilityRole="button"
-            accessibilityState={{ expanded: expanded === license.id }}
-            onPress={() =>
-              setExpanded(expanded === license.id ? null : license.id)
-            }
-            className="min-h-12 flex-row items-center justify-between"
-          >
-            <Text className="flex-1 font-semibold text-[#17243C]">
-              {license.id}
-            </Text>
-            <Icon
-              name={expanded === license.id ? "chevron-up" : "chevron-down"}
-              size={18}
-            />
-          </Pressable>
-          {expanded === license.id ? (
-            <Text selectable className="text-xs leading-5 text-[#59667A]">
-              {license.text}
-            </Text>
-          ) : null}
-        </View>
-      ))}
+        <NavigationNotices onLink={openLink} />
+        <Text accessibilityRole="header" className="mt-2 text-lg font-semibold text-primary">Stili della mappa</Text>
+        <Text className="text-sm leading-5 text-secondary">Stili OpenFreeMap inclusi nell’app; il tema scuro ne modifica i colori. Testi completi leggibili senza connessione.</Text>
+        {MAP_STYLE_NOTICES.map(notice => <LicenceText key={notice.id} id={`map:${notice.id}`} title={notice.title} text={notice.text} expanded={expanded === `map:${notice.id}`} onToggle={toggle} />)}
+        <Text accessibilityRole="header" className="mt-2 text-lg font-semibold text-primary">Licenze dei dati</Text>
+        {DATA_LICENSES.map(license => <LicenceText key={license.id} id={license.id} title={license.id} text={license.text} expanded={expanded === license.id} onToggle={toggle} />)}
       </Disclosure>
     </View>
   );

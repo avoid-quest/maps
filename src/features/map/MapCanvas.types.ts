@@ -25,5 +25,6 @@ export interface MapCanvasProps {
   followLocation?: boolean;
   onPressMarker?: (id: string) => void;
   onMapPress?: (coordinate: MapCoordinate) => void;
-  onRegionChanged?: (center: MapCoordinate) => void;
+  /** A user-driven camera change: the new centre and zoom. */
+  onRegionChanged?: (center: MapCoordinate, zoom: number) => void;
 }

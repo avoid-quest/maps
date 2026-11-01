@@ -1,6 +1,6 @@
 import { ScrollView, Text, View } from "react-native";
-import { colors } from "../../theme/tokens";
-import { IconButton } from "../../ui/Controls";
+import { useThemeColors } from "../../theme";
+import { IconButton } from "../../ui";
 import { PlaceDetail } from "../places/PlaceDetail";
 import { SavedSheet } from "../places/SavedSheet";
 import { PlannerSheet } from "../planner/PlannerSheet";
@@ -44,16 +44,17 @@ function TaskContent({ task, search, now }: { task: Task; search: Search; now: n
 
 /** The single task card: one task owns the sheet at a time. */
 export function TaskSheet({ height, wide, fontScale, now }: { height: number; wide: boolean; fontScale: number; now: number }) {
+  const colors = useThemeColors();
   const tasks = useTaskState();
   const sheet = useSheet();
   const search = useSearchContext();
   const { closeTask, closeTopTask } = useShellActions();
   const top = topTask(tasks);
   return (
-    <View testID="map-sheet" style={{ position: "absolute", left: 12, right: wide ? undefined : 12, bottom: 8, width: wide ? 410 : undefined, height, borderColor: colors.line, borderWidth: 1, borderRadius: 20, overflow: "hidden" }} className="bg-white">
-      <View style={{ height: Math.max(56, 48 * fontScale) }} className="flex-row items-center border-b border-[#E2E8F0] px-2">
+    <View testID="map-sheet" style={{ position: "absolute", left: 12, right: wide ? undefined : 12, bottom: 8, width: wide ? 410 : undefined, height, borderColor: colors.divider, borderWidth: 1, borderRadius: 20, overflow: "hidden" }} className="bg-surface">
+      <View style={{ height: Math.max(56, 48 * fontScale) }} className="flex-row items-center border-b border-divider px-2">
         <IconButton icon="arrow-back" label="Indietro" onPress={closeTopTask} />
-        <Text accessibilityRole="header" numberOfLines={2} className="min-w-0 flex-1 text-base leading-5 font-semibold text-[#17243C]">{taskTitle(top, search)}</Text>
+        <Text accessibilityRole="header" numberOfLines={2} className="min-w-0 flex-1 text-base leading-5 font-semibold text-primary">{taskTitle(top, search)}</Text>
         <IconButton icon={sheet.expanded ? "chevron-down" : "chevron-up"} label={sheet.expanded ? "Riduci scheda" : "Espandi scheda"} onPress={sheet.toggle} />
         <IconButton icon="close" label="Chiudi scheda" onPress={closeTask} />
       </View>

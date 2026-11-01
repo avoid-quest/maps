@@ -1,7 +1,7 @@
 import { View } from "react-native";
 import type { Stop } from "../../domain/types";
 import { savedTravel } from "../../services/saved-travel";
-import { Button, Notice } from "../../ui/Controls";
+import { Button, Notice } from "../../ui";
 import { useFeedback } from "../app/feedback";
 import { usePlannerContext } from "../planner/usePlanner";
 import { savedTravelFailureMessage } from "./SavedTravelPanel";
@@ -16,10 +16,10 @@ export function StopSheet({ stop, now }: { stop: Stop; now: number }) {
   const saved = transit.isStopSaved(stop.id);
   const saveError = savedTravelFailureMessage(transit.savedTravel.stopsFailure);
   return (
-    <View className="gap-3 p-4">
-      {saveError ? <Notice danger text={saveError} /> : null}
+    <View className="gap-3 py-2">
+      {saveError ? <Notice tone="danger" text={saveError} /> : null}
       <Button
-        secondary icon={saved ? "bookmark" : "bookmark-outline"}
+        variant="secondary" icon={saved ? "bookmark" : "bookmark-outline"}
         loading={transit.stopsBusy} disabled={transit.savedTravel.stopsStatus === "loading"}
         onPress={() => transit.mutateSavedStops(() => saved ? savedTravel.removeStop(stop.id) : savedTravel.saveStop(stop.id))}
       >{saved ? "Rimuovi fermata salvata" : "Salva fermata"}</Button>

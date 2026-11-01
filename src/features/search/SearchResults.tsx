@@ -1,62 +1,42 @@
 import { ActivityIndicator, Text, View } from "react-native";
-import { colors } from "../../theme/tokens";
-import { Disclosure, EmptyState, Notice } from "../../ui/Controls";
+import { useThemeColors } from "../../theme";
+import { Disclosure, EmptyState, Loading, Notice } from "../../ui";
 import { formatDistance } from "../../ui/format";
-import { Loading } from "../../ui/Loading";
 import { PlaceRow } from "../places/PlaceRow";
 import { usePlacesContext } from "../places/usePlaces";
 import { useSearchContext } from "./useSearch";
 
 /** Results with their count, limits, coverage and sources. */
 export function SearchResults() {
+  const colors = useThemeColors();
   const { result, searching, error, policy, retry } = useSearchContext();
   const { isSaved, openPlace } = usePlacesContext();
   const places = result.places;
   return (
     <>
       <View className="h-9 flex-row items-center gap-2 px-4">
-        <View className="w-4">{searching ? <ActivityIndicator size="small" color={colors.blue} /> : null}</View>
-        <Text numberOfLines={1} accessibilityLiveRegion="polite" className="flex-1 text-xs text-[#59667A]">{searching ? "Aggiorno i risultati…" : `${places.length} risultati${result.truncated ? ` · primi ${result.resultLimit}` : ""}${policy === "local-only" ? " · solo locali" : ""}`}</Text>
+        <View className="w-4">{searching ? <ActivityIndicator size="small" color={colors.action} /> : null}</View>
+        <Text numberOfLines={1} accessibilityLiveRegion="polite" className="flex-1 text-sm text-secondary">{searching ? "Aggiorno i risultati…" : `${places.length} risultati${result.truncated ? ` · primi ${result.resultLimit}` : ""}${policy === "local-only" ? " · solo locali" : ""}`}</Text>
       </View>
       {searching && !places.length ? (
         <Loading label="Cerco nell’area…" />
       ) : error ? (
-        <View className="m-5">
-          <Notice
-            danger
-            text={error}
-            action="Riprova"
-            onAction={retry}
-          />
-        </View>
+        <View className="m-4"><Notice tone="danger" text={error} action="Riprova" onAction={retry} /></View>
       ) : places.length ? (
-        places.map((place) => (
-          <PlaceRow
-            key={place.id}
-            place={place}
-            saved={isSaved(place.id)}
-            onPress={() => openPlace(place)}
-          />
-        ))
+        places.map(place => <PlaceRow key={place.id} place={place} saved={isSaved(place.id)} onPress={() => openPlace(place)} />)
       ) : (
         <EmptyState
           icon="search-outline"
           title={result.coverage.extent === "outside" ? "Fuori dal pacchetto locale" : "Nessuna corrispondenza"}
-          description={
-            result.coverage.extent === "outside"
-              ? "Dati locali non disponibili qui. Sposta la mappa."
-              : policy === "local-only"
-                ? "Prova un altro nome o attiva la ricerca online nelle impostazioni."
-                : "Prova un altro nome. I dati possono essere incompleti."
-          }
+          description={result.coverage.extent === "outside" ? "Dati locali non disponibili qui. Sposta la mappa." : policy === "local-only" ? "Prova un altro nome o attiva la ricerca online nelle impostazioni." : "Prova un altro nome. I dati possono essere incompleti."}
         />
       )}
       <View className="px-4"><Disclosure title="Copertura e fonti">
-        <Text className="text-xs leading-5 text-[#59667A]">{result.coverage.radiusMeters !== null
+        <Text className="text-sm leading-5 text-secondary">{result.coverage.radiusMeters !== null
           ? `Raggio ${formatDistance(result.coverage.radiusMeters)} · ${result.coverage.extent === "outside" ? "fuori dal pacchetto locale" : result.coverage.extent === "partial" ? "copertura locale parziale" : "nel pacchetto locale"}`
           : `Nomi nel pacchetto locale${result.coverage.centerInside ? "" : " · centro fuori copertura"}${policy === "local-and-online" ? "; Photon online" : ""}`}</Text>
-        {result.warnings.map((warning, index) => <Notice key={index} text={warning} />)}
-        <Text className="text-xs leading-5 text-[#59667A]">Luoghi da OpenStreetMap e Overture. Le informazioni possono essere incomplete.</Text>
+        {result.warnings.map((warning, index) => <Notice key={index} tone="caution" text={warning} />)}
+        <Text className="text-sm leading-5 text-secondary">Luoghi da OpenStreetMap e Overture. Le informazioni possono essere incomplete.</Text>
       </Disclosure></View>
     </>
   );
