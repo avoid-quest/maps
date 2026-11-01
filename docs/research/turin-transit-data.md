@@ -2,6 +2,18 @@
 
 Research date: **2026-10-11**. Endpoint probes were bounded anonymous HTTPS requests; the three GTT real-time feeds were sampled once at about **13:29 UTC / 15:29 Europe/Rome**. Counts below describe that snapshot, not guaranteed coverage, uptime or prediction accuracy. Large downloads stayed outside the repository. This note evaluates regional transit sources for an Android application with local data processing and direct public-data access; each source retains its documented usage terms.
 
+## Update 2026-11-01: rotating trip IDs, delay-only predictions and the timetable package
+
+A second bounded probe on **2026-11-01** (static ZIP at 19:07 UTC; TripUpdates header 2026-11-01 19:07:24 UTC) changed the static-data design.
+
+- **Trip IDs rotate; stop IDs are stable.** None of 257 live trip IDs matched the 20261011 package bundled earlier, while all **230/230** TripUpdates in the later sample matched the same day's ZIP (feed version **20261101**). A static lookup shipped inside an APK therefore stops joining within days. Stop IDs and public codes were unchanged (for example `stop_id=3019` is public stop **472 – Castello**).
+- **Predictions are mostly delay-only.** Of 1,434 StopTimeUpdates, **1,035 (72%)** carried only `arrival.delay` with `stop_sequence` (no `time`, no `stop_id`, no departure event) and 399 carried only `arrival.time`. A consumer that reads absolute times only discards most predictions. Every trip descriptor carried `start_date` and `start_time`; all 230 `start_time` values equalled the static first-stop time. Two trips were `CANCELED`; no `route_id`s were present.
+- **Coverage.** All sampled TripUpdates had urban (`U`) trip IDs: no metro and no extraurban predictions. Entity timestamps lagged the header by a median 72 s (90th percentile 1,536 s).
+- **Static export.** `gtt_gtfs.zip` was 20,652,975 bytes (about 132 MB uncompressed; `stop_times.txt` 116 MB, 1.83 million rows), `Last-Modified: Sun, 01 Nov 2026 02:26:59 GMT` with an `ETag`, validity **20261031–20270131**, 61,212 trips, 7,053 stops (two stations), 217 routes, 359 services and 10,482 calendar exceptions. No `frequencies.txt`; every stop time has explicit times (seconds precision); 56 visits are drop-off/pickup restricted. SHA-256: `502273b3e92c9f0db9b99fe0504b2ddbec28f5b3d5c413dae0efff05e0527411`.
+- **Compaction.** Grouping trips into **1,398 stop patterns** (stop IDs, real `stop_sequence` values, pickup/drop-off codes) and **6,809 timing vectors** (offsets from the trip start) loses no stop visit or time. The resulting JSON package is **4,264,861 bytes** (about 0.70 MB gzip); imported into SQLite it occupies about 9.3 MB.
+
+The app now ships a validated timetable package and checks a small published manifest for newer **hashed** (not signed) packages; boards render scheduled departures first and join GTT TripUpdates by exact trip ID and service date. See [data preparation](../development/data.md#gtt-timetable-package). Licence and attribution terms below are unchanged: the package is a modified (compacted) redistribution under GTT's non-commercial licence with the required attribution and link.
+
 ## Findings that affect the decision
 
 1. **A useful Turin transit system is feasible without a paid API or a hosted server.** GTT supplies directly downloadable static GTFS plus three working GTFS-Realtime feeds: predicted arrivals, vehicle positions and service alerts. Anonymous requests succeeded, and sampled predictions joined perfectly to the same day's static timetable. This is substantially more useful than merely finding bus dots on a map. [GTT static][gtt-static], [trip updates][gtt-tu], [vehicles][gtt-vp], [alerts][gtt-sa]
@@ -203,7 +215,7 @@ No first-party freely reusable nationwide **live rail** API/GTFS-RT/SIRI endpoin
 
 These are engineering recommendations derived from the observations, not guarantees from providers.
 
-1. **Build the first Turin feed path around GTT GTFS + GTFS-RT.** Import the static schedule transactionally on device or prepare a compact package on a workstation. Keep the last known-good schedule. Namespace IDs per provider, pin real-time joins to a known static revision, and update static data when matching deteriorates.
+1. **Build the first Turin feed path around GTT GTFS + GTFS-RT.** Implemented as a compact package prepared in CI and imported transactionally on device, keeping the last known-good schedule (see the 2026-11-01 update). Namespace IDs per provider, pin real-time joins to a known static revision, and update static data when matching deteriorates.
 2. **Keep all ordinary user state local.** Search history, saved locations and favorite stops need no account or analytics. Whole-city realtime downloads reveal IP and access time to GTT, but require neither GPS coordinates nor destination. Direct third-party routing queries reveal more; make that tradeoff explicit in settings.
 3. **Represent scheduled, predicted, stale and unavailable separately.** No realtime entity means “no prediction,” not “on time” and not “cancelled.” Do not turn a bus's coordinates into a certified arrival estimate. Unmatched data must degrade visibly and safely.
 4. **Separate vehicle positions, arrival predictions, alerts and route geometry.** Textual diversions do not automatically provide a replacement route geometry suitable for navigation. Do not redraw a detour by guessing.

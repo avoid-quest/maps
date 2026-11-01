@@ -1,6 +1,6 @@
 # Bundled data preparation
 
-Use this workflow when changing the bundled place package, its source selection or corrections, or the GTT realtime lookup. Python 3 prepares and validates the packages; DuckDB runs the public Overture extraction. No data service, account or native database dependency is required. Runtime delivery is a reviewed APK, not an in-app package replacement.
+Use this workflow when changing the bundled place package, its source selection or corrections, or the GTT timetable package. Python 3 prepares and validates the packages; DuckDB runs the public Overture extraction. Places are delivered only in a reviewed APK. The GTT timetable ships in the APK and can also be replaced on device by a newer hashed package published by CI (see below); no account or paid service is involved.
 
 ## Place inputs and preservation rules
 
@@ -36,22 +36,41 @@ A fresh output directory contains only the requested components and their manife
 
 After the runtime catalog switches to the compact file, remove the obsolete expanded `places.json` and check for stale imports. Keep the separate policy/supplement inputs; they are not runtime duplicate dumps.
 
-## Refresh GTT independently
+## GTT timetable package
+
+GTT rotates trip IDs between daily exports while stop IDs stay stable, and most GTT predictions are delay-only (`arrival.delay` with `stop_sequence`). Boards therefore need the current timetable, not just a trip lookup. `scripts/gtt_package.py` compacts the official ZIP without expanding `stop_times` on device:
+
+- **Format** `avoid-maps.gtt-timetable`, schema 1, deterministic ASCII JSON. `stops`, `routes`, `agencies`, `services` (weekday mask, range, added/removed dates), `patterns` (stop indexes, real `stop_sequence` values, pickup×4+drop-off codes), `vectors` (arrival increments and dwell seconds), `headsigns`, column-oriented `trips` (route, service, pattern, vector, start seconds, headsign, direction) and `frequencies`. Times above 24:00 and repeated visits are kept; missing times fail the build instead of being interpolated.
+- **Validation** (Python and `src/transit-data/package-format.ts`) checks every reference, monotonic times, unique IDs, Europe/Rome, coverage dates and size floors, so a truncated export cannot replace a usable package.
+- **Manifest** (`manifest.json`): `schema_version`, `package_hash` (SHA-256 of the package bytes), `package_bytes`, `package_path` (`packages/gtt-<hash>.json`), `source_zip_hash`, `feed_version`, `source_url`, `source_last_modified`, `source_etag`, `upstream_checked_at`, `built_at`, `valid_from`, `valid_to`, `attribution`, `attribution_url`, `licence_url`, counts and up to two previous packages. Packages are **hashed, not signed**: the hash detects corruption or truncation; trust comes from HTTPS and the repository's workflow.
+
+### Publication
+
+`.github/workflows/gtt-timetable.yml` runs at 03:15, 06:15, 12:15 and 18:15 UTC and on manual dispatch. `scripts/gtt-pipeline.py` downloads the ZIP with `If-None-Match`/`If-Modified-Since` from the published manifest, builds and validates the package, and publishes to GitHub Pages only when the package hash changed, or when the published upstream confirmation is older than 20 hours (a manifest-only heartbeat, so devices can tell an unchanged upstream from a stalled pipeline). Previous packages are re-downloaded, re-verified and kept beside the current one. The workflow uses no secrets and never receives signing credentials. One-time repository setting: **Settings → Pages → Build and deployment → Source: GitHub Actions**.
+
+Local reproduction, writing the APK bundle (`gtt-timetable.json`, `gtt-timetable.manifest.json`, `gtt-stops.json` and the `gtt` section of `manifest.json`) from the same build:
 
 ```sh
-curl -q -fL https://www.gtt.to.it/open_data/gtt_gtfs.zip -o /path/to/gtt_gtfs.zip
-python3 -B scripts/data-prepare.py --gtfs /path/to/gtt_gtfs.zip --validate-only
-python3 -B scripts/data-prepare.py --gtfs /path/to/gtt_gtfs.zip
+python3 -B scripts/gtt-pipeline.py --site-url https://avoid-quest.github.io/maps/gtt/ --output /path/to/empty-site --no-previous --bundle-dir src/data
+python3 -B scripts/data-prepare.py --gtfs /path/to/gtt_gtfs.zip   # offline ZIP; no Last-Modified/ETag recorded
 ```
 
-`--gtfs` may also be combined with `--places` after both input sets are ready. GTFS-only preparation preserves place metadata and data. GTT output contains stops and trip patterns for joining realtime predictions, not an offline timetable; changed trip IDs can require a new APK. Retain attribution, feed version, validity dates and archive hash.
+`gtt-stops.json` is the synchronous stop list for map and search, derived from the same package and tagged with its hash. Place-only refreshes leave the GTT files untouched.
+
+### On device
+
+`src/transit-data/` imports a package into a new candidate SQLite database (expo-sqlite), checks references and compares representative board queries against the parsed package, then switches the active package in one registry transaction. The previous package is retained for rollback; a failed download, hash mismatch, invalid package, full storage or process death leaves the active database in place, and leftovers are removed on the next start. A corrupt active database rolls back to the previous package, then to the bundled one. Indexes: `pattern_stop(stop_id, pattern_id)` and `trip(pattern_id, service_id, start_seconds)`; only the vectors needed by a board are decoded.
+
+The manifest is checked when a board opens or resumes and the last successful check is older than 6 hours, on **Aggiorna orari**, and once per hour at most when a nonempty realtime feed joins zero trips. Failures back off from 5 minutes to 6 hours. Any connection is used by default; an optional preference restricts checks to Wi-Fi. There is no background task. Boards warn when the active package has not been confirmed by a manifest for 48 hours, and outside the package calendar they say schedules are unavailable instead of extrapolating. Requests carry no identifiers, stop, location or query parameters; GitHub Pages sees the device IP and request time.
+
+On a desktop (Bun's SQLite) the 20261101 package imported, validated and switched in about 0.7 s, produced a 9.3 MB database, and a Castello (472) board took about 3.5 ms with or without the realtime join. Android timing and memory remain device checks.
 
 ## Evidence and acceptance
 
 Run `bun run verify`; its Bun wrapper also runs the Python regressions. For an isolated pipeline check, run:
 
 ```sh
-python3 -B -m unittest discover -s scripts -p test_place_package.py -v
+python3 -B -m unittest discover -s scripts -p 'test_*_package.py' -v
 ```
 
 Check deterministic regeneration and that an independent place refresh leaves GTT bytes/metadata unchanged. Inspect exact-name, category, typo, numeric-token, address, cap and coverage flows with online search enabled and with persisted **Solo ricerca locale**. The runtime catalog shares taxonomy membership and materializes full provenance/details after limiting results. Native map layers continue to render geographic results.
