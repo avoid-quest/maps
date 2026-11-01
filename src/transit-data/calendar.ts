@@ -70,3 +70,11 @@ export function activeServiceIds(rows: readonly CalendarRow[], exceptions: reado
 export function withinCoverage(date: ServiceDate, validFrom: ServiceDate, validTo: ServiceDate): boolean {
   return validFrom <= date && date <= validTo;
 }
+
+/**
+ * The package covers instants from GTFS time 0 of its first service date to the last event of its
+ * final service date (overnight trips after 24:00 included). Nothing outside is extrapolated.
+ */
+export function coverageAt(meta: { validFrom: ServiceDate; validTo: ServiceDate; maxEventSeconds: number }, now: number): 'covered' | 'outside' {
+  return now >= serviceDayOrigin(meta.validFrom) && now <= serviceTime(meta.validTo, meta.maxEventSeconds) ? 'covered' : 'outside';
+}

@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { PackageError, type PackageManifest, type TimetablePackage } from './package-format';
 import { compareRepresentativeQueries, createPackageStore } from './package-store';
-import { createMemoryReader, maxTripSeconds } from './reader';
+import { createMemoryReader, datasetMeta } from './reader';
 import { scheduledEvents } from './scheduled-board';
 import { encodePackage, fixtureManifest, fixturePackage, rome } from './test-support/fixture';
 import { createTestFiles, sha256 } from './test-support/files';
@@ -27,8 +27,8 @@ function harness(directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gtt-store-')
   const files = createTestFiles(path.join(directory, 'files'), served, { freeBytes: options.free });
   let clock = Date.parse('2026-10-21T06:00:00Z');
   const bundled = options.bundled ?? { manifest: bundledManifest, text: bundledText };
-  const store = createPackageStore({ driver, files, sha256, bundled: { manifest: bundled.manifest, load: () => JSON.parse(bundled.text) }, now: () => clock++, closeLater: db => void db.close() });
-  const serve = (manifest: PackageManifest, text: string) => { served.set(new URL(manifest.package_path, BASE).toString(), text); return new URL(manifest.package_path, BASE).toString(); };
+  const store = createPackageStore({ driver, files, sha256, bundled: { manifest: bundled.manifest, load: async () => bundled.text }, now: () => clock++, closeLater: db => void db.close() });
+  const serve = (manifest: PackageManifest, text: string, base = BASE) => { served.set(base + manifest.package_path, text); return [base + manifest.package_path]; };
   const databases = () => fs.readdirSync(path.join(directory, 'db')).filter(name => /^gtt-[0-9a-f]{16}-\d+\.db$/.test(name)).sort();
   return { directory, driver, files, store, serve, databases };
 }
@@ -126,6 +126,38 @@ test('a corrupted active database rolls back to the previous package, then to th
   assert.deepEqual(await departuresAtA(third.store), ['T1', 'T2'], 'bundled package reimported');
 });
 
+test('startup rejects a structurally damaged database (missing table or index, wrong counts) and rolls back', async () => {
+  for (const damage of ['DROP TABLE timing_vector', 'DROP INDEX trip_by_pattern', "DELETE FROM trip WHERE trip_id LIKE 'N%X0%'"]) {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gtt-store-'));
+    const first = harness(directory);
+    await first.store.open();
+    const next = release('20261021', '2026-10-21T03:15:00Z');
+    await first.store.installDownloaded(next.manifest, first.serve(next.manifest, next.text));
+    const active = (await first.store.packages()).find(entry => entry.role === 'active')!;
+    const db = await first.driver.open(active.db); await db.exec(damage); await db.close();
+    const restarted = harness(directory);
+    const dataset = await restarted.store.open();
+    assert.equal(dataset.meta.packageHash, bundledManifest.package_hash, damage);
+    assert.deepEqual(await departuresAtA(restarted.store), ['T1', 'T2'], `${damage}: queries work after rollback`);
+  }
+});
+
+test('bundled bytes are verified against the bundled manifest', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gtt-store-'));
+  const tampered = harness(directory, { bundled: { manifest: bundledManifest, text: bundledText.replace('ALFA', 'ALFB') } });
+  await assert.rejects(tampered.store.open(), (error: unknown) => error instanceof PackageError && error.kind === 'hash');
+});
+
+test('mirrors: a failed or corrupt transfer falls through to the next URL', async () => {
+  const { store, serve } = harness();
+  await store.open();
+  const next = release('20261021', '2026-10-21T03:15:00Z');
+  const [corrupt] = serve(next.manifest, next.text.slice(0, -10), 'https://a.test/');
+  const [good] = serve(next.manifest, next.text, 'https://b.test/');
+  const installed = await store.installDownloaded(next.manifest, ['https://down.test/' + next.manifest.package_path, corrupt!, good!]);
+  assert.equal(installed.meta.packageHash, next.manifest.package_hash);
+});
+
 test('an APK with a newer bundled package replaces an older download; an older one does not', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gtt-store-'));
   const first = harness(directory);
@@ -145,7 +177,7 @@ test('an APK with a newer bundled package replaces an older download; an older o
 
 test('representative-query validation rejects a candidate that answers differently', async () => {
   const pkg = fixturePackage();
-  const meta = { packageHash: bundledManifest.package_hash, feedVersion: pkg.feed.feed_version, validFrom: pkg.feed.valid_from, validTo: pkg.feed.valid_to, maxTripSeconds: maxTripSeconds(pkg), source: 'bundled' as const, manifest: bundledManifest };
+  const meta = datasetMeta(pkg, bundledManifest, 'bundled');
   const oracle = createMemoryReader(pkg, meta);
   await compareRepresentativeQueries(oracle, oracle, pkg, rome('20261021', '07:00'));
   const tampered = { ...oracle, async vectors(ids: readonly number[]) { const map = await oracle.vectors(ids); for (const vector of map.values()) vector.departures = vector.departures.map(value => value + 60); return map; } };

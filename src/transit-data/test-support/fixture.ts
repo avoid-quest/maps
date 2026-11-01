@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { PackageManifest, TimetablePackage } from '../package-format';
-import { createMemoryReader, maxTripSeconds, type DatasetMeta } from '../reader';
+import { createMemoryReader, datasetMeta } from '../reader';
 
 /**
  * Synthetic package covering 20261020–20261130 (the 25 Oct DST change included). Padding stops,
@@ -71,7 +71,7 @@ export function fixtureManifest(text: string, pkg: TimetablePackage, overrides: 
   return {
     schema_version: 1, package_format: 'avoid-maps.gtt-timetable', package_hash: hash, package_bytes: text.length,
     package_path: `packages/gtt-${hash}.json`, feed_version: pkg.feed.feed_version, valid_from: pkg.feed.valid_from, valid_to: pkg.feed.valid_to,
-    source_url: 'https://www.gtt.to.it/open_data/gtt_gtfs.zip', source_zip_hash: 'a'.repeat(64), source_last_modified: '2026-10-19T02:26:59Z', source_etag: '"x"',
+    source_url: 'https://www.gtt.to.it/open_data/gtt_gtfs.zip', source_zip_hash: createHash('sha256').update(`zip:${pkg.feed.feed_version}`).digest('hex'), source_last_modified: '2026-10-19T02:26:59Z', source_etag: '"x"',
     upstream_checked_at: '2026-10-19T03:15:00Z', built_at: '2026-10-19T03:15:00Z',
     attribution: 'Data source: GTT S.p.A. – Gruppo Torinese Trasporti', attribution_url: 'https://www.gtt.to.it', licence_url: 'https://www.gtt.to.it/gtt_gtfs_license.html',
     builder_version: '1', counts: { stops: pkg.stops.length, routes: pkg.routes.length, trips: pkg.trips.trip_id.length, patterns: pkg.patterns.length, vectors: pkg.vectors.length, services: pkg.services.length },
@@ -81,8 +81,7 @@ export function fixtureManifest(text: string, pkg: TimetablePackage, overrides: 
 
 export function fixtureReader(pkg = fixturePackage()) {
   const text = encodePackage(pkg); const manifest = fixtureManifest(text, pkg);
-  const meta: DatasetMeta = { packageHash: manifest.package_hash, feedVersion: pkg.feed.feed_version, validFrom: pkg.feed.valid_from, validTo: pkg.feed.valid_to, maxTripSeconds: maxTripSeconds(pkg), source: 'bundled', manifest };
-  return createMemoryReader(pkg, meta);
+  return createMemoryReader(pkg, datasetMeta(pkg, manifest, 'bundled'));
 }
 
 /** Epoch ms for a Rome civil time (fixture dates are unambiguous). */

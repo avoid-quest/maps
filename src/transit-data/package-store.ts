@@ -1,10 +1,10 @@
 import { romeDate, withinCoverage } from './calendar';
-import { checkManifestMatchesPackage, PackageError, validateManifest, validatePackage, type PackageManifest, type TimetablePackage } from './package-format';
-import { createMemoryReader, maxTripSeconds, type DatasetMeta, type TimetableReader } from './reader';
+import { checkManifestMatchesPackage, isUpgrade, PackageError, validateManifest, validatePackage, type PackageManifest, type TimetablePackage } from './package-format';
+import { createMemoryReader, datasetMeta, type DatasetMeta, type TimetableReader } from './reader';
 import { INITIAL_REFRESH_STATE, type RefreshState } from './refresh-policy';
 import { scheduledEvents } from './scheduled-board';
 import type { SqlDatabase, SqlDriver } from './sql';
-import { createSqlReader, importPackage, readMeta, validateDatabase } from './timetable-db';
+import { checkDatabase, createSqlReader, importPackage, readMeta, validateDatabase } from './timetable-db';
 
 /** Staging storage for downloaded packages (expo-file-system on device, node:fs in tests). */
 export interface PackageFiles {
@@ -17,7 +17,14 @@ export interface PackageFiles {
   freeBytes(): Promise<number | undefined>;
 }
 export type Sha256 = (text: string) => Promise<string>;
-export interface BundledPackage { manifest: PackageManifest; load(): TimetablePackage }
+/** The package shipped with the app: its manifest, and its exact bytes loaded only when importing. */
+export interface BundledPackage { manifest: PackageManifest; load(): Promise<string> }
+
+function parsePackage(text: string): TimetablePackage {
+  let parsed: unknown;
+  try { parsed = JSON.parse(text); } catch { throw new PackageError('Il pacchetto orari non è JSON valido.'); }
+  return validatePackage(parsed);
+}
 export interface ActiveDataset { reader: TimetableReader; meta: DatasetMeta }
 
 const REGISTRY = 'gtt-registry.db';
@@ -58,10 +65,8 @@ export function createPackageStore(deps: { driver: SqlDriver; files: PackageFile
     try {
       const meta = await readMeta(db);
       if (meta.packageHash !== row.package_hash) throw new PackageError('Database orari non corrispondente al registro.');
-      const reader = createSqlReader(db, meta);
-      // A cheap read of every hot table catches truncation without a full integrity scan.
-      await Promise.all([reader.routes(), reader.stopVisits(''), reader.trips(['']), reader.calendar([])]);
-      return { db, meta, reader };
+      await checkDatabase(db);
+      return { db, meta, reader: createSqlReader(db, meta) };
     } catch (error) { await db.close().catch(() => undefined); throw error; }
   }
 
@@ -76,7 +81,7 @@ export function createPackageStore(deps: { driver: SqlDriver; files: PackageFile
     checkManifestMatchesPackage(manifest, pkg);
     const free = await files.freeBytes();
     if (free !== undefined && free < manifest.package_bytes * STORAGE_FACTOR) throw new PackageError('Spazio di archiviazione insufficiente per aggiornare gli orari.', 'storage');
-    const meta: DatasetMeta = { packageHash: manifest.package_hash, feedVersion: pkg.feed.feed_version, validFrom: pkg.feed.valid_from, validTo: pkg.feed.valid_to, maxTripSeconds: maxTripSeconds(pkg), source, manifest };
+    const meta = datasetMeta(pkg, manifest, source);
     const name = `gtt-${manifest.package_hash.slice(0, 16)}-${now()}.db`;
     await driver.remove(name);
     let candidate: SqlDatabase | undefined;
@@ -124,8 +129,12 @@ export function createPackageStore(deps: { driver: SqlDriver; files: PackageFile
     }
   }
 
+  /** The bundled bytes are verified like a download; the parsed package is released after import. */
   async function installBundled() {
-    return install(validatePackage(bundled.load()), validateManifest(bundled.manifest), 'bundled');
+    const manifest = validateManifest(bundled.manifest);
+    const text = await bundled.load();
+    if (text.length !== manifest.package_bytes || await sha256(text) !== manifest.package_hash) throw new PackageError('Il pacchetto orari incluso non corrisponde al suo hash.', 'hash');
+    return install(parsePackage(text), manifest, 'bundled');
   }
 
   return {
@@ -139,26 +148,35 @@ export function createPackageStore(deps: { driver: SqlDriver; files: PackageFile
         try { dataset = active = await openDataset(current); } catch { dataset = await rollback(); }
       }
       if (!dataset) return installBundled();
-      // An app update can ship a newer bundled package than the last download; if importing it
+      // An app update can ship a newer GTT source than the last download (never an older one); if importing it
       // fails (for example on a full disk) the usable active package stays in service.
-      if (Date.parse(bundled.manifest.built_at) > Date.parse(dataset.meta.manifest.built_at)) {
+      if (isUpgrade(bundled.manifest, dataset.meta.manifest)) {
         try { dataset = await installBundled(); } catch { /* keep the active package */ }
       }
       return dataset;
     }),
     active: () => active,
-    /** Verify the downloaded bytes against the manifest hash before parsing or importing anything. */
-    installDownloaded: (manifest: PackageManifest, url: string) => serial(async (): Promise<ActiveDataset> => {
-      const staging = `gtt-${manifest.package_hash}.json`;
-      await files.remove(`${staging}.part`).catch(() => undefined);
-      try {
-        await files.download(url, `${staging}.part`);
-        const text = await files.read(`${staging}.part`);
-        if (text.length !== manifest.package_bytes || await sha256(text) !== manifest.package_hash) throw new PackageError('Il pacchetto orari scaricato non corrisponde all’hash pubblicato.', 'hash');
-        let parsed: unknown;
-        try { parsed = JSON.parse(text); } catch { throw new PackageError('Il pacchetto orari scaricato non è JSON valido.'); }
-        return await install(validatePackage(parsed), manifest, 'downloaded');
-      } finally { await files.remove(`${staging}.part`).catch(() => undefined); }
+    /**
+     * Verify the downloaded bytes against the manifest hash before parsing or importing anything.
+     * Mirrors are tried in order; a failed transfer or hash mismatch moves on to the next one.
+     */
+    installDownloaded: (manifest: PackageManifest, urls: readonly string[]) => serial(async (): Promise<ActiveDataset> => {
+      const staging = `gtt-${manifest.package_hash}.json.part`;
+      let lastError: unknown = new PackageError('Nessun server orari configurato.', 'network');
+      for (const url of urls) {
+        let text: string | undefined;
+        try {
+          await files.remove(staging).catch(() => undefined);
+          await files.download(url, staging);
+          text = await files.read(staging);
+          if (text.length !== manifest.package_bytes || await sha256(text) !== manifest.package_hash) {
+            text = undefined;
+            throw new PackageError('Il pacchetto orari scaricato non corrisponde all’hash pubblicato.', 'hash');
+          }
+        } catch (error) { lastError = error; continue; } finally { await files.remove(staging).catch(() => undefined); }
+        return install(parsePackage(text), manifest, 'downloaded');
+      }
+      throw lastError;
     }),
     rollback: () => serial(rollback),
     async readState(): Promise<RefreshState> {

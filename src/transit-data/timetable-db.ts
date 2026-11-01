@@ -37,7 +37,7 @@ export async function importPackage(db: SqlDatabase, pkg: TimetablePackage, meta
   await db.transaction(async () => {
     const metaRows: [string, string][] = [
       ['db_schema_version', String(DB_SCHEMA_VERSION)], ['package_hash', meta.packageHash], ['feed_version', meta.feedVersion],
-      ['valid_from', meta.validFrom], ['valid_to', meta.validTo], ['max_trip_seconds', String(meta.maxTripSeconds)],
+      ['valid_from', meta.validFrom], ['valid_to', meta.validTo], ['max_trip_seconds', String(meta.maxTripSeconds)], ['max_event_seconds', String(meta.maxEventSeconds)],
       ['source', meta.source], ['manifest', JSON.stringify(meta.manifest)],
       ['trip_count', String(pkg.trips.trip_id.length)], ['stop_count', String(pkg.stops.length)],
     ];
@@ -70,10 +70,11 @@ export async function importPackage(db: SqlDatabase, pkg: TimetablePackage, meta
 export async function readMeta(db: SqlDatabase): Promise<DatasetMeta> {
   const rows = await db.all<{ key: string; value: string }>('SELECT key, value FROM dataset_meta');
   const values = Object.fromEntries(rows.map(row => [row.key, row.value]));
-  if (values.db_schema_version !== String(DB_SCHEMA_VERSION) || !values.package_hash || !values.manifest) throw new PackageError('Database orari incompleto.');
+  if (values.db_schema_version !== String(DB_SCHEMA_VERSION) || !values.package_hash || !values.manifest
+    || !Number.isFinite(Number(values.max_trip_seconds)) || !Number.isFinite(Number(values.max_event_seconds))) throw new PackageError('Database orari incompleto.');
   return {
     packageHash: values.package_hash, feedVersion: values.feed_version ?? '', validFrom: values.valid_from ?? '', validTo: values.valid_to ?? '',
-    maxTripSeconds: Number(values.max_trip_seconds), source: values.source === 'bundled' ? 'bundled' : 'downloaded', manifest: JSON.parse(values.manifest),
+    maxTripSeconds: Number(values.max_trip_seconds), maxEventSeconds: Number(values.max_event_seconds), source: values.source === 'bundled' ? 'bundled' : 'downloaded', manifest: JSON.parse(values.manifest),
   };
 }
 
@@ -183,6 +184,27 @@ export async function validateDatabase(db: SqlDatabase, pkg: TimetablePackage): 
     || counts.vectors !== pkg.vectors.length || counts.visits !== visits || counts.orphanVisits || counts.orphanTrips || counts.badCalendar) {
     throw new PackageError('Il database orari importato non supera la verifica dei riferimenti.');
   }
-  const [integrity] = await db.all<{ integrity_check?: string; quick_check?: string }>('PRAGMA quick_check');
-  if (Object.values(integrity ?? {})[0] !== 'ok') throw new PackageError('Il database orari importato è danneggiato.');
+  await checkDatabase(db);
+}
+
+export const REQUIRED_TABLES = ['dataset_meta', 'stop', 'agency', 'route', 'pattern_stop', 'timing_vector', 'trip', 'frequency', 'service_calendar', 'service_exception'] as const;
+export const REQUIRED_INDEXES = ['pattern_stop_by_stop', 'trip_by_pattern', 'frequency_by_trip'] as const;
+
+/**
+ * Startup acceptance of an installed database: every table and index the board needs, row counts
+ * recorded at import, and SQLite's own page-level check. Any failure means rollback.
+ */
+export async function checkDatabase(db: SqlDatabase): Promise<void> {
+  const names = new Set((await db.all<{ name: string }>("SELECT name FROM sqlite_master WHERE type IN ('table', 'index')")).map(row => row.name));
+  const missing = [...REQUIRED_TABLES, ...REQUIRED_INDEXES].filter(name => !names.has(name));
+  if (missing.length) throw new PackageError('Database orari incompleto.');
+  const [counts] = await db.all<{ trips: number; stops: number; expectedTrips: string | null; expectedStops: string | null; visits: number; vectors: number }>(`
+    SELECT (SELECT COUNT(*) FROM trip) AS trips, (SELECT COUNT(*) FROM stop) AS stops,
+      (SELECT value FROM dataset_meta WHERE key = 'trip_count') AS expectedTrips, (SELECT value FROM dataset_meta WHERE key = 'stop_count') AS expectedStops,
+      (SELECT COUNT(*) FROM pattern_stop) AS visits, (SELECT COUNT(*) FROM timing_vector) AS vectors`);
+  if (!counts || String(counts.trips) !== counts.expectedTrips || String(counts.stops) !== counts.expectedStops || !counts.visits || !counts.vectors) {
+    throw new PackageError('Database orari incompleto.');
+  }
+  const [result] = await db.all<Record<string, string>>('PRAGMA quick_check');
+  if (Object.values(result ?? {})[0] !== 'ok') throw new PackageError('Database orari danneggiato.');
 }

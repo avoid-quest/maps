@@ -8,6 +8,8 @@ export interface DatasetMeta {
   validTo: ServiceDate;
   /** Longest trip duration in seconds; bounds the start-time window of a query. */
   maxTripSeconds: number;
+  /** Latest event of any trip, in seconds after a service day's origin (above 86,400 for overnight service). */
+  maxEventSeconds: number;
   source: 'bundled' | 'downloaded';
   manifest: PackageManifest;
 }
@@ -44,6 +46,20 @@ export function maxTripSeconds(pkg: TimetablePackage): number {
   let max = 0;
   for (const vector of pkg.vectors) max = Math.max(max, decodeVector(vector).departures.at(-1) ?? 0);
   return max;
+}
+
+export function maxEventSeconds(pkg: TimetablePackage): number {
+  const durations = pkg.vectors.map(vector => decodeVector(vector).departures.at(-1) ?? 0);
+  let max = 0;
+  pkg.trips.start.forEach((start, index) => { max = Math.max(max, start + durations[pkg.trips.vector[index]!]!); });
+  for (const [trip, , end] of pkg.frequencies) max = Math.max(max, end + durations[pkg.trips.vector[trip]!]!);
+  return max;
+}
+
+/** Dataset metadata derived from a validated package and its manifest. */
+export function datasetMeta(pkg: TimetablePackage, manifest: PackageManifest, source: DatasetMeta['source']): DatasetMeta {
+  return { packageHash: manifest.package_hash, feedVersion: pkg.feed.feed_version, validFrom: pkg.feed.valid_from, validTo: pkg.feed.valid_to,
+    maxTripSeconds: maxTripSeconds(pkg), maxEventSeconds: maxEventSeconds(pkg), source, manifest };
 }
 
 /** Package-backed reader: used on web, in tests, and as the oracle for candidate-database validation. */

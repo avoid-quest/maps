@@ -46,7 +46,8 @@ export interface PackageManifest {
   source_zip_hash: string;
   source_last_modified?: string | null;
   source_etag?: string | null;
-  upstream_checked_at: string;
+  /** When the pipeline last confirmed this source against GTT; null when built from a local file without evidence. */
+  upstream_checked_at: string | null;
   built_at: string;
   attribution: string;
   attribution_url: string;
@@ -147,7 +148,8 @@ export function validateManifest(value: unknown): PackageManifest {
   check(manifest.package_path === `packages/gtt-${manifest.package_hash}.json`, 'Percorso del pacchetto non valido.');
   check(isInt(manifest.package_bytes) && manifest.package_bytes > 0 && manifest.package_bytes < 64 * 1024 * 1024, 'Dimensione del pacchetto non valida.');
   check(validDate(manifest.valid_from) && validDate(manifest.valid_to) && manifest.valid_from <= manifest.valid_to, 'Validità del manifest non valida.');
-  check(ISO(manifest.upstream_checked_at) && ISO(manifest.built_at), 'Date del manifest non valide.');
+  check((manifest.upstream_checked_at === null || ISO(manifest.upstream_checked_at)) && ISO(manifest.built_at), 'Date del manifest non valide.');
+  check(manifest.source_last_modified === undefined || manifest.source_last_modified === null || ISO(manifest.source_last_modified), 'Data della fonte non valida.');
   check(isString(manifest.feed_version) && isString(manifest.attribution) && manifest.attribution.includes('GTT'), 'Attribuzione del manifest mancante.');
   return manifest;
 }
@@ -156,4 +158,25 @@ export function validateManifest(value: unknown): PackageManifest {
 export function checkManifestMatchesPackage(manifest: PackageManifest, pkg: TimetablePackage) {
   check(manifest.feed_version === pkg.feed.feed_version && manifest.valid_from === pkg.feed.valid_from && manifest.valid_to === pkg.feed.valid_to, 'Il pacchetto non corrisponde al manifest.');
   check(manifest.counts.trips === pkg.trips.trip_id.length && manifest.counts.stops === pkg.stops.length && manifest.counts.patterns === pkg.patterns.length, 'Conteggi del pacchetto diversi dal manifest.');
+}
+
+const VERSION = /^\d+$/;
+/**
+ * Order two packages by their GTT source generation, independently of when they were built:
+ * feed_version (numeric, e.g. 20261101), then the upstream Last-Modified time. Returns >0 when
+ * `a` is a newer source than `b`, <0 when older, 0 when the same or indistinguishable.
+ */
+export function compareSource(a: PackageManifest, b: PackageManifest): number {
+  if (a.feed_version !== b.feed_version && VERSION.test(a.feed_version) && VERSION.test(b.feed_version)) {
+    const [left, right] = [a.feed_version.replace(/^0+/, ''), b.feed_version.replace(/^0+/, '')];
+    if (left !== right) return left.length !== right.length ? Math.sign(left.length - right.length) : left > right ? 1 : -1;
+  }
+  if (a.source_zip_hash === b.source_zip_hash) return 0;
+  const [left, right] = [Date.parse(a.source_last_modified ?? ''), Date.parse(b.source_last_modified ?? '')];
+  return Number.isFinite(left) && Number.isFinite(right) && left !== right ? Math.sign(left - right) : 0;
+}
+/** A candidate may replace the active package only with a newer source, or the same source rebuilt later. */
+export function isUpgrade(candidate: PackageManifest, active: PackageManifest): boolean {
+  const order = compareSource(candidate, active);
+  return order !== 0 ? order > 0 : Date.parse(candidate.built_at) > Date.parse(active.built_at);
 }
