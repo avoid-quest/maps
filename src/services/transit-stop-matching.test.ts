@@ -1,16 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import staticStops from '../data/gtt-stops.json';
+import { catalogStops } from '../transit-data/stop-catalog';
 import type { Coordinate, RouteStop, Stop } from '../domain/types';
 import { createJourneyStopMatcher, matchJourneyStop } from './transit-stop-matching';
 
-const lingotto = (staticStops as Stop[]).find(stop => stop.code === '2603')!;
+const lingotto = catalogStops().find(stop => stop.code === '2603')!;
 const routeStop = (stop: Stop): RouteStop => ({ id: `mato:gtt:${stop.code}`, code: stop.code, name: stop.name, coordinate: stop.coordinate });
 
 test('public codes resolve the installed internal IDs, including the Lingotto/Ancina collision', () => {
   assert.equal(matchJourneyStop(routeStop(lingotto))?.id, '1765');
-  assert.match((staticStops as Stop[]).find(stop => stop.id === '2603')!.name, /ANCINA/);
-  const garrone = (staticStops as Stop[]).find(stop => stop.code === '488')!;
+  assert.match(catalogStops().find(stop => stop.id === '2603')!.name, /ANCINA/);
+  const garrone = catalogStops().find(stop => stop.code === '488')!;
   assert.equal(matchJourneyStop(routeStop(garrone))?.id, '3035');
 });
 
@@ -43,4 +43,23 @@ test('the ten-metre check accepts 9.9m and rejects 10.1m without a proximity fal
   assert.equal(matchJourneyStop({ ...routeStop(lingotto), coordinate: shifted(9.9) })?.id, '1765');
   assert.equal(matchJourneyStop({ ...routeStop(lingotto), coordinate: shifted(10.1) }), null);
   assert.equal(matchJourneyStop({ ...routeStop(lingotto), id: 'mato:gtt:488', code: '488' }), null);
+});
+
+test('journey stop matching follows the active package catalog; the newest adoption wins', async () => {
+  const { adoptCatalog, catalogVersion } = await import('../transit-data/stop-catalog');
+  const { fixtureReader, fixturePackage } = await import('../transit-data/test-support/fixture');
+  const { timetableService } = await import('../transit-data/runtime');
+  const fixture = fixtureReader();
+  const other = fixtureReader(fixturePackage({ feedVersion: '20261022' }));
+  const slow = { ...fixture, stops: async () => { await new Promise(resolve => setTimeout(resolve, 20)); return fixture.stops(); } };
+  try {
+    const older = adoptCatalog(slow); const newer = adoptCatalog(other);
+    await Promise.all([older, newer]);
+    assert.equal(catalogVersion().packageHash, other.meta.packageHash, 'a slower, older adoption cannot overwrite the newer one');
+    const alfa = { id: 'mato:gtt:101', code: '101', name: 'Alfa', coordinate: { latitude: 45.07, longitude: 7.68 } };
+    assert.equal(matchJourneyStop(alfa)?.id, 'A', 'resolved against the adopted package');
+  } finally {
+    await adoptCatalog((await timetableService.current()).reader);
+  }
+  assert.equal(matchJourneyStop(routeStop(lingotto))?.id, '1765');
 });

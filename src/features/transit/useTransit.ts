@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState, useSyncExternalStore } from 'react';
 import type { Stop } from '../../domain/types';
 import { getNearbyStops } from '../../services';
+import { catalogVersion, subscribeCatalog } from '../../transit-data/stop-catalog';
 import { savedTravel, type SavedTravelSnapshot } from '../../services/saved-travel';
 import { createFeatureContext } from '../app/feature-context';
 import type { SheetState } from '../app/sheet';
@@ -33,11 +34,15 @@ function boardIdentity(state: TaskState): string | null {
   return stop ? `${state.details[state.details.length - 1]?.kind}:${stop.id}` : null;
 }
 
+const catalogPackageHash = () => catalogVersion().packageHash;
+
 export function useTransit({ tasks, camera, location, sheet, appActive, navigationVisible }: {
   tasks: TaskModel; camera: MapCamera; location: DeviceLocation; sheet: SheetState; appActive: boolean; navigationVisible: boolean;
 }): Transit {
   const searchCenter = camera.searchCenter;
-  const nearbyStops = useMemo(() => getNearbyStops(searchCenter, { limit: 15, radiusMeters: 1800 }), [searchCenter]);
+  // Recomputed when the active timetable package (and so its stop catalog) changes.
+  const catalogHash = useSyncExternalStore(subscribeCatalog, catalogPackageHash, catalogPackageHash);
+  const nearbyStops = useMemo(() => { void catalogHash; return getNearbyStops(searchCenter, { limit: 15, radiusMeters: 1800 }); }, [searchCenter, catalogHash]);
   const stop = boardStop(tasks.state);
   const board = useStopBoard({ stopId: stop?.id, active: !!stop && appActive && !navigationVisible && boardInFront(tasks.state) });
   const { suspend } = board;
