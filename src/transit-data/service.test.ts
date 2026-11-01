@@ -63,6 +63,7 @@ test('refresh evidence is keyed by package and survives persistence', () => {
 
 const BASE = 'https://primary.test/gtt/';
 const MIRROR = 'https://mirror.test/gtt/';
+const RELEASES = 'https://releases.test/download/gtt-timetable/';
 function setup(options: { wifi?: boolean | 'throws'; directory?: string; mirrors?: string[]; bundled?: { text: string; manifest: PackageManifest } } = {}) {
   const directory = options.directory ?? fs.mkdtempSync(path.join(os.tmpdir(), 'gtt-service-'));
   const bundledPkg = fixturePackage(); const bundledText = encodePackage(bundledPkg);
@@ -83,7 +84,7 @@ function setup(options: { wifi?: boolean | 'throws'; directory?: string; mirrors
   }) as typeof globalThis.fetch;
   const mirrors = options.mirrors ?? [BASE];
   const service = createTimetableService({
-    store, fetch, mirrors, now: () => clock,
+    store, fetch, mirrors: mirrors.map(base => ({ base, layout: base === RELEASES ? 'flat' as const : 'tree' as const })), now: () => clock,
     networkAllowed: async wifiOnly => { networkLookups++; if (options.wifi === 'throws') throw new Error('state unavailable'); return !wifiOnly || options.wifi === true; },
   });
   const release = (feedVersion: string, builtAt: string, overrides: Partial<PackageManifest> = {}, variant = '') => {
@@ -93,7 +94,7 @@ function setup(options: { wifi?: boolean | 'throws'; directory?: string; mirrors
   const publish = (feedVersion: string, builtAt: string, overrides: Partial<PackageManifest> = {}, on: string[] = mirrors, variant = '') => {
     const next = release(feedVersion, builtAt, overrides, variant);
     manifest = next.manifest; etag = `"${feedVersion}-${builtAt}"`;
-    for (const base of on) served.set(base + next.manifest.package_path, next.text);
+    for (const base of on) served.set(base + (base === RELEASES ? next.manifest.package_path.replace('packages/', '') : next.manifest.package_path), next.text);
     return next.manifest;
   };
   return {
@@ -129,6 +130,14 @@ test('ordered mirrors: the next mirror is used only when one fails; validators s
   assert.deepEqual(env.requests.at(-1), { url: `${BASE}manifest.json`, headers: {} }, 'the other mirror\'s ETag is not sent');
 });
 
+test('Releases mirror uses the flat asset layout', async () => {
+  const env = setup({ mirrors: [BASE, RELEASES] });
+  env.setDown(BASE, true);
+  const published = env.publish('20261021', '2026-10-21T03:15:00Z', {}, [RELEASES]);
+  assert.equal(await env.service.check('open'), 'installed');
+  assert.deepEqual(env.files.requested, [`${RELEASES}gtt-${published.package_hash}.json`]);
+});
+
 test('rollback restores the other package\'s own evidence: no foreign ETag or confirmation', async () => {
   const env = setup();
   await env.service.check('open');
@@ -158,13 +167,13 @@ test('stale-package mismatch: zero joins trigger one check that installs the new
   const feed = { header: { gtfsRealtimeVersion: '2.0', timestamp: now / 1000 }, entity: [{ id: '1', tripUpdate: { timestamp: (now - 20_000) / 1000, trip: { tripId: 'N20261021-T1', startDate: '20261021', startTime: '08:00:00' }, stopTimeUpdate: [{ stopSequence: 1, arrival: { delay: 240 } }] } }] };
   const snapshot = indexFeed(feed, now);
   const before = (await env.service.current()).reader;
-  const stale = await composeBoard(before, 'A', now, { refresh: env.service.status().refresh, realtime: { snapshot, matchedTrips: (await before.trips(['N20261021-T1'])).size } });
+  const stale = await composeBoard(before, 'A', now, { refresh: env.service.status().refresh, realtime: { snapshot } });
   assert.equal(stale.realtime.state, 'unmatched');
   assert.ok(stale.rows.length > 0, 'scheduled rows remain');
   assert.equal(await env.service.check('mismatch'), 'installed');
   assert.equal(env.service.status().meta?.packageHash, published.package_hash);
   const after = (await env.service.current()).reader;
-  const board = await composeBoard(after, 'A', now, { refresh: env.service.status().refresh, realtime: { snapshot, matchedTrips: (await after.trips(['N20261021-T1'])).size } });
+  const board = await composeBoard(after, 'A', now, { refresh: env.service.status().refresh, realtime: { snapshot } });
   assert.equal(board.realtime.state, 'ok');
   assert.equal(board.rows.find(row => row.gtt.tripId === 'N20261021-T1')?.realtimeState, 'realtime-with-source-time');
   env.advance(10 * 60_000);
@@ -206,7 +215,7 @@ test('failures back off; corrupt transfers try again; invalid packages are not r
   env.advance(REFRESH_POLICY.backoffBaseMs);
   assert.equal(await env.service.check('open'), 'failed', 'hash mismatch is a bad transfer, retried later');
   const invalid = env.release('20261023', '2026-10-23T03:15:00Z');
-  const broken = invalid.text.replace('"schema_version":1', '"schema_version":2');
+  const broken = invalid.text.replace('"schema_version":2', '"schema_version":3');
   const brokenManifest = { ...invalid.manifest, package_hash: await sha256(broken), package_path: `packages/gtt-${await sha256(broken)}.json` };
   env.setManifest(brokenManifest, '"invalid"');
   env.serve(BASE + brokenManifest.package_path, broken);

@@ -38,12 +38,14 @@ export function fixturePackage(options: { feedVersion?: string; tripPrefix?: str
   ];
   const vectors: TimetablePackage['vectors'] = [[[0, 120, 180, 240], null], [[0, 60, 60, 60], [0, 30, 0, 0]], [[0, 90, 90], null], [[0, 60], null]];
   const headsigns = ['DELTA', 'EPSILON', 'BENGASI', 'FILLER', 'GAMMA'];
-  const trips: TimetablePackage['trips'] = { trip_id: [], route: [], service: [], pattern: [], vector: [], start: [], headsign: [], direction: [] };
+  const trips: TimetablePackage['trips'] = { trip_id: [], route: [], service: [], pattern: [], vector: [], start: [], headsign: [], direction: [], shape: [] };
+  const shapes = ['', '4A', '10A', 'M1A', '4D'];
+  const shapeFor = (routeId: string, pattern: number) => routeId === '4U' ? (pattern === 4 ? 4 : 1) : routeId === '10U' ? 2 : routeId === 'METROU' ? 3 : 0;
   const route = (id: string) => routes.findIndex(entry => entry[0] === id);
   const service = (id: string) => services.findIndex(entry => entry[0] === id);
   const add = (id: string, routeId: string, serviceId: string, pattern: number, vector: number, start: number, headsign: number) => {
     trips.trip_id.push(id); trips.route.push(route(routeId)); trips.service.push(service(serviceId)); trips.pattern.push(pattern);
-    trips.vector.push(vector); trips.start.push(start); trips.headsign.push(headsign); trips.direction.push(0);
+    trips.vector.push(vector); trips.start.push(start); trips.headsign.push(headsign); trips.direction.push(0); trips.shape.push(shapeFor(routeId, pattern));
   };
   add(`${prefix}T1`, '4U', 'ALL', 0, 0, 8 * 3600, 0);
   add(`${prefix}T2`, '4U', 'WK', 0, 0, 8 * 3600 + 600, 0);
@@ -57,9 +59,9 @@ export function fixturePackage(options: { feedVersion?: string; tripPrefix?: str
   for (let index = 0; index < 5000; index++) add(`${prefix}X${String(index).padStart(5, '0')}`, `R${index % 50}`, `S${index % 10}`, 3, 3, 6 * 3600 + index, 3);
   const fq = trips.trip_id.indexOf(`${prefix}FQ`); const fqx = trips.trip_id.indexOf(`${prefix}FQX`);
   return {
-    format: 'avoid-maps.gtt-timetable', schema_version: 1,
+    format: 'avoid-maps.gtt-timetable', schema_version: 2,
     feed: { feed_version: options.feedVersion ?? '20261019', valid_from: '20261020', valid_to: '20261130', timezone: 'Europe/Rome', publisher: 'Fixture' },
-    agencies: [['U', 'Urbano']], routes, stops, services, patterns, vectors, headsigns, trips,
+    agencies: [['U', 'Urbano']], routes, stops, services, patterns, vectors, headsigns, shapes, trips,
     frequencies: [[fq, 12 * 3600, 13 * 3600, 600, 0], [fqx, 14 * 3600, 14 * 3600 + 1800, 600, 1]],
   };
 }
@@ -69,7 +71,7 @@ export function encodePackage(pkg: TimetablePackage): string { return `${JSON.st
 export function fixtureManifest(text: string, pkg: TimetablePackage, overrides: Partial<PackageManifest> = {}): PackageManifest {
   const hash = createHash('sha256').update(text).digest('hex');
   return {
-    schema_version: 1, package_format: 'avoid-maps.gtt-timetable', package_hash: hash, package_bytes: text.length,
+    schema_version: 2, package_format: 'avoid-maps.gtt-timetable', package_hash: hash, package_bytes: text.length,
     package_path: `packages/gtt-${hash}.json`, feed_version: pkg.feed.feed_version, valid_from: pkg.feed.valid_from, valid_to: pkg.feed.valid_to,
     source_url: 'https://www.gtt.to.it/open_data/gtt_gtfs.zip', source_zip_hash: createHash('sha256').update(`zip:${pkg.feed.feed_version}`).digest('hex'), source_last_modified: '2026-10-19T02:26:59Z', source_etag: '"x"',
     upstream_checked_at: '2026-10-19T03:15:00Z', built_at: '2026-10-19T03:15:00Z',

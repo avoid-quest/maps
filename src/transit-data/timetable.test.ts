@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { activeServiceIds, addDays, romeDate, serviceDayOrigin, serviceTime, weekday } from './calendar';
 import { composeBoard } from './board';
 import { agedRow } from './board-model';
+import { joinFeed } from './identity-join';
 import { indexFeed, predictEvent, updateForEvent, type RTFeed, type TripUpdate } from './realtime';
 import { INITIAL_REFRESH_STATE } from './refresh-policy';
 import { scheduledEvents, type ScheduledEvent } from './scheduled-board';
@@ -162,7 +163,7 @@ test('cancellations and skips age like predictions and keep their report with it
   const skipped = update([{ stopSequence: 7, scheduleRelationship: 'SKIPPED' }], { timestamp: sec(NOW - 3 * 60_000) });
   assert.deepEqual(predictEvent(atC, skipped, NOW, NOW), { state: 'stale', report: 'skipped', updatedAt: NOW - 3 * 60_000 });
   // A fresh cancellation on the board ages at render time without a new download.
-  const board = await composeBoard(reader, 'C', NOW, { refresh: INITIAL_REFRESH_STATE, realtime: { snapshot: indexFeed(feed([cancelled(30_000)]), NOW), matchedTrips: 1 } });
+  const board = await composeBoard(reader, 'C', NOW, { refresh: INITIAL_REFRESH_STATE, realtime: { snapshot: indexFeed(feed([cancelled(30_000)]), NOW) } });
   const row = board.rows.find(candidate => candidate.gtt.tripId === 'T1')!;
   assert.equal(row.realtimeState, 'cancelled'); assert.equal(row.tripCancelled, true);
   assert.deepEqual(row.gtt.report, { kind: 'cancelled', reportedAt: NOW - 30_000 });
@@ -179,14 +180,14 @@ test('StopTimeEvent uncertainty is kept on predictions and rows', async () => {
   assert.equal(uncertain.uncertaintySeconds, 600);
   assert.equal(predictEvent(atC, update([{ stopSequence: 3, arrival: { delay: 60, uncertainty: 90 } }]), NOW, NOW).uncertaintySeconds, 90, 'propagated from the source event');
   assert.equal(predictEvent(atC, update([{ stopSequence: 7, arrival: { delay: 60 } }]), NOW, NOW).uncertaintySeconds, undefined);
-  const board = await composeBoard(reader, 'C', NOW, { refresh: INITIAL_REFRESH_STATE, realtime: { snapshot: indexFeed(feed([update([{ stopSequence: 7, arrival: { delay: 60, uncertainty: 600 } }])]), NOW), matchedTrips: 1 } });
+  const board = await composeBoard(reader, 'C', NOW, { refresh: INITIAL_REFRESH_STATE, realtime: { snapshot: indexFeed(feed([update([{ stopSequence: 7, arrival: { delay: 60, uncertainty: 600 } }])]), NOW) } });
   assert.equal(board.rows.find(row => row.gtt.tripId === 'T1')?.gtt.uncertaintySeconds, 600);
 });
 
 test('a vehicle delayed beyond 30 minutes stays on the board until its predicted time', async () => {
   const later = rome('20261021', '08:35');
   const delayed = { ...update([{ stopSequence: 1, arrival: { delay: 40 * 60 } }]), timestamp: sec(later - 20_000) };
-  const board = await composeBoard(reader, 'A', later, { refresh: INITIAL_REFRESH_STATE, realtime: { snapshot: indexFeed(feed([delayed], sec(later)), later), matchedTrips: 1 } });
+  const board = await composeBoard(reader, 'A', later, { refresh: INITIAL_REFRESH_STATE, realtime: { snapshot: indexFeed(feed([delayed], sec(later)), later) } });
   const row = board.rows.find(candidate => candidate.gtt.tripId === 'T1');
   assert.equal(row?.predictedAt, rome('20261021', '08:40'), '08:00 service, +40 min');
   assert.equal(predictEvent(await eventAt('A', 'T1', later), { ...delayed, stopTimeUpdate: [{ stopSequence: 1, arrival: { delay: 4 * 3600 } }] }, later, later).state, 'unverifiable', 'beyond the accepted shift');
@@ -200,7 +201,7 @@ test('inexact frequency instances join only by descriptor and absolute times', a
     instance('12:30:00', [{ stopSequence: 3, arrival: { delay: 60 } }]),
     instance('13:30:00', [{ stopSequence: 3, arrival: { time: sec(rome('20261021', '13:33')) } }]),
   ], sec(at)), at);
-  const board = await composeBoard(reader, 'B', at, { refresh: INITIAL_REFRESH_STATE, realtime: { snapshot, matchedTrips: 3 }, window: { lookbackMs: 0, horizonMs: 30 * 60_000 } });
+  const board = await composeBoard(reader, 'B', at, { refresh: INITIAL_REFRESH_STATE, realtime: { snapshot }, window: { lookbackMs: 0, horizonMs: 30 * 60_000 } });
   const rows = board.rows.filter(row => row.gtt.tripId === 'FQ');
   const headway = rows.find(row => row.gtt.frequency);
   assert.ok(headway && headway.scheduledAt === undefined && headway.realtimeState === 'scheduled', 'the headway row stays as fallback');
@@ -222,11 +223,12 @@ test('explicit stop_id is validated and repeated visits need stop_sequence', asy
 test('joins require exact trip_id, service date and start time', async () => {
   const atC = await eventAt('C', 'T1');
   const feed = (trip: TripUpdate['trip']): RTFeed => ({ header: { gtfsRealtimeVersion: '2.0', timestamp: sec(NOW) }, entity: [{ id: '1', tripUpdate: { ...update([]), trip } }] });
-  assert.ok(updateForEvent(indexFeed(feed({ tripId: 'T1', startDate: '20261021', startTime: '08:00:00' }), NOW), atC));
-  assert.equal(updateForEvent(indexFeed(feed({ tripId: 'T1', startDate: '20261020' }), NOW), atC), undefined, 'other service day');
-  assert.equal(updateForEvent(indexFeed(feed({ tripId: 'T1', startTime: '09:00:00' }), NOW), atC), undefined, 'other start time');
-  assert.equal(updateForEvent(indexFeed(feed({ tripId: 'T2' }), NOW), atC), undefined);
-  assert.ok(updateForEvent(indexFeed(feed({ tripId: 'T1' }), NOW), atC), 'no start date: single candidate accepted');
+  const joined = async (trip: TripUpdate['trip']) => updateForEvent(await joinFeed(indexFeed(feed(trip), NOW), reader), atC);
+  assert.ok(await joined({ tripId: 'T1', startDate: '20261021', startTime: '08:00:00' }));
+  assert.equal(await joined({ tripId: 'T1', startDate: '20261020' }), undefined, 'other service day');
+  assert.equal(await joined({ tripId: 'T1', startTime: '09:00:00' }), undefined, 'other start time');
+  assert.equal(await joined({ tripId: 'T2' }), undefined);
+  assert.ok(await joined({ tripId: 'T1' }), 'no start date: single candidate accepted');
 });
 
 // --- Composed board -----------------------------------------------------------------------
@@ -234,7 +236,7 @@ const feed = (entities: TripUpdate[], timestamp = sec(NOW)): RTFeed => ({ header
 
 test('board rows use the provider-neutral model with GTT provenance', async () => {
   const snapshot = indexFeed(feed([update([{ stopSequence: 1, arrival: { delay: 120 } }])]), NOW + 1_000);
-  const board = await composeBoard(reader, 'A', NOW, { refresh: INITIAL_REFRESH_STATE, realtime: { snapshot, matchedTrips: 1 }, window: { lookbackMs: 30 * 60_000, horizonMs: 60 * 60_000 } });
+  const board = await composeBoard(reader, 'A', NOW, { refresh: INITIAL_REFRESH_STATE, realtime: { snapshot }, window: { lookbackMs: 30 * 60_000, horizonMs: 60 * 60_000 } });
   const t1 = board.rows.find(row => row.gtt.tripId === 'T1')!;
   assert.equal(t1.provider, 'gtt'); assert.equal(t1.realtimeState, 'realtime-with-source-time');
   assert.equal(t1.event, 'arrival', 'arrival-only prediction presented as an arrival');
@@ -253,18 +255,18 @@ test('board rows use the provider-neutral model with GTT provenance', async () =
 });
 
 test('metro is scheduled-only; a delayed vehicle stays until its predicted time', async () => {
-  const metro = await composeBoard(reader, 'M1', NOW, { refresh: INITIAL_REFRESH_STATE, realtime: { snapshot: indexFeed(feed([]), NOW), matchedTrips: 0 } });
+  const metro = await composeBoard(reader, 'M1', NOW, { refresh: INITIAL_REFRESH_STATE, realtime: { snapshot: indexFeed(feed([]), NOW) } });
   const row = metro.rows.find(row => row.gtt.tripId === 'MET1')!;
   assert.equal(row.mode, 'metro'); assert.equal(row.realtimeState, 'scheduled'); assert.equal(row.gtt.note, 'Solo orari programmati — tempo reale non disponibile');
   const later = rome('20261021', '08:10');
   const late = indexFeed(feed([{ ...update([{ stopSequence: 1, arrival: { delay: 900 } }]), timestamp: sec(later - 20_000) }], sec(later)), later);
-  const board = await composeBoard(reader, 'A', later, { refresh: INITIAL_REFRESH_STATE, realtime: { snapshot: late, matchedTrips: 1 } });
+  const board = await composeBoard(reader, 'A', later, { refresh: INITIAL_REFRESH_STATE, realtime: { snapshot: late } });
   assert.equal(board.rows.find(row => row.gtt.tripId === 'T1')?.predictedAt, rome('20261021', '08:15'), 'scheduled 08:00, predicted 08:15');
 });
 
 test('zero joins on a nonempty feed keep scheduled rows and ask for a schedule update', async () => {
   const snapshot = indexFeed(feed([{ ...update([]), trip: { tripId: 'OTHER-PACKAGE-TRIP' } }]), NOW);
-  const board = await composeBoard(reader, 'A', NOW, { refresh: INITIAL_REFRESH_STATE, realtime: { snapshot, matchedTrips: 0 } });
+  const board = await composeBoard(reader, 'A', NOW, { refresh: INITIAL_REFRESH_STATE, realtime: { snapshot } });
   assert.equal(board.realtime.state, 'unmatched'); assert.equal(board.realtime.unmatchedTrips, 1);
   assert.ok(board.rows.length > 0 && board.rows.every(row => row.realtimeState === 'unknown' || row.mode === 'metro'));
   assert.deepEqual(board.notices.filter(notice => notice.code === 'realtime-unmatched'), [{ code: 'realtime-unmatched', text: 'Tempo reale non associabile agli orari disponibili', action: 'update-schedules' }]);

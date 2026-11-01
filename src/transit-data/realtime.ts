@@ -39,9 +39,13 @@ export function indexFeed(feed: RTFeed, retrievedAt: number): RealtimeSnapshot {
 
 const clock = (seconds: number) => [Math.floor(seconds / 3600), Math.floor(seconds / 60) % 60, seconds % 60].map(part => String(part).padStart(2, '0')).join(':');
 
-/** Exact trip_id plus service date (and start time when supplied) — never route or headsign guesses. */
-export function updateForEvent(snapshot: RealtimeSnapshot, event: Pick<ScheduledEvent, 'trip' | 'serviceDate' | 'start'>): TripUpdate | undefined {
-  const candidates = snapshot.byTrip.get(event.trip.tripId)?.filter(update => {
+export interface JoinedUpdates { byLocalTrip: Map<string, { update: TripUpdate; via: 'trip_id' | 'identity' }[]> }
+/**
+ * The update joined to this local trip (by trip_id, or by schedule identity), on the event's
+ * service date and start time — never route or headsign guesses.
+ */
+export function updateForEvent(join: JoinedUpdates, event: Pick<ScheduledEvent, 'trip' | 'serviceDate' | 'start'>): { update: TripUpdate; via: 'trip_id' | 'identity' } | undefined {
+  const candidates = join.byLocalTrip.get(event.trip.tripId)?.filter(({ update }) => {
     const descriptor = update.trip ?? {};
     if (descriptor.startDate && descriptor.startDate !== event.serviceDate) return false;
     if (descriptor.startTime && descriptor.startTime !== clock(event.start)) return false;

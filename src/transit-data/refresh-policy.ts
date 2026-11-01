@@ -33,12 +33,17 @@ export interface RefreshState {
   /** A package whose verified content failed validation; not downloaded again until the manifest changes. */
   rejectedHash?: string;
   wifiOnly: boolean;
+  /**
+   * Opt-in: also ask GTT's per-stop endpoint for the open board (GTT then learns which stop is
+   * viewed). Off by default.
+   */
+  stopLive: boolean;
   /** Active package that `lastSuccessAt` and the evidence lookups refer to. */
   activeHash?: string;
   /** Evidence keyed by package hash (active and previous only). */
   evidence: Record<string, PackageEvidence>;
 }
-export const INITIAL_REFRESH_STATE: RefreshState = { failures: 0, wifiOnly: false, evidence: {} };
+export const INITIAL_REFRESH_STATE: RefreshState = { failures: 0, wifiOnly: false, stopLive: false, evidence: {} };
 
 /** Normalize persisted state (older shapes included) without trusting unknown fields. */
 export function restoreRefreshState(value: unknown): RefreshState {
@@ -51,7 +56,7 @@ export function restoreRefreshState(value: unknown): RefreshState {
     evidence[hash] = { ...(number(entry.confirmedAt) !== undefined ? { confirmedAt: number(entry.confirmedAt) } : {}), ...(Object.keys(validators).length ? { validators } : {}) };
   }
   return {
-    failures: Math.max(0, Math.min(20, number(raw.failures) ?? 0)), wifiOnly: raw.wifiOnly === true, evidence,
+    failures: Math.max(0, Math.min(20, number(raw.failures) ?? 0)), wifiOnly: raw.wifiOnly === true, stopLive: raw.stopLive === true, evidence,
     ...Object.fromEntries((['lastCheckAt', 'lastSuccessAt', 'lastMismatchCheckAt', 'nextAllowedAt'] as const).flatMap(key => number(raw[key]) !== undefined ? [[key, number(raw[key])]] : [])),
     ...Object.fromEntries((['pendingHash', 'rejectedHash', 'activeHash'] as const).flatMap(key => typeof raw[key] === 'string' ? [[key, raw[key]]] : [])),
   };

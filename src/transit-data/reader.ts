@@ -20,10 +20,16 @@ export interface StopVisit { patternId: number; position: number; stopSequence: 
 export interface PatternInfo { patternId: number; stopIds: string[]; sequences: number[]; codes: number[] | null }
 export interface TripInfo {
   tripId: string; routeId: string; serviceId: string; patternId: number; vectorId: number;
-  start: number; headsign: string; direction: number;
+  start: number; headsign: string; direction: number; shapeId: string;
   frequency?: { start: number; end: number; headway: number; exactTimes: boolean }[];
 }
 export interface TimingVector { arrivals: number[]; departures: number[] }
+/**
+ * Schedule identity of a trip, stable when GTT re-issues trip IDs for unchanged trips:
+ * route, direction, shape and first-departure time (GTFS seconds).
+ */
+export interface TripIdentity { routeId: string; direction: number; shapeId: string; start: number }
+export const identityKey = (identity: TripIdentity) => `${identity.routeId}\u0000${identity.direction}\u0000${identity.shapeId}\u0000${identity.start}`;
 
 /** Narrow indexed queries shared by the SQLite store and the in-memory (web/oracle) reader. */
 export interface TimetableReader {
@@ -38,6 +44,8 @@ export interface TimetableReader {
   /** Trips on the patterns/services whose start is within [minStart, maxStart], plus every frequency-based trip on them. */
   tripsForPatterns(patternIds: readonly number[], serviceIds: readonly string[], minStart: number, maxStart: number): Promise<TripInfo[]>;
   trips(tripIds: readonly string[]): Promise<Map<string, TripInfo>>;
+  /** Local trips with any of these identities (several per identity when services differ). */
+  tripsByIdentity(identities: readonly TripIdentity[]): Promise<TripInfo[]>;
   vectors(ids: readonly number[]): Promise<Map<number, TimingVector>>;
   calendar(dates: readonly ServiceDate[]): Promise<{ rows: CalendarRow[]; exceptions: CalendarException[] }>;
 }
@@ -80,11 +88,16 @@ export function createMemoryReader(pkg: TimetablePackage, meta: DatasetMeta): Ti
   const trip = (index: number): TripInfo => ({
     tripId: t.trip_id[index]!, routeId: pkg.routes[t.route[index]!]![0], serviceId: pkg.services[t.service[index]!]![0],
     patternId: t.pattern[index]!, vectorId: t.vector[index]!, start: t.start[index]!, headsign: pkg.headsigns[t.headsign[index]!]!,
-    direction: t.direction[index]!, ...(frequencies.has(index) ? { frequency: frequencies.get(index)! } : {}),
+    direction: t.direction[index]!, shapeId: pkg.shapes[t.shape[index]!]!, ...(frequencies.has(index) ? { frequency: frequencies.get(index)! } : {}),
   });
   const byPattern = new Map<number, number[]>();
   t.pattern.forEach((pattern, index) => { const list = byPattern.get(pattern) ?? []; list.push(index); byPattern.set(pattern, list); });
   const tripIndex = new Map(t.trip_id.map((id, index) => [id, index]));
+  const byIdentity = new Map<string, number[]>();
+  t.trip_id.forEach((_, index) => {
+    const key = identityKey({ routeId: pkg.routes[t.route[index]!]![0], direction: t.direction[index]!, shapeId: pkg.shapes[t.shape[index]!]!, start: t.start[index]! });
+    const list = byIdentity.get(key) ?? []; list.push(index); byIdentity.set(key, list);
+  });
   const stopRoutes = new Map<string, Set<string>>();
   t.pattern.forEach((pattern, index) => {
     for (const ref of pkg.patterns[pattern]![0]) {
@@ -115,6 +128,9 @@ export function createMemoryReader(pkg: TimetablePackage, meta: DatasetMeta): Ti
     },
     async trips(ids) {
       return new Map(ids.flatMap(id => { const index = tripIndex.get(id); return index === undefined ? [] : [[id, trip(index)] as const]; }));
+    },
+    async tripsByIdentity(identities) {
+      return [...new Set(identities.flatMap(identity => byIdentity.get(identityKey(identity)) ?? []))].map(trip);
     },
     async vectors(ids) {
       return new Map(ids.filter(id => pkg.vectors[id]).map(id => [id, decodeVector(pkg.vectors[id]!)]));

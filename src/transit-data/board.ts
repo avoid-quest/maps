@@ -1,17 +1,18 @@
 import type { TransitRealtimeState, TransitTimeBasis } from '../domain/types';
 import { GTT_ATTRIBUTION, GTT_URL, LABELS, LIVE_MAX_AGE_MS, modeForRouteType, type BoardNotice, type GttBoardRow, type GttRealtimeDetail, type RealtimeSummary, type StopBoard } from './board-model';
+import { joinFeed, type FeedJoin } from './identity-join';
 import { frequencyInstances, predictEvent, updateForEvent, type Prediction, type RealtimeSnapshot } from './realtime';
 import type { TimetableReader } from './reader';
 import { confirmedAt, scheduleNotices, type RefreshState } from './refresh-policy';
-import { DEFAULT_WINDOW, scheduledEvents, scheduledSeconds, type BoardWindow, type ScheduledEvent } from './scheduled-board';
+import { DEFAULT_WINDOW, eventsForTrips, scheduledEvents, scheduledSeconds, type BoardWindow, type ScheduledEvent } from './scheduled-board';
 
 export const BOARD_LIMIT = 40;
 export const SOURCES_URL = 'https://www.gtt.to.it/gtt_gtfs_license.html';
 
 export interface RealtimeInput {
   snapshot?: RealtimeSnapshot;
-  /** Feed-wide joins against the installed package: zero joins on a nonempty feed means a stale package. */
-  matchedTrips?: number;
+  /** Feed-wide join (trip_id, then schedule identity); computed by trip_id only when absent. */
+  join?: FeedJoin;
   error?: string;
 }
 
@@ -29,11 +30,12 @@ const NEUTRAL: Record<GttRealtimeDetail, { state: TransitRealtimeState; basis: T
   unverifiable: { state: 'unknown', basis: 'scheduled' },
   expired: { state: 'unknown', basis: 'scheduled' },
   'before-first-update': { state: 'unknown', basis: 'scheduled' },
+  'stop-live': { state: 'declared-realtime-no-source-time', basis: 'predicted' },
 };
 
 function toRow(event: ScheduledEvent, prediction: Prediction, context: {
   stop: { id: string; name: string }; line: string; mode: GttBoardRow['mode']; operator?: string; feedVersion: string;
-  retrievedAt: number; scheduleUpdatedAt?: number;
+  retrievedAt: number; scheduleUpdatedAt?: number; joinedBy?: 'trip_id' | 'identity';
 }): GttBoardRow {
   const detail = prediction.state;
   const predicted = (detail === 'fresh' || detail === 'stale') && prediction.predictedAt !== undefined;
@@ -43,7 +45,8 @@ function toRow(event: ScheduledEvent, prediction: Prediction, context: {
     : event_ === 'arrival' ? event.origin + scheduledSeconds(event, event.position, 'arrival') * 1000 : event.scheduledAt;
   const neutral = NEUTRAL[detail];
   const note = detail === 'not-provided' ? LABELS.metroScheduledOnly
-    : detail === 'before-first-update' ? 'Il mezzo potrebbe essere già transitato: previsioni disponibili solo per le fermate successive.' : undefined;
+    : detail === 'before-first-update' ? 'Il mezzo potrebbe essere già transitato: previsioni disponibili solo per le fermate successive.'
+    : event.extended ? 'Corsa fuori dal calendario installato: orari del pacchetto, abbinati alla corsa in tempo reale GTT per linea, direzione, percorso e partenza.' : undefined;
   return {
     id: `gtt:${event.trip.tripId}:${event.serviceDate}:${event.position}:${event.start}`,
     provider: 'gtt',
@@ -71,6 +74,8 @@ function toRow(event: ScheduledEvent, prediction: Prediction, context: {
       ...(event.frequency ? { frequency: { headwaySeconds: event.frequency.headwaySeconds, from: event.frequency.from, until: event.frequency.until } } : {}),
       ...(context.scheduleUpdatedAt !== undefined ? { scheduleUpdatedAt: context.scheduleUpdatedAt } : {}),
       ...(note ? { note } : {}),
+      ...(context.joinedBy ? { joinedBy: context.joinedBy } : {}),
+      ...(event.extended ? { calendar: 'realtime-identity' as const } : {}),
     },
   };
 }
@@ -90,7 +95,8 @@ export async function composeBoard(reader: TimetableReader, stopId: string, now:
   const realtime = options.realtime;
   const snapshot = realtime?.snapshot;
   const tripUpdates = snapshot?.tripUpdates ?? 0;
-  const matchedTrips = realtime?.matchedTrips ?? 0;
+  const join = snapshot ? realtime?.join ?? await joinFeed(snapshot, reader) : undefined;
+  const matchedTrips = join?.matchedTrips ?? 0;
   const summary: RealtimeSummary = !realtime ? { state: 'not-requested', tripUpdates: 0, matchedTrips: 0, unmatchedTrips: 0 }
     : !snapshot ? { state: 'unavailable', tripUpdates: 0, matchedTrips: 0, unmatchedTrips: 0, ...(realtime.error ? { error: realtime.error } : {}) }
     : { state: tripUpdates > 0 && matchedTrips === 0 ? 'unmatched' : 'ok', feedUpdatedAt: snapshot.feedUpdatedAt, retrievedAt: snapshot.retrievedAt, tripUpdates, matchedTrips, unmatchedTrips: tripUpdates - matchedTrips };
@@ -101,22 +107,27 @@ export async function composeBoard(reader: TimetableReader, stopId: string, now:
   const stop = { id: stopId, name: stopInfo?.name ?? stopId };
 
   const rows: (GttBoardRow & { sortAt: number })[] = [];
-  for (const scheduledEvent of scheduled.events) {
+  // Live trips re-issued under new IDs whose local schedule is outside the installed calendar.
+  const extended = joinable && join?.extensions.length ? await eventsForTrips(reader, stopId, join.extensions, now, options.window ?? DEFAULT_WINDOW) : [];
+  for (const scheduledEvent of [...scheduled.events, ...extended]) {
     const route = routes.get(scheduledEvent.trip.routeId);
     const mode = modeForRouteType(route?.routeType);
     // Inexact frequency service: the headway row stays; realtime may name concrete instances.
     const instances = scheduledEvent.frequency && joinable && snapshot ? frequencyInstances(snapshot, scheduledEvent) : [];
     for (const event of [scheduledEvent, ...instances]) {
-      const update = joinable && snapshot && !event.frequency ? updateForEvent(snapshot, event) : undefined;
+      const joined = joinable && join && !event.frequency ? updateForEvent(join, event) : undefined;
+      const update = joined?.update;
       let prediction: Prediction = joinable && snapshot ? (event.frequency ? { state: 'no-trip-update' } : predictEvent(event, update, snapshot.feedUpdatedAt, now))
         : { state: summary.state === 'not-requested' ? 'no-trip-update' : 'unavailable' };
       // GTT publishes no metro TripUpdates; a matched update would still be used if one appears.
       if (mode === 'metro' && !update) prediction = { state: 'not-provided' };
       // A realtime-named instance is shown only with something the realtime actually said.
       if (event.inexact && prediction.predictedAt === undefined && !prediction.report) continue;
+      // An extension exists only through its live update; without usable realtime it is not shown.
+      if (event.extended && prediction.predictedAt === undefined && !prediction.report) continue;
       const row = toRow(event, prediction, {
         stop, line: route?.shortName || event.trip.routeId, mode, operator: route ? agencies.get(route.agencyId) : undefined,
-        feedVersion: meta.feedVersion, retrievedAt, scheduleUpdatedAt,
+        feedVersion: meta.feedVersion, retrievedAt, scheduleUpdatedAt, joinedBy: joined?.via,
       });
       const template = event.origin + (event.start + event.vector.departures[event.position]!) * 1000;
       const sortAt = row.predictedAt ?? row.providerTimeAt ?? row.scheduledAt ?? (event.frequency ? Math.max(now, event.frequency.from) : template);

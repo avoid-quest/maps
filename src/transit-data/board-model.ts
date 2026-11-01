@@ -19,12 +19,14 @@ export type GttRealtimeDetail =
   | 'unavailable' // feed not retrieved or not joinable to the installed schedule
   | 'unverifiable' // TripUpdate without usable timestamps or event values
   | 'expired' // prediction older than 30 minutes
-  | 'before-first-update'; // the trip's updates start after this stop: the vehicle may have passed
+  | 'before-first-update' // the trip's updates start after this stop: the vehicle may have passed
+  | 'stop-live'; // opt-in per-stop GTT endpoint: minute precision, retrieval time only, not trip-linked
 
 export interface GttRowDetail {
   routeId: string;
-  tripId: string;
-  serviceDate: string;
+  /** Absent for per-stop rows, which GTT does not link to a trip. */
+  tripId?: string;
+  serviceDate?: string;
   realtime: GttRealtimeDetail;
   /** Seconds; zero and negative allowed. Present for fresh and stale predictions. */
   delaySeconds?: number;
@@ -34,6 +36,12 @@ export interface GttRowDetail {
   uncertaintySeconds?: number;
   /** A cancellation/skip report, kept with its time even after it stops being definite. */
   report?: { kind: 'cancelled' | 'skipped'; reportedAt: number };
+  /** 'stop': a per-stop GTT row (no trip link, retrieval time only). */
+  source?: 'stop';
+  /** How the live update was joined: GTT trip_id, or schedule identity after a trip_id re-issue. */
+  joinedBy?: 'trip_id' | 'identity';
+  /** 'realtime-identity': the installed calendar does not run this schedule today; a live identity match does. */
+  calendar?: 'realtime-identity';
   /** Frequency-based service without exact times: a service level, never a fabricated time. */
   frequency?: { headwaySeconds: number; from: number; until: number };
   /** When the schedule source was last modified upstream (ms). */
@@ -85,6 +93,7 @@ export const LABELS = {
   realtime: 'Tempo reale · GTT',
   metroScheduledOnly: 'Solo orari programmati — tempo reale non disponibile',
   unmatched: 'Tempo reale non associabile agli orari disponibili',
+  stopLive: 'Tempo reale · GTT (fermata)',
 } as const;
 
 export function modeForRouteType(routeType: number | undefined): TransitBoardMode {
@@ -106,6 +115,7 @@ export function modeForRouteType(routeType: number | undefined): TransitBoardMod
  * keeping only a cancellation/skip report with its age.
  */
 export function agedRow(row: GttBoardRow, now: number): GttBoardRow {
+  if (row.gtt.realtime === 'stop-live' || (row.gtt.source === 'stop' && row.gtt.realtime !== 'expired')) return agedStopRow(row, now);
   const definite = row.gtt.realtime === 'fresh' || row.gtt.realtime === 'cancelled' || row.gtt.realtime === 'skipped';
   if (row.sourceUpdatedAt === undefined || !(definite || row.gtt.realtime === 'stale')) return row;
   const age = now - row.sourceUpdatedAt;
@@ -121,8 +131,19 @@ export function agedRow(row: GttBoardRow, now: number): GttBoardRow {
   return row;
 }
 
+/** Per-stop rows have no source time: they age by retrieval time with the same thresholds. */
+function agedStopRow(row: GttBoardRow, now: number): GttBoardRow {
+  const age = now - row.retrievedAt;
+  if (age <= LIVE_MAX_AGE_MS) return row;
+  const time = row.predictedAt ?? row.providerTimeAt;
+  const { predictedAt: _p, providerTimeAt: _t, ...rest } = row;
+  if (age > STALE_MAX_AGE_MS) return { ...rest, realtimeState: 'unknown', gtt: { ...row.gtt, realtime: 'expired', source: 'stop' } };
+  return { ...rest, realtimeState: 'unknown', ...(time !== undefined ? { providerTimeAt: time } : {}), gtt: { ...row.gtt, realtime: 'stale', source: 'stop' } };
+}
+
 /** Provenance label beside a row. */
 export function provenanceLabel(row: GttBoardRow): string {
+  if (row.gtt.source === 'stop' || row.gtt.realtime === 'stop-live') return LABELS.stopLive;
   return row.gtt.realtime === 'fresh' || row.gtt.realtime === 'stale' || row.realtimeState === 'cancelled' ? LABELS.realtime : LABELS.scheduled;
 }
 

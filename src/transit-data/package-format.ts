@@ -4,7 +4,7 @@
  * Packages are content-addressed by SHA-256 ("hashed", never "signed").
  */
 export const PACKAGE_FORMAT = 'avoid-maps.gtt-timetable';
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 export const TIMEZONE = 'Europe/Rome';
 export const MINIMUMS = { stops: 1000, trips: 5000, routes: 50, services: 10 } as const;
 
@@ -29,7 +29,9 @@ export interface TimetablePackage {
   patterns: PackagePattern[];
   vectors: PackageVector[];
   headsigns: string[];
-  trips: { trip_id: string[]; route: number[]; service: number[]; pattern: number[]; vector: number[]; start: number[]; headsign: number[]; direction: number[] };
+  /** GTFS shape_ids ("" when absent); part of the schedule identity used to re-join rotated trip IDs. */
+  shapes: string[];
+  trips: { trip_id: string[]; route: number[]; service: number[]; pattern: number[]; vector: number[]; start: number[]; headsign: number[]; direction: number[]; shape: number[] };
   frequencies: PackageFrequency[];
 }
 
@@ -46,6 +48,8 @@ export interface PackageManifest {
   source_zip_hash: string;
   source_last_modified?: string | null;
   source_etag?: string | null;
+  /** CRC-32 (hex) of GTT ZIP members, comparable with GTT's central directory. */
+  source_crc32?: Record<string, string>;
   /** When the pipeline last confirmed this source against GTT; null when built from a local file without evidence. */
   upstream_checked_at: string | null;
   built_at: string;
@@ -91,7 +95,7 @@ export function validatePackage(value: unknown): TimetablePackage {
   const { feed, stops, routes, services, patterns, vectors, trips, headsigns, frequencies } = pkg;
   check(feed && validDate(feed.valid_from) && validDate(feed.valid_to) && feed.valid_from <= feed.valid_to, 'Validità del pacchetto non valida.');
   check(feed.timezone === TIMEZONE && isString(feed.feed_version), 'Fuso orario o versione del pacchetto non validi.');
-  check([stops, routes, services, patterns, vectors, headsigns, frequencies, pkg.agencies].every(Array.isArray) && trips && typeof trips === 'object', 'Struttura del pacchetto incompleta.');
+  check([stops, routes, services, patterns, vectors, headsigns, frequencies, pkg.agencies, pkg.shapes].every(Array.isArray) && trips && typeof trips === 'object', 'Struttura del pacchetto incompleta.');
   const count = Array.isArray(trips.trip_id) ? trips.trip_id.length : 0;
   check(stops.length >= MINIMUMS.stops && count >= MINIMUMS.trips && routes.length >= MINIMUMS.routes && services.length >= MINIMUMS.services, 'Pacchetto orari troppo piccolo: probabile esportazione incompleta.');
   const stopIds = new Set<string>();
@@ -122,14 +126,14 @@ export function validatePackage(value: unknown): TimetablePackage {
     const { arrivals, departures } = decodeVector(vector);
     check(departures.every((departure, index) => index === departures.length - 1 || departure <= arrivals[index + 1]!) && departures.at(-1)! <= 48 * 3600, 'Partenza successiva all’arrivo seguente.');
   }
-  check(headsigns.every(isString), 'Destinazione non valida.');
-  const columns = ['trip_id', 'route', 'service', 'pattern', 'vector', 'start', 'headsign', 'direction'] as const;
+  check(headsigns.every(isString) && pkg.shapes.every(isString), 'Destinazione o percorso non validi.');
+  const columns = ['trip_id', 'route', 'service', 'pattern', 'vector', 'start', 'headsign', 'direction', 'shape'] as const;
   check(columns.every(column => Array.isArray(trips[column]) && trips[column].length === count), 'Colonne delle corse non allineate.');
   check(trips.trip_id.every(isString) && new Set(trips.trip_id).size === count, 'Identificativi corsa duplicati.');
   for (let index = 0; index < count; index++) {
     const pattern = patterns[trips.pattern[index]!]; const vector = vectors[trips.vector[index]!];
     check(isInt(trips.route[index]) && routes[trips.route[index]!] && isInt(trips.service[index]) && services[trips.service[index]!] && pattern && vector
-      && isInt(trips.headsign[index]) && headsigns[trips.headsign[index]!] !== undefined && isInt(trips.direction[index]), `Riferimenti non validi per la corsa ${trips.trip_id[index]}.`);
+      && isInt(trips.headsign[index]) && headsigns[trips.headsign[index]!] !== undefined && isInt(trips.direction[index]) && isInt(trips.shape[index]) && pkg.shapes[trips.shape[index]!] !== undefined, `Riferimenti non validi per la corsa ${trips.trip_id[index]}.`);
     check(vector[0].length === pattern[0].length, `Orari e fermate non allineati per la corsa ${trips.trip_id[index]}.`);
     check(isInt(trips.start[index]) && trips.start[index]! >= 0 && trips.start[index]! <= 48 * 3600, `Inizio corsa non valido per ${trips.trip_id[index]}.`);
   }

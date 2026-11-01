@@ -3,7 +3,7 @@ import { decodeVector, PackageError, type TimetablePackage } from './package-for
 import type { DatasetMeta, PatternInfo, RouteInfo, StopInfo, StopVisit, TimetableReader, TimingVector, TripInfo } from './reader';
 import { placeholders, type SqlDatabase, type SqlValue } from './sql';
 
-export const DB_SCHEMA_VERSION = 1;
+export const DB_SCHEMA_VERSION = 2;
 const SCHEMA = `
 PRAGMA journal_mode = DELETE;
 CREATE TABLE dataset_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;
@@ -12,7 +12,7 @@ CREATE TABLE agency (agency_id TEXT PRIMARY KEY, name TEXT NOT NULL) WITHOUT ROW
 CREATE TABLE route (route_id TEXT PRIMARY KEY, agency_id TEXT NOT NULL, route_type INTEGER NOT NULL, public_name TEXT NOT NULL, long_name TEXT NOT NULL) WITHOUT ROWID;
 CREATE TABLE pattern_stop (pattern_id INTEGER NOT NULL, occurrence INTEGER NOT NULL, stop_sequence INTEGER NOT NULL, stop_id TEXT NOT NULL, pickup_type INTEGER NOT NULL, drop_off_type INTEGER NOT NULL, PRIMARY KEY (pattern_id, occurrence)) WITHOUT ROWID;
 CREATE TABLE timing_vector (vector_id INTEGER PRIMARY KEY, arrival_offsets TEXT NOT NULL, departure_offsets TEXT);
-CREATE TABLE trip (trip_id TEXT PRIMARY KEY, route_id TEXT NOT NULL, service_id TEXT NOT NULL, pattern_id INTEGER NOT NULL, vector_id INTEGER NOT NULL, start_seconds INTEGER NOT NULL, headsign TEXT NOT NULL, direction INTEGER NOT NULL) WITHOUT ROWID;
+CREATE TABLE trip (trip_id TEXT PRIMARY KEY, route_id TEXT NOT NULL, service_id TEXT NOT NULL, pattern_id INTEGER NOT NULL, vector_id INTEGER NOT NULL, start_seconds INTEGER NOT NULL, headsign TEXT NOT NULL, direction INTEGER NOT NULL, shape_id TEXT NOT NULL) WITHOUT ROWID;
 CREATE TABLE frequency (trip_id TEXT NOT NULL, start_seconds INTEGER NOT NULL, end_seconds INTEGER NOT NULL, headway_seconds INTEGER NOT NULL, exact_times INTEGER NOT NULL);
 CREATE TABLE service_calendar (service_id TEXT PRIMARY KEY, weekday_mask INTEGER NOT NULL, start_date TEXT NOT NULL, end_date TEXT NOT NULL) WITHOUT ROWID;
 CREATE TABLE service_exception (date TEXT NOT NULL, service_id TEXT NOT NULL, exception_type INTEGER NOT NULL, PRIMARY KEY (date, service_id)) WITHOUT ROWID;
@@ -20,6 +20,7 @@ CREATE TABLE service_exception (date TEXT NOT NULL, service_id TEXT NOT NULL, ex
 const INDEXES = `
 CREATE INDEX pattern_stop_by_stop ON pattern_stop (stop_id, pattern_id);
 CREATE INDEX trip_by_pattern ON trip (pattern_id, service_id, start_seconds);
+CREATE INDEX trip_identity ON trip (route_id, direction, shape_id, start_seconds);
 CREATE INDEX frequency_by_trip ON frequency (trip_id);
 `;
 
@@ -56,8 +57,8 @@ export async function importPackage(db: SqlDatabase, pkg: TimetablePackage, meta
       return [id, arrivals.join(','), vector[1] ? departures.join(',') : null];
     }));
     const t = pkg.trips;
-    await insertRows(db, 'trip', ['trip_id', 'route_id', 'service_id', 'pattern_id', 'vector_id', 'start_seconds', 'headsign', 'direction'],
-      t.trip_id.map((tripId, index) => [tripId, pkg.routes[t.route[index]!]![0], pkg.services[t.service[index]!]![0], t.pattern[index]!, t.vector[index]!, t.start[index]!, pkg.headsigns[t.headsign[index]!]!, t.direction[index]!]));
+    await insertRows(db, 'trip', ['trip_id', 'route_id', 'service_id', 'pattern_id', 'vector_id', 'start_seconds', 'headsign', 'direction', 'shape_id'],
+      t.trip_id.map((tripId, index) => [tripId, pkg.routes[t.route[index]!]![0], pkg.services[t.service[index]!]![0], t.pattern[index]!, t.vector[index]!, t.start[index]!, pkg.headsigns[t.headsign[index]!]!, t.direction[index]!, pkg.shapes[t.shape[index]!]!]));
     await insertRows(db, 'frequency', ['trip_id', 'start_seconds', 'end_seconds', 'headway_seconds', 'exact_times'],
       pkg.frequencies.map(([trip, start, end, headway, exact]) => [t.trip_id[trip]!, start, end, headway, exact]));
     await insertRows(db, 'service_calendar', ['service_id', 'weekday_mask', 'start_date', 'end_date'], pkg.services.map(([id, mask, start, end]) => [id, mask, start, end]));
@@ -79,9 +80,9 @@ export async function readMeta(db: SqlDatabase): Promise<DatasetMeta> {
 }
 
 const offsets = (value: string) => value.split(',').map(Number);
-interface TripRow { trip_id: string; route_id: string; service_id: string; pattern_id: number; vector_id: number; start_seconds: number; headsign: string; direction: number }
-const tripInfo = (row: TripRow): TripInfo => ({ tripId: row.trip_id, routeId: row.route_id, serviceId: row.service_id, patternId: row.pattern_id, vectorId: row.vector_id, start: row.start_seconds, headsign: row.headsign, direction: row.direction });
-const TRIP_COLUMNS = 'trip_id, route_id, service_id, pattern_id, vector_id, start_seconds, headsign, direction';
+interface TripRow { trip_id: string; route_id: string; service_id: string; pattern_id: number; vector_id: number; start_seconds: number; headsign: string; direction: number; shape_id: string }
+const tripInfo = (row: TripRow): TripInfo => ({ tripId: row.trip_id, routeId: row.route_id, serviceId: row.service_id, patternId: row.pattern_id, vectorId: row.vector_id, start: row.start_seconds, headsign: row.headsign, direction: row.direction, shapeId: row.shape_id });
+const TRIP_COLUMNS = 'trip_id, route_id, service_id, pattern_id, vector_id, start_seconds, headsign, direction, shape_id';
 
 export function createSqlReader(db: SqlDatabase, meta: DatasetMeta): TimetableReader {
   let routes: Promise<Map<string, RouteInfo>> | undefined;
@@ -149,6 +150,13 @@ export function createSqlReader(db: SqlDatabase, meta: DatasetMeta): TimetableRe
       const rows = await db.all<TripRow>(`SELECT ${TRIP_COLUMNS} FROM trip WHERE trip_id IN (${placeholders(ids.length)})`, [...ids]);
       return new Map((await attachFrequencies(rows.map(tripInfo))).map(trip => [trip.tripId, trip]));
     },
+    async tripsByIdentity(identities) {
+      if (!identities.length) return [];
+      const rows = await db.all<TripRow>(
+        `SELECT ${TRIP_COLUMNS} FROM trip WHERE (route_id, direction, shape_id, start_seconds) IN (VALUES ${identities.map(() => '(?, ?, ?, ?)').join(', ')})`,
+        identities.flatMap(identity => [identity.routeId, identity.direction, identity.shapeId, identity.start]));
+      return attachFrequencies(rows.map(tripInfo));
+    },
     async vectors(ids) {
       const result = new Map<number, TimingVector>(); if (!ids.length) return result;
       const rows = await db.all<{ vector_id: number; arrival_offsets: string; departure_offsets: string | null }>(
@@ -188,7 +196,7 @@ export async function validateDatabase(db: SqlDatabase, pkg: TimetablePackage): 
 }
 
 export const REQUIRED_TABLES = ['dataset_meta', 'stop', 'agency', 'route', 'pattern_stop', 'timing_vector', 'trip', 'frequency', 'service_calendar', 'service_exception'] as const;
-export const REQUIRED_INDEXES = ['pattern_stop_by_stop', 'trip_by_pattern', 'frequency_by_trip'] as const;
+export const REQUIRED_INDEXES = ['pattern_stop_by_stop', 'trip_by_pattern', 'trip_identity', 'frequency_by_trip'] as const;
 
 /**
  * Startup acceptance of an installed database: every table and index the board needs, row counts

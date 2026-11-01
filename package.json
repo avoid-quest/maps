@@ -37,6 +37,7 @@
     "expo-network": "8.0.8",
     "expo-sqlite": "16.0.10",
     "expo-system-ui": "6.0.9",
+    "fflate": "0.8.3",
     "maplibre-gl": "6.13.0",
     "nativewind": "4.2.7",
     "protobufjs": "8.8.0",

@@ -1,4 +1,4 @@
-import { TIMETABLE_MIRRORS } from './config';
+import { manifestUrl, packageUrl, TIMETABLE_MIRRORS, type TimetableMirror } from './config';
 import { isUpgrade, PackageError, validateManifest, type PackageManifest } from './package-format';
 import type { ActiveDataset, PackageStore } from './package-store';
 import type { DatasetMeta } from './reader';
@@ -26,17 +26,22 @@ export interface TimetableService {
   /** Never throws; the outcome is also reflected in status(). */
   check(reason: CheckReason): Promise<CheckOutcome>;
   setWifiOnly(value: boolean): Promise<void>;
+  /** Opt-in per-stop GTT endpoint (off by default). */
+  setStopLive(value: boolean): Promise<void>;
+  /** Whether a schedule-data download (manifest, package, GTT remap) is allowed now. */
+  updatesAllowed(): Promise<boolean>;
+  /** A direct check of GTT's export showed the active package's members unchanged. */
+  recordUpstreamConfirmation(at: number): Promise<void>;
 }
 
 export interface TimetableEvents { record(event: 'installed' | 'current' | 'failed' | 'rejected' | 'rolled-back'): void }
 
-const MANIFEST = 'manifest.json';
 
 export function createTimetableService(deps: {
   store: PackageStore;
   fetch: typeof fetch;
-  /** Ordered mirror base URLs; defaults to the single configured list. */
-  mirrors?: readonly string[];
+  /** Ordered mirrors; defaults to the single configured list. */
+  mirrors?: readonly TimetableMirror[];
   /**
    * Resolves whether a schedule download is allowed now under the user's preference. When it
    * cannot be established (the lookup throws) a Wi-Fi-only preference defers the update.
@@ -47,7 +52,7 @@ export function createTimetableService(deps: {
 }): TimetableService {
   const { store } = deps;
   const now = deps.now ?? Date.now;
-  const mirrors = (deps.mirrors ?? TIMETABLE_MIRRORS).map(base => base.endsWith('/') ? base : `${base}/`);
+  const mirrors = (deps.mirrors ?? TIMETABLE_MIRRORS).map(mirror => ({ ...mirror, base: mirror.base.endsWith('/') ? mirror.base : `${mirror.base}/` }));
   const listeners = new Set<() => void>();
   let status: ScheduleStatus = { phase: 'preparing', refresh: INITIAL_REFRESH_STATE, checking: false, updateSupported: mirrors.length > 0 };
   let opening: Promise<ActiveDataset> | undefined;
@@ -79,15 +84,15 @@ export function createTimetableService(deps: {
     return opening;
   }
 
-  async function fetchManifest(state: RefreshState): Promise<{ mirror: string; response: Response }> {
+  async function fetchManifest(state: RefreshState): Promise<{ mirror: TimetableMirror; response: Response }> {
     let lastError: unknown;
     for (const mirror of mirrors) {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 20_000);
       try {
-        const etag = activeEvidence(state).validators?.[mirror];
+        const etag = activeEvidence(state).validators?.[mirror.base];
         // Plain GET: only a cache validator, never identifiers, stop, location or query parameters.
-        const response = await deps.fetch(mirror + MANIFEST, { signal: controller.signal, ...(etag ? { headers: { 'If-None-Match': etag } } : {}) });
+        const response = await deps.fetch(manifestUrl(mirror), { signal: controller.signal, credentials: 'omit', ...(etag ? { headers: { 'If-None-Match': etag } } : {}) });
         if (response.status === 304 || response.ok) return { mirror, response };
         lastError = new PackageError(`Manifest orari non disponibile (HTTP ${response.status}).`, 'network');
       } catch (error) { lastError = error; } finally { clearTimeout(timer); }
@@ -105,7 +110,7 @@ export function createTimetableService(deps: {
     }
     state = startedCheck(state, reason, now());
     update({ checking: true, refresh: state });
-    let manifest: PackageManifest | undefined; let etag: string | undefined; let mirror: string | undefined;
+    let manifest: PackageManifest | undefined; let etag: string | undefined; let mirror: TimetableMirror | undefined;
     try {
       const fetched = await fetchManifest(state);
       mirror = fetched.mirror;
@@ -116,7 +121,7 @@ export function createTimetableService(deps: {
       manifest = validateManifest(await fetched.response.json());
       etag = fetched.response.headers.get('ETag') ?? undefined;
       const current = activeMeta(dataset.meta);
-      const validator = { mirror, etag };
+      const validator = { mirror: mirror.base, etag };
       if (manifest.package_hash === current.packageHash) {
         const confirmed = manifest.upstream_checked_at ? Date.parse(manifest.upstream_checked_at) : undefined;
         await save(withEvidence(succeededCheck(state, now(), { pendingHash: undefined }), { confirmedAt: confirmed, validator }), { checking: false, lastOutcome: 'current', lastError: undefined });
@@ -130,7 +135,7 @@ export function createTimetableService(deps: {
       }
       if (manifest.package_hash === state.rejectedHash) throw new PackageError('Il pacchetto orari pubblicato è già stato rifiutato.', 'invalid');
       // package_path is validated as packages/gtt-<sha256>.json; the serving mirror first, then the others.
-      const urls = [mirror, ...mirrors.filter(other => other !== mirror)].map(base => base + manifest!.package_path);
+      const urls = [mirror, ...mirrors.filter(other => other.base !== mirror!.base)].map(entry => packageUrl(entry, manifest!.package_path));
       const installed = await store.installDownloaded(manifest, urls);
       const confirmed = manifest.upstream_checked_at ? Date.parse(manifest.upstream_checked_at) : undefined;
       const next = withEvidence(bindActive(succeededCheck(state, now(), { pendingHash: undefined, rejectedHash: undefined }), installed.meta.packageHash), { confirmedAt: confirmed, validator });
@@ -141,7 +146,7 @@ export function createTimetableService(deps: {
       // Verified bytes with invalid content are a bad package; a hash mismatch is a bad transfer or mirror.
       const rejected = error instanceof PackageError && error.kind === 'invalid' && manifest !== undefined;
       let next = failedCheck(state, now());
-      if (rejected) next = withEvidence({ ...next, rejectedHash: manifest!.package_hash, pendingHash: manifest!.package_hash }, { validator: { mirror: mirror!, etag } });
+      if (rejected) next = withEvidence({ ...next, rejectedHash: manifest!.package_hash, pendingHash: manifest!.package_hash }, { validator: { mirror: mirror!.base, etag } });
       else if (manifest) next = { ...next, pendingHash: manifest.package_hash };
       await save(next, { checking: false, lastOutcome: rejected ? 'rejected' : 'failed', lastError: error instanceof Error && error.name !== 'AbortError' ? error.message : 'Connessione non disponibile.' });
       deps.events?.record(rejected ? 'rejected' : 'failed');
@@ -160,6 +165,17 @@ export function createTimetableService(deps: {
       return inFlight;
     },
     async setWifiOnly(value) { await ready().catch(() => undefined); await save({ ...status.refresh, wifiOnly: value }); },
+    async setStopLive(value) { await ready().catch(() => undefined); await save({ ...status.refresh, stopLive: value }); },
+    async updatesAllowed() {
+      await ready().catch(() => undefined);
+      const wifiOnly = status.refresh.wifiOnly;
+      return deps.networkAllowed ? deps.networkAllowed(wifiOnly).catch(() => !wifiOnly) : true;
+    },
+    async recordUpstreamConfirmation(at) {
+      const dataset = await ready().catch(() => undefined);
+      if (!dataset) return;
+      await save(withEvidence(bindActive(status.refresh, activeMeta(dataset.meta).packageHash), { confirmedAt: at }));
+    },
   };
 }
 
@@ -183,5 +199,12 @@ export function createStaticTimetableService(open: () => Promise<ActiveDataset>)
     subscribe(listener) { listeners.add(listener); return () => { listeners.delete(listener); }; },
     async check() { return 'skipped-network'; },
     async setWifiOnly(value) { status = { ...status, refresh: { ...status.refresh, wifiOnly: value } }; listeners.forEach(listener => listener()); },
+    async setStopLive(value) { status = { ...status, refresh: { ...status.refresh, stopLive: value } }; listeners.forEach(listener => listener()); },
+    async updatesAllowed() { return false; },
+    async recordUpstreamConfirmation(at) {
+      const dataset = await ready();
+      status = { ...status, refresh: withEvidence(bindActive(status.refresh, dataset.meta.packageHash), { confirmedAt: at }) };
+      listeners.forEach(listener => listener());
+    },
   };
 }

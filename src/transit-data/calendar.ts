@@ -78,3 +78,14 @@ export function withinCoverage(date: ServiceDate, validFrom: ServiceDate, validT
 export function coverageAt(meta: { validFrom: ServiceDate; validTo: ServiceDate; maxEventSeconds: number }, now: number): 'covered' | 'outside' {
   return now >= serviceDayOrigin(meta.validFrom) && now <= serviceTime(meta.validTo, meta.maxEventSeconds) ? 'covered' : 'outside';
 }
+
+/** Epoch ms of a Rome civil time on a date; undefined in the spring DST gap. In the autumn fold, the first occurrence. */
+export function romeCivilTime(date: ServiceDate, hour: number, minute: number): number | undefined {
+  const guess = Date.UTC(+date.slice(0, 4), +date.slice(4, 6) - 1, +date.slice(6), hour, minute);
+  for (const offsetHours of [2, 1]) {
+    const candidate = guess - offsetHours * 3_600_000;
+    const parts = romeParts(candidate);
+    if (parts.date === date && parts.hour === hour && parts.minute === minute) return candidate;
+  }
+  return undefined;
+}

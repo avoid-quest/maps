@@ -3,7 +3,9 @@ import path from 'node:path';
 import { bundledManifest } from './bundled';
 import { validateManifest, validatePackage } from './package-format';
 import { createMemoryReader, datasetMeta } from './reader';
+import { createMemoryRemapStore, createRemapService } from './remap';
 import { createStaticTimetableService } from './service';
+import { GTT_STATIC_ZIP } from './config';
 
 /**
  * Test runtime (Bun/Node): the bundled package file through the in-memory reader. Android uses
@@ -15,3 +17,6 @@ export const timetableService = createStaticTimetableService(async () => {
   const meta = datasetMeta(pkg, manifest, 'bundled');
   return { meta, reader: createMemoryReader(pkg, meta) };
 });
+
+/** Tests: no transport; remap flows are exercised with fixtures. */
+export const remapService = createRemapService({ store: createMemoryRemapStore(), url: GTT_STATIC_ZIP });

@@ -7,7 +7,10 @@ import { diagnostics } from '../services/diagnostics';
 import bundledAsset from '../data/gtt-timetable.gttpkg';
 import { bundledManifest } from './bundled';
 import { createPackageStore, type BundledPackage, type PackageFiles } from './package-store';
+import { GTT_STATIC_ZIP } from './config';
+import { createRemapService, createSqlRemapStore, lazyRemapStore } from './remap';
 import { createTimetableService } from './service';
+import { xhrRangeTransport } from './xhr-transport';
 import type { SqlDatabase, SqlDriver } from './sql';
 
 function wrap(db: SQLiteDatabase): SqlDatabase {
@@ -66,4 +69,14 @@ export const timetableService = createTimetableService({
     return state.isConnected !== false && (state.type === NetworkStateType.WIFI || state.type === NetworkStateType.ETHERNET);
   },
   events: { record: state => diagnostics.record({ type: 'timetable', state }) },
+});
+
+/** GTT trip_id remap: ranged reads of GTT's own export, persisted in its own database. */
+export const remapService = createRemapService({
+  store: lazyRemapStore(async () => createSqlRemapStore(await driver.open('gtt-remap.db'))),
+  transport: xhrRangeTransport,
+  url: GTT_STATIC_ZIP,
+  networkAllowed: () => timetableService.updatesAllowed(),
+  activeSourceCrc: () => timetableService.status().meta?.manifest.source_crc32,
+  onUpstreamConfirmed: at => { void timetableService.recordUpstreamConfirmation(at); },
 });

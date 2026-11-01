@@ -13,9 +13,9 @@ const states = {
   clipboard: ['copied', 'failed'],
   service: ['invalid', 'unavailable', 'network', 'rate-limit'],
   request: ['ok', 'network', 'timeout', 'cancelled', 'rate-limit', 'unavailable', 'invalid'],
-  timetable: ['installed', 'current', 'failed', 'rejected', 'rolled-back', 'realtime-unmatched', 'realtime-partial'],
+  timetable: ['installed', 'current', 'failed', 'rejected', 'rolled-back', 'realtime-unmatched', 'realtime-partial', 'realtime-identity', 'remap-updated', 'remap-current', 'remap-failed'],
 } as const;
-const providers = ['photon', 'fossgis', 'mato', 'gtt-arrivals', 'gtt-alerts', 'other'] as const;
+const providers = ['photon', 'fossgis', 'mato', 'gtt-arrivals', 'gtt-alerts', 'gtt-stop', 'gtt-static', 'other'] as const;
 export type DiagnosticProvider = (typeof providers)[number];
 export type DiagnosticInput = {
   [K in keyof typeof states]: { type: K; state: (typeof states)[K][number] }

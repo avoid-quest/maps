@@ -31,6 +31,11 @@ export interface ScheduledEvent {
    * are template offsets, so only absolute predicted times may be shown, never delay arithmetic.
    */
   inexact?: boolean;
+  /**
+   * A local schedule whose service does not run on this date in the installed calendar, shown only
+   * because a live update matched it by schedule identity (GTT re-issued the trip under a new ID).
+   */
+  extended?: boolean;
 }
 
 export interface ScheduledResult { events: ScheduledEvent[]; coverage: 'covered' | 'outside'; serviceDates: ServiceDate[] }
@@ -65,6 +70,36 @@ export async function scheduledEvents(reader: TimetableReader, stopId: string, n
   for (const { trip, date, origin } of candidates) {
     const pattern = patterns.get(trip.patternId); const vector = vectors.get(trip.vectorId);
     if (!pattern || !vector) continue;
+    expandTrip(events, { trip, date, origin, pattern, vector, visits, from, to, now });
+  }
+  return { events, coverage: 'covered', serviceDates };
+}
+
+/**
+ * Events at this stop for specific trips on specific service dates (identity-joined live trips
+ * outside the installed calendar). Only exact-time trips; times come from the local pattern.
+ */
+export async function eventsForTrips(reader: TimetableReader, stopId: string, trips: readonly { trip: TripInfo; serviceDate: ServiceDate }[], now: number, window: BoardWindow = DEFAULT_WINDOW): Promise<ScheduledEvent[]> {
+  const relevant = trips.filter(entry => !entry.trip.frequency?.length);
+  if (!relevant.length) return [];
+  const visits = (await reader.stopVisits(stopId)).filter(visit => relevant.some(entry => entry.trip.patternId === visit.patternId));
+  if (!visits.length) return [];
+  const [patterns, vectors] = await Promise.all([
+    reader.patterns([...new Set(relevant.map(entry => entry.trip.patternId))]),
+    reader.vectors([...new Set(relevant.map(entry => entry.trip.vectorId))]),
+  ]);
+  const events: ScheduledEvent[] = [];
+  for (const { trip, serviceDate } of relevant) {
+    const pattern = patterns.get(trip.patternId); const vector = vectors.get(trip.vectorId);
+    if (!pattern || !vector) continue;
+    expandTrip(events, { trip, date: serviceDate, origin: serviceDayOrigin(serviceDate), pattern, vector, visits, from: now - window.lookbackMs, to: now + window.horizonMs, now });
+  }
+  return events.map(event => ({ ...event, extended: true }));
+}
+
+function expandTrip(events: ScheduledEvent[], input: { trip: TripInfo; date: ServiceDate; origin: number; pattern: PatternInfo; vector: TimingVector; visits: readonly { patternId: number; position: number }[]; from: number; to: number; now: number }) {
+  const { trip, date, origin, pattern, vector, visits, from, to, now } = input;
+  {
     for (const visit of visits) {
       if (visit.patternId !== trip.patternId) continue;
       const position = visit.position;
@@ -91,7 +126,6 @@ export async function scheduledEvents(reader: TimetableReader, stopId: string, n
       }
     }
   }
-  return { events, coverage: 'covered', serviceDates };
 }
 
 /** Scheduled seconds-after-origin for an event kind at a pattern position. */
