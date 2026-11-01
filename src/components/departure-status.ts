@@ -38,6 +38,13 @@ export function rowPresentation(input: GttBoardRow, now: number): RowPresentatio
     ? `Salto della fermata segnalato ${age ?? "?"} min fa, ${current ? "non confermato" : "non più attuale"}`
     : `Cancellazione segnalata ${age ?? "?"} min fa, ${current ? "non confermata" : "non più attuale"}`;
   let statusText: string;
+  const consulted = minutes(now - row.retrievedAt);
+  if (row.gtt.source === "stop") {
+    const statusText = row.gtt.realtime === "stop-live" ? `Passaggio previsto al minuto · consultato alle ${journeyTime(row.retrievedAt)}`
+      : row.gtt.realtime === "stale" ? `Previsione dalla fermata consultata ${consulted} min fa`
+      : "Previsione dalla fermata non più attuale";
+    return { row, timeText: row.gtt.realtime === "expired" ? "—" : journeyTime(row.predictedAt ?? row.providerTimeAt), statusText, provenance: provenanceLabel(row), live: false };
+  }
   switch (row.gtt.realtime) {
     case "fresh": statusText = `${event}${delayText(row.gtt.delaySeconds)}${uncertainty}${row.gtt.propagated ? " (da fermata precedente)" : ""}`; break;
     case "stale":

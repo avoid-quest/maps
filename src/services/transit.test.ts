@@ -117,3 +117,44 @@ test('aborted and invalid protobuf retrievals never become cached success', { ti
     assert.ok(empty.rows.length > 0 && empty.rows.every(row => row.realtimeState === 'scheduled'));
   } finally { transport.abort(); release?.(); global.fetch = originalFetch; Date.now = originalNow; }
 });
+
+test('opt-in per-stop source: off by default; when on, one cookie-less request per 30 s for the open stop', { timeout: 30_000 }, async () => {
+  const originalFetch = global.fetch; const originalNow = Date.now;
+  let now = serviceTime(day, 21 * 3600 + 27 * 60) + 3_600_000 * 3; const calls: { url: string; credentials?: string }[] = [];
+  Date.now = () => now;
+  global.fetch = async (input, init) => {
+    const url = String(input); calls.push({ url, credentials: init?.credentials });
+    if (url.includes('trip_update')) return response({ header: { gtfsRealtimeVersion: '2.0', timestamp: now / 1000 }, entity: [] });
+    const hhmm = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Rome', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(now + 8 * 60_000));
+    return new Response(JSON.stringify([{ Linea: '15', LineaAlias: '15', PassaggiRT: [hhmm], Direzione: 'BORGATA LESNA', Bacino: 'U', PassaggiPR: [] }]), { headers: { 'Content-Type': 'text/html' } });
+  };
+  try {
+    await getStopBoard(CASTELLO);
+    assert.ok(calls.every(call => !call.url.includes('gtt.to.it/cms')), 'off by default: the viewed stop is never sent');
+    await timetableService.setStopLive(true);
+    now += 31_000;
+    const board = await getStopBoard(CASTELLO);
+    const stopCalls = calls.filter(call => call.url.includes('gtt.to.it/cms'));
+    assert.equal(stopCalls.length, 1);
+    assert.equal(stopCalls[0]!.url, 'https://www.gtt.to.it/cms/index.php?option=com_gtt&task=palina.getTransitiOld&palina=472&bacino=U&realtime=true&get_param=value');
+    assert.equal(stopCalls[0]!.credentials, 'omit', 'cookies are neither sent nor stored');
+    assert.ok(calls.every(call => call.credentials === 'omit'), 'every GTT request omits cookies');
+    const row = board.rows.find(candidate => candidate.gtt.source === 'stop');
+    assert.equal(row?.realtimeState, 'declared-realtime-no-source-time');
+    now += 26_000;
+    await getStopBoard(CASTELLO);
+    assert.equal(calls.filter(call => call.url.includes('gtt.to.it/cms')).length, 1, 'at most one per-stop request per 30 s');
+    now += 5_000;
+    await getStopBoard(CASTELLO);
+    assert.equal(calls.filter(call => call.url.includes('gtt.to.it/cms')).length, 2);
+    // The citywide feed host is down: per-stop rows still arrive with the scheduled board.
+    now += 31_000;
+    global.fetch = async (input, init) => {
+      calls.push({ url: String(input), credentials: init?.credentials });
+      if (String(input).includes('trip_update')) return new Response('', { status: 503 });
+      const hhmm = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Rome', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(now + 9 * 60_000));
+      return new Response(JSON.stringify([{ Linea: '15', PassaggiRT: [hhmm], Direzione: 'X', Bacino: 'U' }]));
+    };
+    await assert.rejects(getStopBoard(CASTELLO), (error: unknown) => error instanceof RealtimeUnavailableError && error.board.rows.some(candidate => candidate.gtt.source === 'stop'));
+  } finally { await timetableService.setStopLive(false); global.fetch = originalFetch; Date.now = originalNow; }
+});

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useSyncExternalStore } from 'react';
 import type { TransitAlertSnapshot } from '../domain/types';
-import { ARRIVALS_REFRESH_MS, getScheduledBoard, getStopBoard, getTransitAlerts, RealtimeUnavailableError } from '../services/transit';
+import { ARRIVALS_REFRESH_MS, getScheduledBoard, getStopBoard, getTransitAlerts, RealtimeUnavailableError, updateSchedulesNow } from '../services/transit';
 import type { StopBoard } from '../transit-data/board-model';
 import { timetableService } from '../transit-data/runtime';
 import { createActiveRefresh, REFRESH_INTERVALS, type ActiveRefresh } from './active-refresh';
@@ -106,8 +106,11 @@ export function useStopBoard({ stopId, active }: { stopId?: string; active: bool
   }, []);
   const refreshArrivals = useCallback(() => { controllers.current?.arrivals.refresh(); }, []);
   const refreshAlerts = useCallback(() => { controllers.current?.alerts.refresh(); }, []);
-  const updateSchedules = useCallback(() => { void timetableService.check('manual'); }, []);
+  const updateSchedules = useCallback(() => { updateSchedulesNow(); }, []);
   const setSchedulesWifiOnly = useCallback((value: boolean) => { void timetableService.setWifiOnly(value); }, []);
+  const setStopLive = useCallback((value: boolean) => {
+    void timetableService.setStopLive(value).then(() => controllers.current?.arrivals.refresh());
+  }, []);
   const board = visibleResource(arrivals, identity);
   const notices = visibleResource(alerts, identity);
   return {
@@ -115,6 +118,6 @@ export function useStopBoard({ stopId, active }: { stopId?: string; active: bool
     arrivalsLoading: board.loading, alertsLoading: notices.loading,
     arrivalsError: board.error, alertsError: notices.error,
     refreshArrivals, refreshAlerts, suspend,
-    schedules, updateSchedules, setSchedulesWifiOnly,
+    schedules, updateSchedules, setSchedulesWifiOnly, setStopLive,
   };
 }

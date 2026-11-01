@@ -1,6 +1,7 @@
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import type { Stop } from '../domain/types';
 import type { GttBoardRow } from '../transit-data/board-model';
+import { STOP_LIVE_DISCLOSURE, STOP_LIVE_SETTING } from '../transit-data/stop-live';
 import { colors } from '../theme/tokens';
 import { Button, EmptyState, IconButton, Notice } from './Controls';
 import { rowPresentation } from './departure-status';
@@ -12,7 +13,7 @@ type BoardState = ReturnType<typeof useStopBoard>;
 export function StopBoardPanel({ stop, state, now, onLink, onDirections }: {
   stop: Stop; state: BoardState; now: number; onLink: (url: string) => void; onDirections: () => void;
 }) {
-  const { board, alerts, arrivalsLoading, alertsLoading, arrivalsError, alertsError, refreshArrivals, refreshAlerts, schedules, updateSchedules, setSchedulesWifiOnly } = state;
+  const { board, alerts, arrivalsLoading, alertsLoading, arrivalsError, alertsError, refreshArrivals, refreshAlerts, schedules, updateSchedules, setSchedulesWifiOnly, setStopLive } = state;
   return <View className="gap-4">
     <View className="flex-row items-center justify-between">
       <Text className="flex-1 text-sm text-[#59667A]">Fermata {stop.code}{stop.distanceMeters ? ` · ${journeyDistance(stop.distanceMeters)}` : ''}</Text>
@@ -39,6 +40,10 @@ export function StopBoardPanel({ stop, state, now, onLink, onDirections }: {
       <Pressable accessibilityRole="switch" accessibilityState={{ checked: schedules.refresh.wifiOnly }} className="min-h-11 justify-center" onPress={() => setSchedulesWifiOnly(!schedules.refresh.wifiOnly)}>
         <Text className="text-sm text-[#2359D7]">Aggiorna orari solo con Wi-Fi: {schedules.refresh.wifiOnly ? 'sì' : 'no'}</Text>
       </Pressable>
+      <Pressable accessibilityRole="switch" accessibilityState={{ checked: schedules.refresh.stopLive }} accessibilityHint={STOP_LIVE_DISCLOSURE} className="min-h-11 justify-center" onPress={() => setStopLive(!schedules.refresh.stopLive)}>
+        <Text className="text-sm text-[#2359D7]">{STOP_LIVE_SETTING}: {schedules.refresh.stopLive ? 'sì' : 'no'}</Text>
+      </Pressable>
+      <Text className="text-xs leading-5 text-[#59667A]">{STOP_LIVE_DISCLOSURE}</Text>
       {schedules.lastOutcome ? <Text className="text-xs text-[#59667A]">{SCHEDULE_OUTCOMES[schedules.lastOutcome]}{schedules.lastOutcome === 'failed' && schedules.lastError ? ` ${schedules.lastError}` : ''}</Text> : null}
     </View> : null}
     <View className="flex-row items-center justify-between border-t border-[#E2E8F0] pt-3">
