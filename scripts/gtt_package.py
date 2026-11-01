@@ -296,7 +296,7 @@ def bundle_files(payload, package, manifest):
     """Files shipped in the APK: the package, its manifest and a stop index from the same package."""
     check(manifest["package_hash"] == sha256(payload), "bundle manifest does not describe the payload")
     return {
-        "gtt-timetable.json": payload,
+        "gtt-timetable.gttpkg": payload,
         "gtt-timetable.manifest.json": encode(manifest),
         "gtt-stops.json": encode(stops_index(package, manifest["package_hash"])),
     }

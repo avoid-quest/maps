@@ -394,10 +394,15 @@ class PlacePackageTests(unittest.TestCase):
             self.assertEqual((output / "places.compact.json").read_bytes(), b"do not regenerate places")
             manifest = read_json(output / "manifest.json")
             self.assertEqual(manifest["places"], place_meta)
-            payload = (output / "gtt-timetable.json").read_bytes()
+            payload = (output / "gtt-timetable.gttpkg").read_bytes()
             self.assertEqual(manifest["gtt"]["packageSha256"], sha256(payload))
             self.assertEqual(read_json(output / "gtt-stops.json")["package_hash"], sha256(payload))
             self.assertFalse((output / "gtt-trips.json").exists())
+            timetable_manifest = read_json(output / "gtt-timetable.manifest.json")
+            self.assertIsNone(timetable_manifest["upstream_checked_at"], "a local ZIP is not an upstream check")
+            result = self.cli(folder, "--gtfs", str(archive), "--gtfs-checked-at", "2026-10-21T03:15:00Z", "--output", str(output))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(read_json(output / "gtt-timetable.manifest.json")["upstream_checked_at"], "2026-10-21T03:15:00Z")
 
     def test_shipped_package_hash_sources_licenses_and_baseline(self):
         data = ROOT / "src/data"

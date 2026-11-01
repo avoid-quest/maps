@@ -145,6 +145,9 @@ def main():
     parser.add_argument("--site-url", required=True, help="published base URL ending in /, e.g. https://owner.github.io/repo/gtt/")
     parser.add_argument("--output", required=True, help="empty directory for the site")
     parser.add_argument("--zip", help="use a local GTFS zip instead of downloading (no conditional request)")
+    parser.add_argument("--zip-last-modified", help="preserved Last-Modified (ISO 8601) from the --zip download response")
+    parser.add_argument("--zip-checked-at", help="preserved time (ISO 8601) the --zip was retrieved from GTT; "
+                        "without it the manifest records no upstream confirmation")
     parser.add_argument("--bundle-dir", help="also write the APK bundle files (gtt-timetable*.json, gtt-stops.json, manifest.json gtt section)")
     parser.add_argument("--heartbeat-hours", type=float, default=20)
     parser.add_argument("--keep", type=int, default=2, help="previous packages kept beside the current one")
@@ -163,12 +166,14 @@ def main():
         except gtt.PackageError as error:
             print(f"ignoring invalid published manifest: {error}", file=sys.stderr)
             previous = None
-    checked_at = iso(utc_now())
-
+    built_at = iso(utc_now())
+    # Upstream confirmation is evidence of a real request to GTT, never the local build time.
+    checked_at = built_at
     with tempfile.TemporaryDirectory() as scratch:
         if args.zip:
             data = pathlib.Path(args.zip).read_bytes()
-            source = {"sha256": gtt.sha256(data), "etag": None, "last_modified": None}
+            source = {"sha256": gtt.sha256(data), "etag": None, "last_modified": evidence_time(parser, args.zip_last_modified)}
+            checked_at = evidence_time(parser, args.zip_checked_at)
             zip_path = pathlib.Path(args.zip)
         else:
             zip_path = pathlib.Path(scratch) / "gtt_gtfs.zip"
@@ -182,12 +187,13 @@ def main():
     if unchanged:
         if previous is None:
             raise SystemExit("upstream unchanged but no published manifest exists; rerun with --no-previous")
-        age = utc_now() - datetime.datetime.fromisoformat(previous["upstream_checked_at"].replace("Z", "+00:00"))
-        if age < datetime.timedelta(hours=args.heartbeat_hours) and not args.bundle_dir:
+        confirmed = previous.get("upstream_checked_at")
+        age = utc_now() - datetime.datetime.fromisoformat(confirmed.replace("Z", "+00:00")) if confirmed else None
+        if age is not None and age < datetime.timedelta(hours=args.heartbeat_hours) and not args.bundle_dir:
             print(f"package {previous['package_hash']} unchanged; confirmation {age} old, no publication")
             set_output("publish", "false")
             return
-        manifest = dict(previous, upstream_checked_at=checked_at)
+        manifest = dict(previous, upstream_checked_at=checked_at or confirmed)
         if source is not None:
             manifest.update(source_zip_hash=source["sha256"], source_etag=source["etag"], source_last_modified=source["last_modified"] or previous.get("source_last_modified"))
         carried = carried_packages(previous, site_url, args.keep + 1)
@@ -195,10 +201,10 @@ def main():
             raise SystemExit("current package could not be re-verified from the published site")
         packages = {entry["package_path"]: data for entry, data in carried}
         manifest["previous"] = [entry for entry, _ in carried[1:]]
-        print(f"package unchanged; refreshing upstream confirmation to {checked_at}")
+        print(f"package unchanged; upstream confirmation {manifest['upstream_checked_at']}")
     else:
         carried = carried_packages(previous, site_url, args.keep)
-        manifest = gtt.manifest_for(payload, package, source, checked_at, checked_at, [entry for entry, _ in carried])
+        manifest = gtt.manifest_for(payload, package, source, checked_at, built_at, [entry for entry, _ in carried])
         packages = {manifest["package_path"]: payload, **{entry["package_path"]: data for entry, data in carried}}
         print(f"built {manifest['package_path']} ({len(payload)} bytes) from feed {manifest['feed_version']}: {manifest['counts']}")
     write_site(output, manifest, packages)
@@ -208,11 +214,25 @@ def main():
     set_output("package_hash", manifest["package_hash"])
 
 
+def evidence_time(parser, value):
+    """Normalise an optional ISO 8601 evidence time to UTC 'Z', or None."""
+    if not value:
+        return None
+    try:
+        moment = datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        parser.error(f"invalid ISO 8601 time: {value}")
+    if moment.tzinfo is None:
+        parser.error(f"time needs a UTC offset: {value}")
+    return iso(moment.astimezone(datetime.timezone.utc).replace(microsecond=0))
+
+
 def gtt_manifest(manifest):
     """Minimal structural validation of a published manifest before trusting its validators."""
-    for key in ("package_hash", "package_path", "upstream_checked_at", "feed_version"):
+    for key in ("package_hash", "package_path", "feed_version"):
         gtt.check(isinstance(manifest.get(key), str) and manifest[key], f"published manifest lacks {key}")
     gtt.check(manifest["package_path"] == f"packages/gtt-{manifest['package_hash']}.json", "published manifest path mismatch")
+    gtt.check(manifest.get("upstream_checked_at") is None or isinstance(manifest["upstream_checked_at"], str), "published manifest has an invalid confirmation time")
     return manifest
 
 

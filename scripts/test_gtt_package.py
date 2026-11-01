@@ -160,6 +160,8 @@ class PipelineTests(unittest.TestCase):
             destination.write_bytes(data)
             return {"sha256": gtt.sha256(data), "etag": '"e2"', "last_modified": "2026-10-21T02:26:59Z"}
         pipeline.download_source = download
+        if source_zip is None and not not_modified and "--zip" not in extra:
+            raise AssertionError("no source")
         argv = ["gtt-pipeline.py", "--site-url", self.SITE, "--output", str(output), *extra]
         stdout = io.StringIO()
         with unittest.mock.patch.object(sys, "argv", argv), contextlib.redirect_stdout(stdout):
@@ -200,6 +202,23 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual([entry["package_hash"] for entry in second["previous"]], [first["package_hash"]])
         self.assertTrue((output / first["package_path"]).exists() and (output / second["package_path"]).exists())
 
+    def test_local_zip_records_no_upstream_confirmation_without_evidence(self):
+        zip_path = synthetic_zip(self.dir / "old.zip")
+        output, _ = self.run_pipeline(previous=None, extra=("--zip", str(zip_path)))
+        manifest = json.loads((output / "manifest.json").read_text())
+        self.assertIsNone(manifest["upstream_checked_at"], "an old local file is not a fresh check against GTT")
+        self.assertIsNone(manifest["source_last_modified"])
+        output, _ = self.run_pipeline(previous=None, extra=("--zip", str(zip_path), "--zip-checked-at", "2026-10-21T04:00:00+02:00",
+                                                           "--zip-last-modified", "2026-10-21T02:26:59Z"))
+        preserved = json.loads((output / "manifest.json").read_text())
+        self.assertEqual(preserved["upstream_checked_at"], "2026-10-21T02:00:00Z")
+        self.assertEqual(preserved["source_last_modified"], "2026-10-21T02:26:59Z")
+        # With no confirmation published, an unchanged local rebuild does not invent one either.
+        self.publish(output)
+        output, log = self.run_pipeline(previous=manifest, extra=("--zip", str(zip_path)))
+        self.assertIn("publish=true", log)
+        self.assertIsNone(json.loads((output / "manifest.json").read_text())["upstream_checked_at"])
+
     def test_rejected_source_publishes_nothing(self):
         def blank_time(files):
             files["stop_times.txt"] = files["stop_times.txt"].replace("T1,08:02:00,08:02:30", "T1,,")
@@ -215,7 +234,7 @@ class PipelineTests(unittest.TestCase):
 class ShippedBundleTests(unittest.TestCase):
     def test_bundled_package_matches_its_manifest_and_stop_index(self):
         data = ROOT / "src/data"
-        payload = (data / "gtt-timetable.json").read_bytes()
+        payload = (data / "gtt-timetable.gttpkg").read_bytes()
         manifest = json.loads((data / "gtt-timetable.manifest.json").read_text())
         self.assertEqual(gtt.sha256(payload), manifest["package_hash"])
         self.assertEqual(len(payload), manifest["package_bytes"])

@@ -12,20 +12,36 @@ from place_package import ValidationError, encoded, extraction_sql, prepare_plac
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 
-def prepare_gtfs(path):
-    """Compact the GTT timetable package for the APK; see scripts/gtt_package.py."""
+def utc_iso(value, label):
+    """Normalise preserved retrieval evidence to ISO 8601 UTC, or None when absent."""
+    if not value:
+        return None
+    moment = datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if moment.tzinfo is None:
+        raise ValueError(f"{label} needs a UTC offset")
+    return moment.astimezone(datetime.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def prepare_gtfs(path, last_modified=None, checked_at=None):
+    """Compact the GTT timetable package for the APK; see scripts/gtt_package.py.
+
+    A local ZIP carries no upstream confirmation unless its retrieval evidence is supplied:
+    preparing an old file later must not look like a fresh check against GTT.
+    """
     payload = pathlib.Path(path).read_bytes()
     package = gtt_package.build_package(path)
     encoded_package = gtt_package.encode(package)
     now = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-    source = {"sha256": sha256(payload), "etag": None, "last_modified": None}
-    manifest = gtt_package.manifest_for(encoded_package, package, source, now, now)
+    source = {"sha256": sha256(payload), "etag": None, "last_modified": utc_iso(last_modified, "--gtfs-last-modified")}
+    manifest = gtt_package.manifest_for(encoded_package, package, source, utc_iso(checked_at, "--gtfs-checked-at"), now)
     return gtt_package.bundle_files(encoded_package, package, manifest), gtt_package.bundle_metadata(manifest)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--gtfs", help="official GTT GTFS zip; optional for a place-only update")
+    parser.add_argument("--gtfs-last-modified", help="preserved Last-Modified (ISO 8601) of the --gtfs download")
+    parser.add_argument("--gtfs-checked-at", help="preserved retrieval time (ISO 8601) of the --gtfs download; omitted = unknown confirmation")
     parser.add_argument("--places", help="raw Overture JSON array matching the pinned source metadata")
     parser.add_argument("--places-metadata", default=str(ROOT / "src/data/places.source.json"),
                         help="versioned source metadata with release, bounds, schema, hashes and counts")
@@ -52,7 +68,7 @@ def main():
             files["places.compact.json"] = payload
             manifest["places"] = metadata
         if args.gtfs:
-            transit_files, metadata = prepare_gtfs(args.gtfs)
+            transit_files, metadata = prepare_gtfs(args.gtfs, args.gtfs_last_modified, args.gtfs_checked_at)
             files.update(transit_files)
             manifest["gtt"] = metadata
             manifest["preparedAt"] = metadata["builtAt"]
