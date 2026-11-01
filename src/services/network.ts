@@ -1,8 +1,10 @@
 import { diagnostics, type DiagnosticProvider, type DiagnosticInput } from './diagnostics';
+import { decodeUtf8 } from './utf8';
 
 export const USER_AGENT = 'AvoidMaps/0.1 (https://github.com/avoid-quest/maps)';
 export class ServiceError extends Error {
-  constructor(message: string, public readonly kind: 'network' | 'unavailable' | 'rate-limit' | 'invalid' = 'network') { super(message); this.name = 'ServiceError'; }
+  /** `status` is the HTTP status when the provider answered with an error response. */
+  constructor(message: string, public readonly kind: 'network' | 'unavailable' | 'rate-limit' | 'invalid' = 'network', public readonly status?: number) { super(message); this.name = 'ServiceError'; }
 }
 /** Parse provider data; record an allowlisted service failure and rethrow if parsing fails. */
 export function parseServiceData<T>(provider: DiagnosticProvider, parse: () => T): T {
@@ -63,8 +65,8 @@ export async function fetchResponse(url: string, options: RequestInit = {}, prov
       // No provider needs cookies: 'omit' makes React Native use OkHttp's NO_COOKIES jar (never sent or stored).
       const response = await fetch(url, { credentials: 'omit', ...options, signal: controller.signal, headers: { 'User-Agent': USER_AGENT, ...options.headers } });
       httpStatus = response.status;
-      if (response.status === 429) throw new ServiceError('Il servizio ha limitato le richieste. Riprova tra un minuto.', 'rate-limit');
-      if (!response.ok) throw new ServiceError(`Servizio temporaneamente non disponibile (HTTP ${response.status}).`, 'unavailable');
+      if (response.status === 429) throw new ServiceError('Il servizio ha limitato le richieste. Riprova tra un minuto.', 'rate-limit', 429);
+      if (!response.ok) throw new ServiceError(`Servizio temporaneamente non disponibile (HTTP ${response.status}).`, 'unavailable', response.status);
       const body = await response.arrayBuffer();
       return new Response(response.status === 204 || response.status === 205 ? null : body, {
         status: response.status, statusText: response.statusText, headers: response.headers,
@@ -82,7 +84,8 @@ export async function fetchResponse(url: string, options: RequestInit = {}, prov
 }
 export async function fetchJSON<T>(url: string, options?: RequestInit, provider: DiagnosticProvider = 'other'): Promise<T> {
   const response = await fetchResponse(url, options, provider);
-  try { return await response.json() as T; } catch {
+  // Decode UTF-8 explicitly: React Native's Response.json() reads buffered bodies as Latin-1.
+  try { return JSON.parse(decodeUtf8(await response.arrayBuffer())) as T; } catch {
     diagnostics.record({ type: 'service', state: 'invalid', provider });
     throw new ServiceError('Il servizio ha restituito dati non validi.', 'invalid');
   }

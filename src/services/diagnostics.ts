@@ -7,7 +7,7 @@ const states = {
   app: ['launch', 'active', 'background', 'inactive', 'unknown', 'runtime-error'],
   map: ['loaded', 'failed'],
   location: ['requested', 'approximate', 'precise', 'granted', 'denied', 'fix', 'timeout', 'unavailable', 'services-disabled', 'providers-gps-network', 'providers-gps', 'providers-network', 'providers-other', 'providers-none'],
-  navigation: ['start-requested', 'active', 'degraded', 'off-route', 'rerouting', 'arrived', 'stopped', 'interrupted', 'denied', 'engine-unavailable', 'service-unavailable', 'route-unavailable', 'rate-limit', 'reroute-limit', 'transit-replan-needed', 'native-error'],
+  navigation: ['start-requested', 'waiting-for-fix', 'routing', 'active', 'degraded', 'location-inaccurate', 'location-stale', 'location-unavailable', 'start-timeout', 'off-route', 'rerouting', 'arrived', 'stopped', 'interrupted', 'denied', 'location-disabled', 'invalid', 'foreground-required', 'engine-unavailable', 'service-unavailable', 'route-unavailable', 'route-invalid', 'route-network', 'route-timeout', 'route-not-started', 'rate-limit', 'reroute-limit', 'transit-replan-needed', 'native-error'],
   favorites: ['read-failed', 'write-failed'],
   'saved-travel': ['read-failed', 'write-failed', 'remove-failed', 'invalid'],
   clipboard: ['copied', 'failed'],
@@ -15,7 +15,7 @@ const states = {
   request: ['ok', 'network', 'timeout', 'cancelled', 'rate-limit', 'unavailable', 'invalid'],
   timetable: ['installed', 'current', 'failed', 'rejected', 'rolled-back', 'realtime-unmatched', 'realtime-partial', 'realtime-identity', 'remap-updated', 'remap-current', 'remap-failed'],
 } as const;
-const providers = ['photon', 'fossgis', 'mato', 'gtt-arrivals', 'gtt-alerts', 'gtt-stop', 'gtt-static', 'other'] as const;
+const providers = ['photon', 'fossgis', 'mato', 'gtt-arrivals', 'gtt-alerts', 'gtt-stop', 'gtt-static', 'transitous', 'other'] as const;
 export type DiagnosticProvider = (typeof providers)[number];
 export type DiagnosticInput = {
   [K in keyof typeof states]: { type: K; state: (typeof states)[K][number] }

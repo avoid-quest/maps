@@ -21,3 +21,5 @@ Metro's standard `resolver.blockList` excludes generated Android build/cache dir
 Road guidance policy changes also require `cargo test --locked --manifest-path tests/navigation-core/Cargo.toml`. This [separate harness](../../tests/navigation-core/README.md) pins Ferrostar 0.57.0 source and a Cargo lockfile, and replays actual host-core trajectories using the packaged Android policy. Rust/Cargo is a test-only prerequisite; it does not replace Bun/Node or prove Android JNI/JNA, GPS, TTS or service behavior.
 
 The GitHub workflow performs a frozen install and the same verification on pull requests, main pushes and manual dispatch. It has read-only repository permissions and uses neither signing secrets nor a cloud Android build service.
+
+Brand icons and the splash image are generated from `assets/brand/mark.svg` with `node scripts/render-brand-assets.mjs` (resvg, no system fonts, fixed sizes). Run `node scripts/render-brand-assets.mjs --check` after editing the mark or updating the renderer.

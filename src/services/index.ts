@@ -4,6 +4,9 @@ export { PLACE_BOUNDS, LOCAL_SEARCH_RADIUS_METERS, getPlaceCoverage } from './pl
 export { planRoute, planRoutes, romeDateTime, resolveTransitTime, type PlanRouteOptions } from './routing';
 export { getNearbyStops, getStop, getScheduledBoard, getStopBoard, getTransitAlerts } from './transit';
 export { matchJourneyStop } from './transit-stop-matching';
+export { TRANSITOUS_PRIVACY_NOTES, TRANSITOUS_SOURCES_URL, TRANSITOUS_MIN_REFRESH_MS, transitousGttStopId, type TransitousClient, type TransitousStopMatch } from './transitous';
+export { RAIL_PILOT_STATIONS, getRailPilotStation, nearestRailPilotStations, type RailPilotStation } from './transitous-stations';
+export { realtimeStateLabel, delayMinutes, boardTime, REALTIME_STATE_LABELS } from '../domain/transit-board';
 export { loadSavedPlaces, savePlace, removeSavedPlace } from './favorites';
 export { distanceMeters, TURIN_CENTER } from './geo';
 export { ServiceError } from './network';

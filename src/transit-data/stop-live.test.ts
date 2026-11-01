@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { rowPresentation } from '../components/departure-status';
+import { rowPresentation } from '../features/transit/departure-status';
 import type { GttBoardRow } from './board-model';
 import { romeCivilTimes } from './calendar';
 import { parseStopLive, stopLiveRows } from './stop-live';
