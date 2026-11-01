@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { validateStyleMin, type StyleSpecification } from '@maplibre/maplibre-gl-style-spec';
 import { AA_NON_TEXT, AA_TEXT, contrastRatio } from './contrast';
-import { applyPaintOverrides, darkPaintOverrides, mapColorsFor, mapStyleFor, mapStyleJsonFor } from './map-style';
+import { applyPaintOverrides, darkPaintAdditions, darkPaintOverrides, mapColorsFor, mapStyleFor, mapStyleJsonFor } from './map-style';
 import { palettes } from './palette';
 
 const files = { light: 'openfreemap-liberty.json', dark: 'openfreemap-dark.json' } as const;
@@ -49,7 +49,7 @@ test('light keeps Liberty unchanged; dark changes only overridden paint colours'
     const { paint: original, ...originalRest } = upstream.layers[index] as typeof layer & { paint?: Record<string, unknown> };
     assert.deepEqual(rest, originalRest);
     for (const property of Object.keys({ ...original, ...changed })) {
-      const expected = darkPaintOverrides[layer.id]?.[property] ?? original?.[property];
+      const expected = darkPaintOverrides[layer.id]?.[property] ?? darkPaintAdditions[layer.id]?.[property] ?? original?.[property];
       assert.deepEqual(changed?.[property], expected, `${layer.id} ${property}`);
     }
   });
@@ -60,6 +60,7 @@ test('paint overrides fail loudly when a style refresh renames a layer or proper
   const style = { version: 8, sources: {}, layers: [{ id: 'background', type: 'background', paint: { 'background-color': '#000' } }] } as StyleSpecification;
   assert.throws(() => applyPaintOverrides(style, { missing: { 'fill-color': '#fff' } }), /lacks layers missing/);
   assert.throws(() => applyPaintOverrides(style, { background: { 'background-opacity': 1 } }), /lacks background-opacity/);
+  assert.throws(() => applyPaintOverrides(style, {}, { background: { 'background-color': '#000' } }), /already declares background-color/);
 });
 
 test('dark basemap labels and app overlays remain legible', () => {
@@ -75,6 +76,15 @@ test('dark basemap labels and app overlays remain legible', () => {
     const road = String(paint(dark, id, 'line-color'));
     assert.ok(contrastRatio(road, background) > 1.2, `${id} is distinguishable from land`);
     assert.ok(contrastRatio(palettes.dark.map.routeLine, road) >= AA_NON_TEXT, `route line over ${id}`);
+  }
+  // Labels are drawn over roads, not only land: test each label against what can lie beneath it.
+  const motorwayLabel = String(paint(dark, 'highway_name_motorway', 'text-color'));
+  const motorwayHalo = String(paint(dark, 'highway_name_motorway', 'text-halo-color'));
+  assert.ok(Number(paint(dark, 'highway_name_motorway', 'text-halo-width')) >= 1, 'motorway labels have a halo');
+  assert.ok(contrastRatio(motorwayLabel, motorwayHalo) >= AA_TEXT, 'motorway label on its halo');
+  for (const id of ['highway_name_other']) {
+    const label = String(paint(dark, id, 'text-color'));
+    assert.ok(contrastRatio(label, String(paint(dark, id, 'text-halo-color'))) >= AA_TEXT, `${id} label on its halo`);
   }
   const lightRoad = '#ffffff';
   assert.ok(contrastRatio(palettes.light.map.routeLine, lightRoad) >= AA_NON_TEXT, 'light route line over white Liberty roads');

@@ -9,7 +9,7 @@ These style documents are bundled so a remote style edit cannot change the app's
 
 The files are unmodified response bodies. At retrieval, [hyperknot/openfreemap-styles](https://github.com/hyperknot/openfreemap-styles) `main` was commit `006ea5796803ba2df4330888836cb0a8f17473b4`. `map-style.test.ts` checks these hashes.
 
-**Modifications.** The light map uses Liberty unchanged. The dark map applies paint-colour overrides at runtime (`darkPaintOverrides` in `../map-style.ts`): a lifted neutral background, lighter roads, buildings and boundaries, and higher-contrast labels. Layer structure, filters, sources and fonts are unchanged.
+**Modifications.** The light map uses Liberty unchanged. The dark map applies paint-colour overrides and a motorway-label halo at runtime (`darkPaintOverrides` and `darkPaintAdditions` in `../map-style.ts`): a lifted neutral background, lighter roads, buildings and boundaries, and higher-contrast labels. Layer structure, filters, sources and fonts are unchanged.
 
 ## Licences
 
@@ -19,5 +19,7 @@ The files are unmodified response bodies. At retrieval, [hyperknot/openfreemap-s
 - **OpenMapTiles schema:** code BSD 3-Clause, design CC BY 4.0.
 - **Map data:** © OpenStreetMap contributors, [ODbL](https://www.openstreetmap.org/copyright).
 - **Fonts:** Noto Sans, SIL Open Font License 1.1. **Icons:** Maki, CC0 1.0. **Natural Earth:** public domain.
+
+The complete upstream licence texts, including copyright notices, redistribution conditions and disclaimers, are reproduced verbatim in [`LICENSES/`](LICENSES): `openfreemap-styles.md` (MIT), `osm-liberty.md` and `mapbox-gl-styles.md` (Liberty's BSD code licence, Mapbox Open Styles copyright (c) 2014 Mapbox, and its inherited CC BY 3.0 design notice), and `dark-matter-gl-style.md` (BSD 3-Clause, CC BY 4.0 design, CartoDB Basemaps CC BY 3.0). Retrieved 2026-11-01 from each repository's default branch. These texts must also reach users of APK distributions through the in-app notices once the styles are wired into the map.
 
 These notices are separate from the application-source licence.

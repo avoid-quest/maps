@@ -56,16 +56,28 @@ export const darkPaintOverrides: PaintOverrides = {
     .map(id => [id, { 'text-color': '#C3C8CF', 'text-halo-color': darkLabelHalo }])),
 };
 
-export function applyPaintOverrides(style: StyleSpecification, overrides: PaintOverrides): StyleSpecification {
-  const pending = new Set(Object.keys(overrides));
+/**
+ * Properties the upstream layer does not declare at all. Kept separate from overrides so a refresh that
+ * renames an existing property still fails loudly; an addition that upstream starts declaring fails too.
+ */
+export const darkPaintAdditions: PaintOverrides = {
+  // Upstream motorway labels have no halo; without one they reach only ~3.9:1 over motorway casing.
+  highway_name_motorway: { 'text-halo-color': darkLabelHalo, 'text-halo-width': 1.2, 'text-halo-blur': 0 },
+};
+
+export function applyPaintOverrides(style: StyleSpecification, overrides: PaintOverrides, additions: PaintOverrides = {}): StyleSpecification {
+  const pending = new Set([...Object.keys(overrides), ...Object.keys(additions)]);
   const layers = style.layers.map(layer => {
     const paint = overrides[layer.id];
-    if (!paint) return layer;
+    const added = additions[layer.id];
+    if (!paint && !added) return layer;
     pending.delete(layer.id);
     const current: Record<string, unknown> = 'paint' in layer && layer.paint ? layer.paint : {};
-    const missing = Object.keys(paint).filter(property => !(property in current));
+    const missing = Object.keys(paint ?? {}).filter(property => !(property in current));
     if (missing.length) throw new Error(`Map style layer ${layer.id} lacks ${missing.join(', ')}`);
-    return { ...layer, paint: { ...current, ...paint } } as typeof layer;
+    const declared = Object.keys(added ?? {}).filter(property => property in current);
+    if (declared.length) throw new Error(`Map style layer ${layer.id} already declares ${declared.join(', ')}`);
+    return { ...layer, paint: { ...current, ...added, ...paint } } as typeof layer;
   });
   if (pending.size) throw new Error(`Map style lacks layers ${[...pending].join(', ')}`);
   return { ...style, layers };
@@ -73,7 +85,7 @@ export function applyPaintOverrides(style: StyleSpecification, overrides: PaintO
 
 const styles: Record<ColorScheme, StyleSpecification> = {
   light: libertySource as unknown as StyleSpecification,
-  dark: applyPaintOverrides(darkSource as unknown as StyleSpecification, darkPaintOverrides),
+  dark: applyPaintOverrides(darkSource as unknown as StyleSpecification, darkPaintOverrides, darkPaintAdditions),
 };
 const serialized: Partial<Record<ColorScheme, string>> = {};
 
