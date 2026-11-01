@@ -19,6 +19,15 @@ test('Overture categories keep their existing Italian labels and families', () =
   assert.equal(placeCategoryLabel('some_unknown_overture_kind'), 'Attività');
 });
 
+test('multi-value tags use the first known value; untranslated provider values never leak', () => {
+  assert.equal(placeCategoryLabel('bar;restaurant'), 'Bar');
+  assert.equal(placeCategoryLabel('vending_machine;cafe'), 'Caffè', 'a specific label beats the generic business family');
+  assert.equal(placeCategoryLabel('vending_machine;windmill'), 'Attività');
+  assert.equal(placeCategoryLabel('windmill;tower'), 'Torre');
+  assert.equal(placeCategoryLabel('Tower Hill'), 'Luogo', 'capitalised or spaced provider text is not trusted as Italian');
+  assert.equal(placeCategoryLabel('Café'), 'Luogo');
+});
+
 test('unknown raw tags never leak; app-written Italian labels pass through', () => {
   assert.equal(placeCategoryLabel('yes'), 'Luogo');
   assert.equal(placeCategoryLabel('windmill'), 'Luogo');

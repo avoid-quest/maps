@@ -39,15 +39,32 @@ const OSM_LABELS: Record<string, string> = {
   canal: 'Canale', lake: 'Lago', peak: 'Vetta', hill: 'Collina', island: 'Isola',
 };
 
-/** Values the app writes itself are already Italian and human-readable. */
-const looksLikeTag = (value: string) => /^[a-z0-9_:]+$/.test(value);
+/** Category values the app writes itself; they are already Italian. */
+export const APP_CATEGORY_LABELS: ReadonlySet<string> = new Set(['Fermata GTT']);
 
-export function placeCategoryLabel(category: string | null | undefined): string {
-  const value = category?.trim();
-  if (!value) return 'Luogo';
+const GENERIC = 'Attività';
+
+/** A specific Italian label, the generic business family, or null when the value is unknown. */
+function knownLabel(value: string): string | null {
   const osm = OSM_LABELS[value.toLowerCase()];
   if (osm) return osm;
   const overture = categoryLabel(value);
-  if (overture !== value) return overture;
-  return looksLikeTag(value) ? 'Luogo' : value;
+  return overture !== value ? overture : null;
+}
+
+/**
+ * An Italian label for a place category. Multi-value provider tags (`bar;restaurant`) use the first
+ * value with a known label; any other untranslated provider value becomes "Luogo".
+ */
+export function placeCategoryLabel(category: string | null | undefined): string {
+  const value = category?.trim();
+  if (!value) return 'Luogo';
+  if (APP_CATEGORY_LABELS.has(value)) return value;
+  let generic = false;
+  for (const part of value.split(/[;,|]/).map(item => item.trim()).filter(Boolean)) {
+    const label = knownLabel(part);
+    if (label === GENERIC) generic = true;
+    else if (label) return label;
+  }
+  return generic ? GENERIC : 'Luogo';
 }

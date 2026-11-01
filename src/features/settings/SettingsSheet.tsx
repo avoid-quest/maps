@@ -48,7 +48,7 @@ export function SettingsSheet() {
       <Disclosure title="Fonti e licenze">
         <View className="-mx-4">
           {PROVIDER_NOTICES.map((notice, index) => (
-            <ListRow key={notice.name} kind="external" divider={false} icon={PROVIDER_ICONS[index] ?? "information-circle-outline"} title={notice.name} subtitle={notice.text} onPress={() => openLink(notice.url)} accessibilityHint="Apre la pagina della fonte" />
+            <ListRow key={notice.name} kind="external" divider={false} icon={PROVIDER_ICONS[index] ?? "information-circle-outline"} title={notice.name} subtitle={notice.text} subtitleLines={0} onPress={() => openLink(notice.url)} accessibilityHint="Apre la pagina della fonte" />
           ))}
         </View>
         <NavigationNotices onLink={openLink} />

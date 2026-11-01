@@ -7,9 +7,11 @@ import { Icon, type IconName } from "./Icon";
  * A tappable list entry: optional leading icon or element, a 16 sp title, a secondary line,
  * trailing metadata and a chevron (in-app) or external-link marker.
  */
-export function ListRow({ title, subtitle, detail, meta, icon, leading, trailing, onPress, kind = "navigate", accessibilityLabel, accessibilityHint, divider = true }: {
+export function ListRow({ title, subtitle, subtitleLines = 2, detail, meta, icon, leading, trailing, onPress, kind = "navigate", accessibilityLabel, accessibilityHint, divider = true }: {
   title: string;
   subtitle?: string;
+  /** Lines shown before truncation; 0 shows the whole text (disclosures, notices). */
+  subtitleLines?: number;
   /** A third, smaller line such as an address. */
   detail?: string;
   /** Right-aligned metadata such as a distance. */
@@ -29,7 +31,7 @@ export function ListRow({ title, subtitle, detail, meta, icon, leading, trailing
     {leading ?? (icon ? <View className="h-10 w-10 items-center justify-center rounded-full bg-surface-muted"><Icon name={icon} size={20} color={colors.action} /></View> : null)}
     <View className="min-w-0 flex-1 gap-0.5">
       <Text className="text-base font-medium leading-6 text-primary" numberOfLines={2}>{title}</Text>
-      {subtitle ? <Text className="text-sm leading-5 text-secondary" numberOfLines={2}>{subtitle}</Text> : null}
+      {subtitle ? <Text className="text-sm leading-5 text-secondary" numberOfLines={subtitleLines || undefined}>{subtitle}</Text> : null}
       {detail ? <Text className="text-sm leading-5 text-secondary" numberOfLines={1}>{detail}</Text> : null}
     </View>
     {meta ? <Text numberOfLines={1} className="max-w-[40%] shrink-0 text-sm text-secondary">{meta}</Text> : null}
