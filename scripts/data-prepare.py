@@ -2,50 +2,25 @@
 """Prepare independently versioned GTT and compact Overture packages; see --help."""
 
 import argparse
-import collections
-import csv
 import datetime
-import io
 import pathlib
 import zipfile
 
+import gtt_package
 from place_package import ValidationError, encoded, extraction_sql, prepare_places, read_json, sha256
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 
 def prepare_gtfs(path):
-    """Keep the existing realtime lookup, without claiming an offline timetable."""
-    with zipfile.ZipFile(path) as archive:
-        def rows(name):
-            return csv.DictReader(io.TextIOWrapper(archive.open(name), encoding="utf-8-sig"))
-
-        routes = {row["route_id"]: row["route_short_name"] for row in rows("routes.txt")}
-        trips = {row["trip_id"]: [routes.get(row["route_id"], row["route_id"]),
-                                row["trip_headsign"], row["route_id"]] for row in rows("trips.txt")}
-        trip_stops, stop_lines = collections.defaultdict(list), collections.defaultdict(set)
-        for row in rows("stop_times.txt"):
-            trip_stops[row["trip_id"]].append((int(row["stop_sequence"]), row["stop_id"]))
-            if row["trip_id"] in trips:
-                stop_lines[row["stop_id"]].add(trips[row["trip_id"]][0])
-        patterns, intern, lookup = [], {}, {}
-        for trip_id, sequence in trip_stops.items():
-            key = tuple(sorted(sequence))
-            if key not in intern:
-                intern[key] = len(patterns)
-                patterns.append(dict(key))
-            lookup[trip_id] = [*trips[trip_id], intern[key]]
-        stops = [{"id": row["stop_id"], "code": row["stop_code"], "name": row["stop_name"],
-                  "coordinate": {"latitude": float(row["stop_lat"]), "longitude": float(row["stop_lon"])},
-                  "lines": sorted(stop_lines[row["stop_id"]])} for row in rows("stops.txt")]
-        info = next(iter(rows("feed_info.txt")))
-    metadata = {"version": info.get("feed_version"), "validFrom": info.get("feed_start_date"),
-                "validTo": info.get("feed_end_date"), "sha256": sha256(pathlib.Path(path).read_bytes()),
-                "url": "https://www.gtt.to.it/open_data/gtt_gtfs.zip",
-                "license": "https://www.gtt.to.it/gtt_gtfs_license.html",
-                "attribution": "Data source: GTT S.p.A. – Gruppo Torinese Trasporti",
-                "stops": len(stops), "trips": len(lookup), "patterns": len(patterns)}
-    return {"gtt-stops.json": encoded(stops), "gtt-trips.json": encoded({"patterns": patterns, "trips": lookup})}, metadata
+    """Compact the GTT timetable package for the APK; see scripts/gtt_package.py."""
+    payload = pathlib.Path(path).read_bytes()
+    package = gtt_package.build_package(path)
+    encoded_package = gtt_package.encode(package)
+    now = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    source = {"sha256": sha256(payload), "etag": None, "last_modified": None}
+    manifest = gtt_package.manifest_for(encoded_package, package, source, now, now)
+    return gtt_package.bundle_files(encoded_package, package, manifest), gtt_package.bundle_metadata(manifest)
 
 
 def main():
@@ -80,9 +55,9 @@ def main():
             transit_files, metadata = prepare_gtfs(args.gtfs)
             files.update(transit_files)
             manifest["gtt"] = metadata
-            manifest["preparedAt"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+            manifest["preparedAt"] = metadata["builtAt"]
         files["manifest.json"] = encoded(manifest)
-    except (ValidationError, OSError, ValueError, KeyError, TypeError, zipfile.BadZipFile) as error:
+    except (ValidationError, gtt_package.PackageError, OSError, ValueError, KeyError, TypeError, zipfile.BadZipFile) as error:
         parser.error(str(error))
     if not args.validate_only:
         output.mkdir(parents=True, exist_ok=True)
@@ -92,6 +67,8 @@ def main():
             temporary = target.with_suffix(target.suffix + ".tmp")
             temporary.write_bytes(payload)
             temporary.replace(target)
+        if args.gtfs and (output / "gtt-trips.json").exists():
+            (output / "gtt-trips.json").unlink()
     action = "Validated" if args.validate_only else "Prepared"
     if args.places:
         data = manifest["places"]
@@ -99,7 +76,8 @@ def main():
               f"{data['bytes']} bytes, SHA-256 {data['sha256']}")
     if args.gtfs:
         data = manifest["gtt"]
-        print(f"{action} {data['stops']} stops, {data['trips']} trips / {data['patterns']} stop patterns")
+        print(f"{action} GTT package {data['packageSha256']}: {data['stops']} stops, {data['trips']} trips, "
+              f"{data['patterns']} stop patterns, {data['vectors']} timing vectors")
 
 
 if __name__ == "__main__":

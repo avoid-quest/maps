@@ -1,0 +1,52 @@
+name: GTT timetable
+# Builds the hashed GTT timetable package from the official GTFS export and publishes it to
+# GitHub Pages only when the package changed (or the upstream confirmation needs a heartbeat).
+# Requires Settings → Pages → Source: "GitHub Actions". No signing material or secrets are used.
+on:
+  schedule:
+    # GTT republishes daily around 02:26 UTC.
+    - cron: '15 3,6,12,18 * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: gtt-timetable
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      publish: ${{ steps.pipeline.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Package regressions
+        run: python3 -B -m unittest discover -s scripts -p 'test_gtt_package.py'
+      - name: Download (conditional), compact, validate
+        id: pipeline
+        run: >-
+          python3 -B scripts/gtt-pipeline.py
+          --site-url "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/gtt/"
+          --output _site/gtt
+      - uses: actions/upload-pages-artifact@v3
+        if: steps.pipeline.outputs.publish == 'true'
+        with:
+          path: _site
+  deploy:
+    needs: build
+    if: needs.build.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      # OIDC token for the Pages deployment only; not a signing credential.
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}gtt/manifest.json
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
