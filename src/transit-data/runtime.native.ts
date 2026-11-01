@@ -1,10 +1,12 @@
+import { Asset } from 'expo-asset';
 import { CryptoDigestAlgorithm, digestStringAsync } from 'expo-crypto';
 import { Directory, File, Paths } from 'expo-file-system';
 import { getNetworkStateAsync, NetworkStateType } from 'expo-network';
 import { defaultDatabaseDirectory, deleteDatabaseAsync, openDatabaseAsync, type SQLiteBindParams, type SQLiteDatabase } from 'expo-sqlite';
 import { diagnostics } from '../services/diagnostics';
-import { bundledPackage } from './bundled';
-import { createPackageStore, type PackageFiles } from './package-store';
+import bundledAsset from '../data/gtt-timetable.gttpkg';
+import { bundledManifest } from './bundled';
+import { createPackageStore, type BundledPackage, type PackageFiles } from './package-store';
 import { createTimetableService } from './service';
 import type { SqlDatabase, SqlDriver } from './sql';
 
@@ -39,13 +41,29 @@ const files: PackageFiles = {
   freeBytes: async () => { try { return Paths.availableDiskSpace; } catch { return undefined; } },
 };
 
+/** The APK's package asset, copied to the cache by expo-asset, read once for import and then deleted. */
+const bundled: BundledPackage = {
+  manifest: bundledManifest,
+  async load() {
+    const asset = Asset.fromModule(bundledAsset);
+    await asset.downloadAsync();
+    if (!asset.localUri) throw new Error('Pacchetto orari incluso non disponibile.');
+    const file = new File(asset.localUri);
+    try { return await file.text(); } finally {
+      // Only a cache copy is removed; the APK keeps the original asset.
+      if (asset.localUri.startsWith(Paths.cache.uri)) { try { file.delete(); } catch { /* the cache is reclaimable anyway */ } }
+    }
+  },
+};
+
 export const timetableService = createTimetableService({
-  store: createPackageStore({ driver, files, bundled: bundledPackage, sha256: text => digestStringAsync(CryptoDigestAlgorithm.SHA256, text) }),
+  store: createPackageStore({ driver, files, bundled, sha256: text => digestStringAsync(CryptoDigestAlgorithm.SHA256, text) }),
   fetch: (input, init) => fetch(input, init),
   async networkAllowed(wifiOnly) {
+    // Any connection is allowed by default; only the Wi-Fi-only preference needs the network type.
+    if (!wifiOnly) return true;
     const state = await getNetworkStateAsync();
-    if (state.isConnected === false) return false;
-    return !wifiOnly || state.type === NetworkStateType.WIFI || state.type === NetworkStateType.ETHERNET;
+    return state.isConnected !== false && (state.type === NetworkStateType.WIFI || state.type === NetworkStateType.ETHERNET);
   },
   events: { record: state => diagnostics.record({ type: 'timetable', state }) },
 });

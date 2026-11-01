@@ -1,11 +1,9 @@
 import manifest from '../data/gtt-timetable.manifest.json';
-import type { PackageManifest, TimetablePackage } from './package-format';
-import type { BundledPackage } from './package-store';
+import type { PackageManifest } from './package-format';
 
-/** The validated package shipped in the APK, so first launch works offline. */
+/**
+ * Manifest of the validated package shipped in the APK. The package bytes are a file asset
+ * (`gtt-timetable.gttpkg`), loaded by the platform runtime only to import them, so they never
+ * stay resident in the JavaScript heap.
+ */
 export const bundledManifest = manifest as PackageManifest;
-export const bundledPackage: BundledPackage = {
-  manifest: bundledManifest,
-  // Required lazily: the large module is evaluated only for the first import (or on web).
-  load: () => require('../data/gtt-timetable.json') as TimetablePackage,
-};

@@ -1,15 +1,17 @@
-import { bundledPackage } from './bundled';
+import fs from 'node:fs';
+import path from 'node:path';
+import { bundledManifest } from './bundled';
 import { validateManifest, validatePackage } from './package-format';
-import { createMemoryReader, maxTripSeconds } from './reader';
+import { createMemoryReader, datasetMeta } from './reader';
 import { createStaticTimetableService } from './service';
 
 /**
- * Web and test runtime: the bundled package through the in-memory reader. Native builds use
- * runtime.native.ts (expo-sqlite store with verified downloads).
+ * Test runtime (Bun/Node): the bundled package file through the in-memory reader. Android uses
+ * runtime.native.ts (expo-sqlite store with verified downloads); the web build uses runtime.web.ts.
  */
 export const timetableService = createStaticTimetableService(async () => {
-  const pkg = validatePackage(bundledPackage.load());
-  const manifest = validateManifest(bundledPackage.manifest);
-  const meta = { packageHash: manifest.package_hash, feedVersion: pkg.feed.feed_version, validFrom: pkg.feed.valid_from, validTo: pkg.feed.valid_to, maxTripSeconds: maxTripSeconds(pkg), source: 'bundled' as const, manifest };
+  const pkg = validatePackage(JSON.parse(fs.readFileSync(path.join(__dirname, '../data/gtt-timetable.gttpkg'), 'utf8')));
+  const manifest = validateManifest(bundledManifest);
+  const meta = datasetMeta(pkg, manifest, 'bundled');
   return { meta, reader: createMemoryReader(pkg, meta) };
 });
