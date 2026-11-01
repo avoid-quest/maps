@@ -6,20 +6,33 @@ import { createViewportStore, parseViewport, serializeViewport, VIEWPORT_KEY } f
 
 test('Locate centres on the first fix even when the permission dialog suspended the request', () => {
   const intent = createRecenterIntent();
-  intent.request();
-  // The dialog backgrounds the app: the explicit request is superseded, the intent is not.
-  assert.equal(intent.pending, true);
-  assert.equal(intent.take(), 'center', 'the foreground fix after granting permission centres the camera');
-  assert.equal(intent.take(), 'adopt', 'only the first fix is consumed');
+  intent.request(1, 0);
+  // The dialog backgrounds the app: request 1 is superseded by the lifecycle, the intent is not.
+  assert.equal(intent.pending(5_000), true);
+  assert.equal(intent.take(8_000), 'center', 'the foreground fix after granting permission centres the camera');
+  assert.equal(intent.take(9_000), 'adopt', 'only the first fix is consumed');
 });
 
-test('a user choice or a failed request withdraws the pending centre', () => {
+test('a user choice, a failed or denied request, or a missing permission withdraws the pending centre', () => {
   const intent = createRecenterIntent();
-  intent.request(); intent.withdraw();
-  assert.equal(intent.take(), 'adopt', 'a pan after Locate wins over a late fix');
-  intent.request(); intent.failed();
-  assert.equal(intent.take(), 'adopt');
-  assert.equal(createRecenterIntent().take(), 'adopt', 'a launch fix without Locate only adopts an untouched camera');
+  intent.request(1, 0); intent.withdraw();
+  assert.equal(intent.take(1), 'adopt', 'a pan after Locate wins over a late fix');
+  intent.request(2, 0); intent.failed(2);
+  assert.equal(intent.take(1), 'adopt', 'denied in the dialog: the suspended request still ends the intent');
+  intent.request(3, 0); intent.notAuthorized();
+  assert.equal(intent.take(1), 'adopt', 'the resumed permission check found no permission');
+  intent.request(5, 0); intent.failed(4);
+  assert.equal(intent.pending(1), true, 'an older request failing does not cancel a newer Locate');
+  assert.equal(createRecenterIntent().take(0), 'adopt', 'a launch fix without Locate only adopts an untouched camera');
+});
+
+test('the permission handoff is bounded in time', () => {
+  const intent = createRecenterIntent(90_000);
+  intent.request(1, 1_000);
+  assert.equal(intent.pending(91_000), true);
+  assert.equal(intent.take(91_001), 'adopt', 'a fix long after Locate does not move the camera');
+  intent.request(2, 10_000);
+  assert.equal(intent.take(5_000), 'adopt', 'a clock that went backwards does not keep the intent alive');
 });
 
 test('the stored viewport is rounded, bounded and validated', () => {

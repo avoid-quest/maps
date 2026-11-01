@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Coordinate } from '../../domain/types';
-import { getAuthorizedLocation, getCurrentLocation } from '../../platform/location';
+import { getAuthorizedLocation, getCurrentLocation, LocationError } from '../../platform/location';
 import type { TaskModel } from '../app/useTaskModel';
 import { point } from './coordinates';
 import { createRecenterIntent } from './recenter-intent';
@@ -54,24 +54,30 @@ export function useDeviceLocation({ tasks, camera, appActive, navigationVisible 
   }, [recenter, suspend]);
   /** A fix from any request centres the camera when Locate is still pending, else only adopts an untouched camera. */
   const place = useCallback((coordinate: Coordinate) => {
-    if (recenter.take() === 'center') centerOnFix(coordinate);
+    if (recenter.take(Date.now()) === 'center') centerOnFix(coordinate);
     else adoptInitialFix(coordinate);
   }, [recenter, centerOnFix, adoptInitialFix]);
   const acquire = useCallback(async (options?: { recenter?: boolean }): Promise<LocationOutcome | null> => {
     const id = ++request.current;
-    if (options?.recenter) recenter.request();
+    if (options?.recenter) recenter.request(id, Date.now());
     setLocating(true);
     try {
       const position = await getCurrentLocation();
-      if (id !== request.current) return null;
       const next = point(position.coordinate);
+      if (id !== request.current) {
+        // Suspended by the lifecycle (permission dialog) but not by the user: honour a pending Locate.
+        if (recenter.pending(Date.now())) { record(next); place(next); }
+        return null;
+      }
       record(next);
       if (options?.recenter) place(next);
       return { coordinate: next };
     } catch (error) {
-      if (id !== request.current) return null;
-      if (options?.recenter) recenter.failed();
-      return { error };
+      // A denial ends a pending Locate even after the dialog suspended the request; an interruption by
+      // the lifecycle does not (the foreground acquisition on return still brings a fix).
+      const denied = error instanceof LocationError && error.code === 'denied';
+      if (id === request.current || denied) recenter.failed(id);
+      return id === request.current ? { error } : null;
     } finally {
       if (id === request.current) setLocating(false);
     }
@@ -84,7 +90,8 @@ export function useDeviceLocation({ tasks, camera, appActive, navigationVisible 
     const id = request.current;
     setLocating(true);
     void getAuthorizedLocation().then(position => {
-      if (!active || !position) return;
+      if (!position) { recenter.notAuthorized(); return; }
+      if (!active) return;
       setMessage('');
       const next = point(position.coordinate);
       record(next);
@@ -92,7 +99,7 @@ export function useDeviceLocation({ tasks, camera, appActive, navigationVisible 
     }).catch(error => {
       if (active && id === request.current) {
         record(null);
-        if (recenter.pending) recenter.failed();
+        recenter.notAuthorized();
         setMessage(error instanceof Error ? error.message : 'Posizione non disponibile. Riprova dal pulsante posizione.');
       }
     }).finally(() => {
