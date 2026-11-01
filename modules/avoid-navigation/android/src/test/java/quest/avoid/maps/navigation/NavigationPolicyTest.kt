@@ -169,6 +169,27 @@ class NavigationPolicyTest {
     assertEquals(0, gate.consecutiveRejected); assertTrue(gate.confident)
   }
 
+  @Test fun aReplacementSampleAnchorsTheDuplicateWindow() {
+    val gate = FixAdmission<String>(car, 0)
+    gate.at(0, 10.0)
+    gate.lose()
+    assertEquals(REJECTED, gate.onFix(1_000, 1_000_000_000L, 0, 100.0, true, "network").outcome)
+    assertEquals(RECOVERING, gate.onFix(1_150, 1_150_000_000L, 0, 10.0, true, "gps").outcome)
+    // A fused copy of the GPS sample 150 ms later (300 ms after the network one) is still a duplicate:
+    // it must not complete car's two-fix recovery.
+    assertEquals(DUPLICATE, gate.onFix(1_300, 1_300_000_000L, 0, 10.0, true, "fused").outcome)
+    assertFalse(gate.confident)
+    assertEquals(ACCEPTED, gate.at(2_150, 10.0).outcome)
+  }
+
+  @Test fun restartingTheWaitStartsANewSampleHistory() {
+    val gate = FixAdmission<String>(walk, 0)
+    assertEquals(REJECTED, gate.onFix(1_000, 1_000_000_000L, 0, 80.0, true, "gps").outcome)
+    gate.restartWaiting(1_050)
+    assertEquals(REJECTED, gate.onFix(1_100, 1_100_000_000L, 0, 80.0, true, "gps").outcome)
+    assertEquals(1, gate.fixesSeen)
+  }
+
   @Test fun implausibleJumpsDoNotReportAsAWeakSignal() {
     val gate = FixAdmission<String>(car, 0)
     gate.at(1_000, 5.0, implausible = true)
