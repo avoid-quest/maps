@@ -15,7 +15,7 @@ data class TransitUpdate(
 /** Follows the selected itinerary locally. GPS never establishes boarding or alighting. */
 class TransitJourneyEngine(
   plan: Map<String, Any?>,
-  private val accuracyLimitMeters: Double = RoadGuidancePolicy.fix("transit").guidanceAccuracyMeters,
+  private val accuracyLimitMeters: Double = RoadGuidancePolicy.fix("transit").maximumGuidanceAccuracyMeters,
   private val nowMs: () -> Long = System::currentTimeMillis,
 ) {
   private data class Point(val latitude: Double, val longitude: Double)
@@ -203,6 +203,9 @@ class TransitJourneyEngine(
       "headsign" to segment.first.headsign, "from" to segment.first.from, "to" to segment.last.to,
       "departureAt" to segment.first.departure, "arrivalAt" to segment.last.arrival,
       "timingStatus" to segment.timing, "fetchedAt" to fetchedAt, "source" to source,
+      // Planned journey end and the next boarding still ahead, so an expired or missed service is
+      // flagged during access walking too, not only while boarding.
+      "journeyArrivalAt" to segments.last().last.arrival, "nextBoardingAt" to nextBoardingAt(),
       "canConfirmBoarding" to boarding, "canConfirmAlighting" to alighting, "canConfirmWalking" to walking,
       "confirmation" to when { boarding -> "board"; alighting -> "alight"; walking -> "walk-complete"; else -> null },
       "proximityAvailable" to (!complete && target() != null && (boarding || !segment.ambiguousEnd)),
@@ -212,6 +215,10 @@ class TransitJourneyEngine(
     fields["distanceToManeuverMeters"] = if (complete) null else distance(target())
     return TransitUpdate(fields, announcement, complete)
   }
+
+  fun nextBoardingAt(): Long? = if (phase in setOf("ride", "alight", "complete")) null
+    else segments.drop(segmentIndex).firstOrNull { it.transit }?.first?.departure
+  val journeyArrivalAt: Long get() = segments.last().last.arrival
 
   private fun target(): Point? = if (phase == "complete") null else segments[segmentIndex].let {
     if (phase == "board") it.first.start else it.last.end

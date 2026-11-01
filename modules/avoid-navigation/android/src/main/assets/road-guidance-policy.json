@@ -1,30 +1,31 @@
 {
   "maximumFixAgeMillis": 15000,
   "arrivalRadiusMeters": 20,
+  "maximumGuidanceAccuracyMeters": 50,
+  "deviationAccuracyMeters": 25,
+  "reducedStartAccuracyMeters": 50,
+  "reducedStartAfterMillis": 15000,
   "degradeAfterRejectedFixes": 3,
   "degradeAfterMillis": 8000,
   "startTimeoutMillis": 30000,
+  "duplicateSampleWindowMillis": 200,
   "walk": {
     "strategy": "entry-snapped-exit", "entryRadiusMeters": 20, "exitDistanceMeters": 3,
-    "startAccuracyMeters": 35, "guidanceAccuracyMeters": 35,
-    "reducedStartAccuracyMeters": 50, "reducedStartAfterMillis": 15000,
-    "recoverAfterAcceptedFixes": 1,
-    "deviationAccuracyMeters": 25, "maximumRouteDeviationMeters": 50
+    "startAccuracyMeters": 35, "normalGuidanceAccuracyMeters": 35,
+    "recoverAfterAcceptedFixes": 1, "maximumRouteDeviationMeters": 50
   },
   "bicycle": {
     "strategy": "entry-snapped-exit", "entryRadiusMeters": 30, "exitDistanceMeters": 5,
-    "startAccuracyMeters": 30, "guidanceAccuracyMeters": 25,
-    "recoverAfterAcceptedFixes": 1,
-    "deviationAccuracyMeters": 25, "maximumRouteDeviationMeters": 45
+    "startAccuracyMeters": 30, "normalGuidanceAccuracyMeters": 25,
+    "recoverAfterAcceptedFixes": 1, "maximumRouteDeviationMeters": 45
   },
   "car": {
     "strategy": "entry-snapped-exit", "entryRadiusMeters": 30, "exitDistanceMeters": 5,
-    "startAccuracyMeters": 30, "guidanceAccuracyMeters": 25,
-    "recoverAfterAcceptedFixes": 2,
-    "deviationAccuracyMeters": 25, "maximumRouteDeviationMeters": 45
+    "startAccuracyMeters": 30, "normalGuidanceAccuracyMeters": 25,
+    "recoverAfterAcceptedFixes": 2, "maximumRouteDeviationMeters": 45
   },
   "transit": {
-    "startAccuracyMeters": 35, "guidanceAccuracyMeters": 35,
+    "startAccuracyMeters": 35, "normalGuidanceAccuracyMeters": 35,
     "recoverAfterAcceptedFixes": 1
   }
 }

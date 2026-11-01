@@ -20,6 +20,10 @@ class AvoidNavigationModule : Module() {
   private val retainedRuntime = lazy { NavigationRuntime.get(requireNotNull(appContext.reactContext)) }
   private val runtime: NavigationRuntime get() = retainedRuntime.value
   @Volatile private var destroyed = false
+  /** A Stop during the foreground wait cancels the waiting Start/Resume; it never starts afterwards. */
+  private val startFence = StartFence()
+  private suspend fun fenced(start: suspend () -> Map<String, Any?>): Map<String, Any?> =
+    startFence.run({ requireForeground() }, start) ?: runtime.snapshot().also { Log.i(NavigationRuntime.TAG, "start cancelled during foreground wait") }
   private val observer: (Map<String, Any?>) -> Unit = { if (!destroyed) sendEvent("onNavigationState", it) }
   private fun resumed(): Boolean {
     val activity = appContext.currentActivity
@@ -66,32 +70,35 @@ class AvoidNavigationModule : Module() {
     AsyncFunction("getSnapshot") Coroutine { -> withContext(Dispatchers.Main.immediate) { runtime.snapshot() } }
     AsyncFunction("startNavigation") Coroutine { options: Map<String, Any?> ->
       withContext(Dispatchers.Main.immediate) {
-        requireForeground()
         @Suppress("UNCHECKED_CAST")
-        val destination = options["destination"] as? Map<String, Any?> ?: throw NavigationFailure("invalid")
-        runtime.start(Point.from(destination), options["mode"] as? String ?: throw NavigationFailure("invalid"))
+        val destination = Point.from(options["destination"] as? Map<String, Any?> ?: throw NavigationFailure("invalid"))
+        val mode = options["mode"] as? String ?: throw NavigationFailure("invalid")
+        fenced { runtime.start(destination, mode) }
       }
     }
     AsyncFunction("startTransitNavigation") Coroutine { options: Map<String, Any?> ->
       withContext(Dispatchers.Main.immediate) {
-        requireForeground()
         @Suppress("UNCHECKED_CAST")
         val plan = options["plan"] as? Map<String, Any?> ?: throw NavigationFailure("invalid")
         @Suppress("UNCHECKED_CAST")
-        val origin = options["origin"] as? Map<String, Any?> ?: throw NavigationFailure("invalid")
+        val origin = Point.from(options["origin"] as? Map<String, Any?> ?: throw NavigationFailure("invalid"))
         @Suppress("UNCHECKED_CAST")
-        val destination = options["destination"] as? Map<String, Any?> ?: throw NavigationFailure("invalid")
-        runtime.startTransit(plan, Point.from(origin), Point.from(destination))
+        val destination = Point.from(options["destination"] as? Map<String, Any?> ?: throw NavigationFailure("invalid"))
+        fenced { runtime.startTransit(plan, origin, destination) }
       }
     }
     AsyncFunction("confirmTransitStep") Coroutine { sessionId: String, action: String ->
       withContext(Dispatchers.Main.immediate) { runtime.confirmTransit(sessionId, action) }
     }
     AsyncFunction("stopNavigation") Coroutine { sessionId: String? ->
-      withContext(Dispatchers.Main.immediate) { runtime.stop(sessionId) }
+      withContext(Dispatchers.Main.immediate) {
+        // Wildcard or current-session Stop also cancels a Start/Resume still waiting for the foreground.
+        if (sessionId == null || sessionId == runtime.snapshot()["sessionId"]) startFence.invalidate()
+        runtime.stop(sessionId)
+      }
     }
     AsyncFunction("retryNavigation") Coroutine { sessionId: String ->
-      withContext(Dispatchers.Main.immediate) { requireForeground(); runtime.retry(sessionId) }
+      withContext(Dispatchers.Main.immediate) { fenced { runtime.retry(sessionId) } }
     }
     AsyncFunction("setMuted") Coroutine { sessionId: String, muted: Boolean ->
       withContext(Dispatchers.Main.immediate) { runtime.setMuted(sessionId, muted) }

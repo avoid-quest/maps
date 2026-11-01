@@ -18,9 +18,9 @@ fn policy() -> Value {
 fn config(mode: &str) -> NavigationControllerConfig {
     let p = policy();
     let m = &p[mode];
-    // Step advance and arrival use the mode's guidance accuracy; deviation uses its tighter bound.
-    let accuracy = m["guidanceAccuracyMeters"].as_u64().unwrap() as u16;
-    let deviation = m["deviationAccuracyMeters"].as_u64().unwrap() as u16;
+    // Step advance and arrival use the maximum guidance accuracy; deviation uses its tighter bound.
+    let accuracy = p["maximumGuidanceAccuracyMeters"].as_u64().unwrap() as u16;
+    let deviation = p["deviationAccuracyMeters"].as_u64().unwrap() as u16;
     let entry = m["entryRadiusMeters"].as_u64().unwrap() as u16;
     let exit = m["exitDistanceMeters"].as_u64().unwrap() as u16;
     let condition = match m["strategy"].as_str().unwrap() {
@@ -168,9 +168,10 @@ fn walking_sidewalk_does_not_advance_until_snapped_position_passes_corner() {
 fn every_accepted_accuracy_keeps_step_and_deviation_analysis_enabled() {
     for mode in ["walk", "bicycle", "car"] {
         let p = policy();
-        let accepted = p[mode]["guidanceAccuracyMeters"].as_f64().unwrap();
-        let judged = p[mode]["deviationAccuracyMeters"].as_f64().unwrap();
-        for accuracy in [1.0, 10.0, judged, accepted] {
+        let accepted = p["maximumGuidanceAccuracyMeters"].as_f64().unwrap();
+        let normal = p[mode]["normalGuidanceAccuracyMeters"].as_f64().unwrap();
+        let judged = p["deviationAccuracyMeters"].as_f64().unwrap();
+        for accuracy in [1.0, 10.0, judged, normal, accepted] {
             let navigator = create_navigator(corner_route(), config(mode), false);
             let mut state = navigator.get_initial_state(fix(-8.0, 0.0, accuracy, 0));
             for (i, (x, y)) in [(-8.0, 0.0), (0.0, 8.0), (0.0, 22.0)]
@@ -202,7 +203,7 @@ fn every_accepted_accuracy_keeps_step_and_deviation_analysis_enabled() {
 #[test]
 fn final_short_step_and_arrival_do_not_require_passing_destination_or_better_accuracy() {
     for mode in ["walk", "bicycle", "car"] {
-        let accepted = policy()[mode]["guidanceAccuracyMeters"].as_f64().unwrap();
+        let accepted = policy()["maximumGuidanceAccuracyMeters"].as_f64().unwrap();
         let navigator = create_navigator(
             route(&[(-100.0, 0.0), (0.0, 0.0), (0.0, 3.0)]),
             config(mode),

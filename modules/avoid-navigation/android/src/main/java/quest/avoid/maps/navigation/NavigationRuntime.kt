@@ -87,7 +87,7 @@ internal class NavigationRuntime private constructor(private val context: Contex
   private fun logTransition(current: Map<String, Any?>) {
     val state = "status=${current["status"]} problem=${current["problem"] ?: "none"} mode=${current["mode"] ?: "none"}" +
       " usable=${current["locationUsable"]} timedOut=${current["startTimedOut"] == true}" +
-      " reduced=${current["reducedAccuracyStartMeters"] != null} retry=${current["canRetry"]}"
+      " reducedStart=${current["reducedAccuracyStartMeters"] != null} reducedPrecision=${current["reducedPrecisionMeters"] != null} retry=${current["canRetry"]}"
     if (state == loggedState) return
     loggedState = state
     if (current["status"] == "error" || current["problem"] != null) Log.w(TAG, "state $state") else Log.i(TAG, "state $state")
@@ -243,8 +243,8 @@ internal class NavigationRuntime private constructor(private val context: Contex
       is FixAdmission.Tick.ReducedStart<*> -> {
         @Suppress("UNCHECKED_CAST")
         val fix = (result as FixAdmission.Tick.ReducedStart<Location>).fix
-        Log.i(TAG, "start reduced-accuracy acc=${result.accuracyMeters.roundToInt()}")
-        acceptFix(fix, reducedStart = true)
+        Log.i(TAG, "start reduced-accuracy acc=${result.accuracyMeters.roundToInt()} source=retained")
+        acceptFix(fix, reducedStart = true, reducedPrecision = result.accuracyMeters > fixPolicy.normalGuidanceAccuracyMeters)
       }
       is FixAdmission.Tick.StartTimeout -> {
         Log.w(TAG, "start-timeout problem=${result.problem} fixesSeen=${gate.fixesSeen} best=${result.bestRejectedAccuracyMeters?.roundToInt() ?: "none"}")
@@ -278,14 +278,14 @@ internal class NavigationRuntime private constructor(private val context: Contex
     var implausible = false
     if (previous != null && validCoordinate) {
       val seconds = (fix.elapsedRealtimeNanos - previous.elapsedRealtimeNanos) / 1_000_000_000.0
-      // Interleaved providers can deliver an older or duplicate fix; ignore it without counting a rejection.
-      if (seconds <= 0) return
       val maximumSpeed = when (mode) { "transit" -> 110; "car" -> 75; "bicycle" -> 25; else -> 9 }
-      implausible = seconds < 30 && previous.distanceTo(fix) > maximumSpeed * seconds + previous.accuracy + fix.accuracy
+      implausible = seconds > 0 && seconds < 30 && previous.distanceTo(fix) > maximumSpeed * seconds + previous.accuracy + fix.accuracy
     }
     val age = fixAge(fix)
     val startPhase = !gate.started
-    val result = gate.onFix(now, age, fix.accuracy.toDouble(), fix.hasAccuracy() && validCoordinate, fix, implausible)
+    // Admission drops re-delivered samples (GPS + fused) before counting anything.
+    val result = gate.onFix(now, fix.elapsedRealtimeNanos, age, fix.accuracy.toDouble(), fix.hasAccuracy() && validCoordinate, fix, implausible)
+    if (result.outcome == FixAdmission.Outcome.DUPLICATE) return
     logFix(fix, age, result, now, startPhase)
     // Rejected fixes expose only accuracy and provider, never coordinates. Stale cached seeds
     // are not current signal and leave the readout unchanged.
@@ -301,34 +301,43 @@ internal class NavigationRuntime private constructor(private val context: Contex
       fields["status"] = "waiting-for-fix"; fields.remove("problem"); fields["canRetry"] = false; metaChanged = true
     }
     when (result.outcome) {
-      FixAdmission.Outcome.ACCEPTED -> acceptFix(fix, result.reducedStart)
+      FixAdmission.Outcome.ACCEPTED -> acceptFix(fix, result.reducedStart, result.reducedPrecision)
       FixAdmission.Outcome.DEGRADED -> degraded(result.problem ?: "location-inaccurate")
+      FixAdmission.Outcome.DUPLICATE -> Unit
       FixAdmission.Outcome.RECOVERING, FixAdmission.Outcome.REJECTED ->
         if (metaChanged || now - publishedFixMetaAt >= 2_000) { publishedFixMetaAt = now; publish() }
     }
   }
 
   private fun logFix(fix: Location, age: Long, result: FixAdmission.Result, now: Long, startPhase: Boolean) {
-    val outcome = result.outcome.name.lowercase() + (result.problem?.let { ":$it" } ?: "") + if (result.reducedStart) ":reduced" else ""
+    val outcome = result.outcome.name.lowercase() + (result.problem?.let { ":$it" } ?: "") +
+      (if (result.reducedStart) ":reduced-start" else "") + (if (result.reducedPrecision) ":reduced-precision" else "")
     val key = "${providerCode(fix.provider)}|$outcome|${admission?.confident}"
-    if (key == loggedFix && now - loggedFixAt < 5_000) return
+    // Every non-accepted sample is logged, so hysteresis counts can be read off directly;
+    // repeated identical accepted samples are summarised every 5 s.
+    if (result.outcome == FixAdmission.Outcome.ACCEPTED && key == loggedFix && now - loggedFixAt < 5_000) return
     loggedFix = key; loggedFixAt = now
     val accuracy = if (fix.hasAccuracy() && fix.accuracy.isFinite()) fix.accuracy.roundToInt().toString() else "none"
     val gate = admission
     val phase = if (startPhase) "start" else "guidance"
-    val limit = (if (startPhase) fixPolicy.startAccuracyMeters else fixPolicy.guidanceAccuracyMeters).roundToInt()
-    Log.i(TAG, "fix phase=$phase provider=${providerCode(fix.provider)} acc=$accuracy limit=$limit ageS=${age / 1_000} " +
-      "outcome=$outcome usable=${gate?.confident == true}")
+    val limit = (if (startPhase) fixPolicy.startAccuracyMeters else fixPolicy.maximumGuidanceAccuracyMeters).roundToInt()
+    val normal = (if (startPhase) fixPolicy.reducedStartAccuracyMeters else fixPolicy.normalGuidanceAccuracyMeters).roundToInt()
+    // In the start phase `normal` is the reduced-start bound; in guidance it is the label threshold.
+    Log.i(TAG, "fix phase=$phase provider=${providerCode(fix.provider)} acc=$accuracy limit=$limit normal=$normal ageS=${age / 1_000} " +
+      "outcome=$outcome usable=${gate?.confident == true} rejectedRun=${gate?.consecutiveRejected ?: 0} seen=${gate?.fixesSeen ?: 0} dupSkipped=${gate?.duplicatesSkipped ?: 0}")
   }
   private fun providerCode(provider: String?) = when (provider) {
     LocationManager.GPS_PROVIDER -> "gps"; LocationManager.NETWORK_PROVIDER -> "network"; "fused" -> "fused"; else -> "other"
   }
 
-  private fun acceptFix(fix: Location, reducedStart: Boolean) {
+  private fun acceptFix(fix: Location, reducedStart: Boolean, reducedPrecision: Boolean) {
     latestFix = Location(fix)
     fields["location"] = fixMap(fix)
     if (reducedStart) fields["reducedAccuracyStartMeters"] = fix.accuracy.roundToInt()
-    if (mode != "transit") fields["requiredAccuracyMeters"] = fixPolicy.guidanceAccuracyMeters
+    // Guidance continues up to the maximum; worse-than-normal precision is labelled, not hidden.
+    if (reducedPrecision) fields["reducedPrecisionMeters"] = fix.accuracy.roundToInt()
+    else { fields.remove("reducedPrecisionMeters"); if (!reducedStart) fields.remove("reducedAccuracyStartMeters") }
+    if (mode != "transit") fields["requiredAccuracyMeters"] = fixPolicy.maximumGuidanceAccuracyMeters
     fields.remove("startTimedOut")
     if (fields["problem"] in LOCATION_PROBLEMS) fields.remove("problem")
     if (recovery.blocksFixProgress) { publish(); return }
@@ -348,7 +357,10 @@ internal class NavigationRuntime private constructor(private val context: Contex
   private fun handleProgress(state: TripState, fix: Location, initial: Boolean) {
     when (state) {
       is TripState.Navigating -> {
-        val offRoute = state.deviation is RouteDeviation.Deviation
+        // Only tight fixes judge deviation: coarse fixes neither declare, clear nor count off-route,
+        // so a poor signal can never trigger a reroute.
+        val judged = fix.hasAccuracy() && fix.accuracy <= fixPolicy.deviationAccuracyMeters.toFloat()
+        val offRoute = if (judged) state.deviation is RouteDeviation.Deviation else fields["status"] == "off-route"
         fields["distanceToManeuverMeters"] = state.progress.distanceToNextManeuver
         fields["distanceRemainingMeters"] = state.progress.distanceRemaining
         fields["durationRemainingSeconds"] = state.progress.durationRemaining
@@ -359,13 +371,14 @@ internal class NavigationRuntime private constructor(private val context: Contex
         fields.remove("problem"); fields["canRetry"] = offRoute
         arrivalFixes = 0
         if (offRoute) {
-          offRouteFixes++; speech?.flush()
-          if (offRouteFixes >= 3) {
+          if (judged) offRouteFixes++
+          speech?.flush()
+          if (judged && offRouteFixes >= 3) {
             if (reroutes.tryAcquire(SystemClock.elapsedRealtime(), fix.latitude, fix.longitude)) requestRoute(fix, true)
             else fields["problem"] = "reroute-limit"
           }
         } else {
-          offRouteFixes = 0
+          if (judged) offRouteFixes = 0
           state.spokenInstruction?.let { instruction ->
             val utterance = instruction.utteranceId.toString()
             if (utterance !in spoken && speech?.speak(instruction.text, utterance) == true) spoken.add(utterance)
@@ -382,7 +395,7 @@ internal class NavigationRuntime private constructor(private val context: Contex
         }
         val result = FloatArray(1)
         Location.distanceBetween(fix.latitude, fix.longitude, destination.lat, destination.lng, result)
-        if (fix.accuracy <= fixPolicy.guidanceAccuracyMeters.toFloat() && result[0] <= RoadGuidancePolicy.arrivalRadiusMeters.toFloat()) arrivalFixes++ else arrivalFixes = 0
+        if (fix.accuracy <= fixPolicy.maximumGuidanceAccuracyMeters.toFloat() && result[0] <= RoadGuidancePolicy.arrivalRadiusMeters.toFloat()) arrivalFixes++ else arrivalFixes = 0
         if (arrivalFixes >= 2) { arrive("Arrivo al termine del percorso", Point(destination.lat, destination.lng)); return }
         // Awaiting a second confirming fix: guidance continues; this is not a positioning problem.
         fields["status"] = "navigating"; fields.remove("problem"); fields["canRetry"] = false
@@ -426,7 +439,9 @@ internal class NavigationRuntime private constructor(private val context: Contex
       val journey = TransitJourneyEngine(plan)
       transitEngine = journey
       val fetchedAt = (plan["fetchedAt"] as? Number)?.toLong() ?: 0
-      Log.i(TAG, "transit admitted ageMin=${(System.currentTimeMillis() - fetchedAt) / 60_000}")
+      val wallNow = System.currentTimeMillis()
+      Log.i(TAG, "transit admitted ageMin=${(wallNow - fetchedAt) / 60_000} expired=${journey.journeyArrivalAt < wallNow - 60_000}" +
+        " missed=${journey.nextBoardingAt()?.let { it < wallNow - 60_000 } ?: false}")
       fields["routeRevision"] = ++routeSequence
       fields["route"] = mapOf("geometry" to (plan["geometry"] ?: emptyList<Any>()), "source" to "MATO / 5T", "fetchedAt" to fetchedAt)
       applyTransit(journey.snapshot())

@@ -47,7 +47,7 @@ class TransitJourneyEngineTest {
     assertEquals(false, transit(engine.snapshot())["proximityAvailable"])
     assertNull(engine.snapshot().fields["distanceToManeuverMeters"])
     assertEquals("ride", phase(engine.confirm("board")))
-    listOf(Double.NaN, 0.0, 35.1).forEach { accuracy ->
+    listOf(Double.NaN, 0.0, 50.1).forEach { accuracy ->
       val update = engine.onLocation(45.01, 7.0, accuracy)
       assertEquals("ride", phase(update))
       assertNull(update.announcement)
@@ -65,6 +65,7 @@ class TransitJourneyEngineTest {
     assertTrue(approach.announcement!!.contains("Preparati"))
     assertNull(engine.onLocation(45.008, 7.0, 5.0).announcement)
     assertEquals("ride", phase(engine.onLocation(45.0095, 7.0, 35.0)))
+    assertEquals("ride", phase(engine.onLocation(45.0095, 7.0, 50.0)))
     assertEquals("alight", phase(engine.onLocation(45.0095, 7.0, 5.0)))
   }
 
@@ -228,6 +229,18 @@ class TransitJourneyEngineTest {
     for (geometry in listOf(listOf(a, beyond, turn, destination), listOf(a, near, beyond, turn, destination))) {
       assertAmbiguousEndRemainsManual(engine(leg(0, true) + ("geometry" to geometry)))
     }
+  }
+
+  @Test fun walkingExposesJourneyEndAndNextBoardingSoExpiredPlansAreFlagged() {
+    val walk = leg(0, false, origin, stop) + mapOf("departureAt" to now - 7_200_000, "arrivalAt" to now - 6_600_000)
+    val bus = leg(1, true, stop, destination) + mapOf("departureAt" to now - 6_600_000, "arrivalAt" to now - 6_000_000)
+    val expired = engine(walk, bus)
+    val timing = transit(expired.snapshot())
+    assertEquals("walk", timing["phase"])
+    assertEquals(now - 6_000_000, timing["journeyArrivalAt"])
+    assertEquals(now - 6_600_000, timing["nextBoardingAt"])
+    expired.confirm("walk-complete"); expired.confirm("board")
+    assertNull(transit(expired.snapshot())["nextBoardingAt"])
   }
 
   @Test fun departedServiceIsFollowableButCancelledServiceStillRequiresReplanning() {
