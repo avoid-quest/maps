@@ -22,7 +22,7 @@ Sources, tile URLs, sprite and glyph endpoints are unchanged.
 ## Licences
 
 - **OpenFreeMap styles repository:** MIT License, Copyright (c) 2023 Zsolt Ero.
-- **Liberty:** fork of [maputnik/osm-liberty](https://github.com/maputnik/osm-liberty), itself a fork of OSM Bright, derived from Mapbox Open Styles. Code: BSD 3-Clause. Design: [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). The avoid maps styles adapt this design as described above.
+- **Liberty:** fork of [maputnik/osm-liberty](https://github.com/maputnik/osm-liberty), itself a fork of OSM Bright, derived from Mapbox Open Styles. Code: BSD 3-Clause. Design: [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), with the look and feel inherited from Mapbox Open Styles under [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/). The avoid maps styles adapt this design as described above.
 - **OpenMapTiles schema:** code BSD 3-Clause, design CC BY 4.0.
 - **Map data:** © OpenStreetMap contributors, [ODbL](https://www.openstreetmap.org/copyright).
 - **Fonts:** Noto Sans, SIL Open Font License 1.1. **Sprite:** Maki icons, CC0 1.0 (still referenced by the style; the derived layers draw no sprite images). **Natural Earth:** public domain (the derived styles no longer draw its raster).
