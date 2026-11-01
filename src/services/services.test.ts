@@ -53,4 +53,3 @@ test('HTTP and offline failures are errors; local results are labelled fallback'
     await assert.rejects(searchPlaces('zxq-no-such-place', { center: TURIN_CENTER }), ServiceError);
   } finally { global.fetch = original; }
 });
-
