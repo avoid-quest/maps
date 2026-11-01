@@ -42,11 +42,11 @@ for (const palette of Object.values(palettes)) {
 
   test(`${palette.scheme}: map overlays stand out from the basemap and their strokes`, () => {
     const { map } = palette;
-    for (const key of ['routeLine', 'placeMarker', 'stopMarker', 'userLocation'] as const) {
+    for (const key of ['routeLine', 'placeMarker', 'stopMarker', 'userLocation', 'live', 'caution', 'coverage'] as const) {
       assert.ok(contrastRatio(map[key], map.background) >= AA_NON_TEXT, `${key} on basemap`);
     }
     assert.ok(contrastRatio(map.routeLine, map.routeCasing) >= AA_NON_TEXT, 'route line on casing');
-    for (const key of ['placeMarker', 'stopMarker'] as const) {
+    for (const key of ['placeMarker', 'stopMarker', 'live', 'caution'] as const) {
       assert.ok(contrastRatio(map[key], map.markerStroke) >= AA_NON_TEXT, `${key} on stroke`);
     }
     assert.ok(contrastRatio(map.selectedMarkerStroke, map.background) >= AA_NON_TEXT, 'selection ring on basemap');
