@@ -13,12 +13,13 @@ const states = {
   clipboard: ['copied', 'failed'],
   service: ['invalid', 'unavailable', 'network', 'rate-limit'],
   request: ['ok', 'network', 'timeout', 'cancelled', 'rate-limit', 'unavailable', 'invalid'],
+  timetable: ['installed', 'current', 'failed', 'rejected', 'rolled-back', 'realtime-unmatched', 'realtime-partial', 'realtime-identity', 'remap-updated', 'remap-current', 'remap-failed'],
 } as const;
-const providers = ['photon', 'fossgis', 'mato', 'gtt-arrivals', 'gtt-alerts', 'transitous', 'other'] as const;
+const providers = ['photon', 'fossgis', 'mato', 'gtt-arrivals', 'gtt-alerts', 'gtt-stop', 'gtt-static', 'transitous', 'other'] as const;
 export type DiagnosticProvider = (typeof providers)[number];
 export type DiagnosticInput = {
   [K in keyof typeof states]: { type: K; state: (typeof states)[K][number] }
-}[keyof typeof states] & { provider?: DiagnosticProvider; durationMs?: number; httpStatus?: number };
+}[keyof typeof states] & { provider?: DiagnosticProvider; durationMs?: number; httpStatus?: number; count?: number };
 export type DiagnosticEvent = DiagnosticInput & { at: number };
 export interface DiagnosticStorage {
   getItem(key: string): Promise<string | null>;
@@ -50,6 +51,8 @@ function sanitizeEvent(value: unknown, at?: number): DiagnosticEvent | undefined
     if (typeof value.durationMs === 'number' && Number.isFinite(value.durationMs)) clean.durationMs = Math.round(Math.max(0, Math.min(value.durationMs, 120_000)) / 10) * 10;
     if (integer(value.httpStatus, 100, 599)) clean.httpStatus = value.httpStatus;
   }
+  // Realtime join diagnostics carry only a bounded count (for example unmatched trip updates).
+  if (type === 'timetable' && integer(value.count, 0, 100_000)) clean.count = value.count;
   return clean;
 }
 
@@ -180,6 +183,7 @@ export function createDiagnosticReport(snapshot: DiagnosticSnapshot, metadata: D
     if (event.provider) fields.push(`provider=${event.provider}`);
     if (event.durationMs !== undefined) fields.push(`durationMs=${event.durationMs}`);
     if (event.httpStatus !== undefined) fields.push(`http=${event.httpStatus}`);
+    if (event.count !== undefined) fields.push(`count=${event.count}`);
     return fields.join(' ');
   });
   return [

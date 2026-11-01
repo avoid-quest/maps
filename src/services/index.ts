@@ -2,7 +2,7 @@ export * from '../domain/types';
 export { searchPlaces, searchLocalPlaces, searchLocalResult, SEARCH_CATEGORIES, categoryLabel } from './search';
 export { PLACE_BOUNDS, LOCAL_SEARCH_RADIUS_METERS, getPlaceCoverage } from './place-coverage';
 export { planRoute, planRoutes, romeDateTime, resolveTransitTime, type PlanRouteOptions } from './routing';
-export { getNearbyStops, getStop, getDepartures, getTransitAlerts } from './transit';
+export { getNearbyStops, getStop, getScheduledBoard, getStopBoard, getTransitAlerts, RealtimeUnavailableError } from './transit';
 export { matchJourneyStop } from './transit-stop-matching';
 export { TRANSITOUS_PRIVACY_NOTES, TRANSITOUS_SOURCES_URL, TRANSITOUS_MIN_REFRESH_MS, transitousGttStopId, type TransitousClient, type TransitousStopMatch } from './transitous';
 export { RAIL_PILOT_STATIONS, getRailPilotStation, nearestRailPilotStations, type RailPilotStation } from './transitous-stations';

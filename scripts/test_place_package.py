@@ -10,6 +10,7 @@ import tempfile
 import unittest
 import zipfile
 
+from test_gtt_package import synthetic_zip
 from place_package import (
     COLUMNS, INPUT_SCHEMA, LICENSES, MAIN_CATEGORIES, ValidationError, compact_places,
     apply_exclusions, apply_phone_overrides, decode_package, encoded, extraction_sql, merge_places, normalize_raw, prepare_places,
@@ -380,28 +381,28 @@ class PlacePackageTests(unittest.TestCase):
             self.assertEqual(sentinel.read_bytes(), b"keep this package\n")
             self.assertEqual(list(output.iterdir()), [sentinel])
 
-    def test_gtfs_only_preserves_place_package_and_builds_realtime_lookups(self):
+    def test_gtfs_only_preserves_place_package_and_builds_timetable_package(self):
         with tempfile.TemporaryDirectory() as directory:
             folder = pathlib.Path(directory); output = folder / "output"; output.mkdir()
             place_meta = {"release": "fixture", "count": 2}
             (output / "manifest.json").write_bytes(encoded({"places": place_meta}))
             (output / "places.compact.json").write_bytes(b"do not regenerate places")
-            archive = folder / "gtfs.zip"
-            with zipfile.ZipFile(archive, "w") as file:
-                for name, data in {
-                    "routes.txt": "route_id,route_short_name\nr,4\n",
-                    "trips.txt": "trip_id,route_id,trip_headsign\nt,r,Centro\nu,r,Centro\n",
-                    "stop_times.txt": "trip_id,stop_sequence,stop_id\nt,2,s2\nt,1,s1\nu,1,s1\nu,2,s2\n",
-                    "stops.txt": "stop_id,stop_code,stop_name,stop_lat,stop_lon\ns1,1,Primo,45.07,7.68\ns2,2,Secondo,45.08,7.69\n",
-                    "feed_info.txt": "feed_version,feed_start_date,feed_end_date\n20261011,20261010,20270131\n",
-                }.items():
-                    file.writestr(name, data)
+            (output / "gtt-trips.json").write_bytes(b"obsolete lookup")
+            archive = synthetic_zip(folder / "gtfs.zip")
             result = self.cli(folder, "--gtfs", str(archive), "--output", str(output))
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual((output / "places.compact.json").read_bytes(), b"do not regenerate places")
-            self.assertEqual(read_json(output / "manifest.json")["places"], place_meta)
-            self.assertEqual(read_json(output / "gtt-trips.json"), {"patterns": [{"1": "s1", "2": "s2"}],
-                             "trips": {"t": ["4", "Centro", "r", 0], "u": ["4", "Centro", "r", 0]}})
+            manifest = read_json(output / "manifest.json")
+            self.assertEqual(manifest["places"], place_meta)
+            payload = (output / "gtt-timetable.gttpkg").read_bytes()
+            self.assertEqual(manifest["gtt"]["packageSha256"], sha256(payload))
+            self.assertEqual(read_json(output / "gtt-stops.json")["package_hash"], sha256(payload))
+            self.assertFalse((output / "gtt-trips.json").exists())
+            timetable_manifest = read_json(output / "gtt-timetable.manifest.json")
+            self.assertIsNone(timetable_manifest["upstream_checked_at"], "a local ZIP is not an upstream check")
+            result = self.cli(folder, "--gtfs", str(archive), "--gtfs-checked-at", "2026-10-21T03:15:00Z", "--output", str(output))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(read_json(output / "gtt-timetable.manifest.json")["upstream_checked_at"], "2026-10-21T03:15:00Z")
 
     def test_shipped_package_hash_sources_licenses_and_baseline(self):
         data = ROOT / "src/data"

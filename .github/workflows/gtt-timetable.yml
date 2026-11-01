@@ -1,0 +1,98 @@
+name: GTT timetable
+# Builds the hashed GTT timetable package from the official GTFS export and publishes it only when
+# the package changed (or the upstream confirmation needs a heartbeat) to two optional mirrors:
+# GitHub Pages (primary) and the assets of ONE rolling prerelease tag `gtt-timetable` (mirror).
+# The prerelease is never marked "latest", so release trackers such as Obtainium keep following
+# the app's own releases. The Pages deployment is opt-in: set the repository variable
+# GTT_PAGES_ENABLED to 'true' after Settings → Pages → Source: "GitHub Actions"; without it only the
+# Releases mirror is updated. No signing material or secrets are used; the app works fully without
+# either mirror.
+on:
+  schedule:
+    # GTT republishes daily around 02:26 UTC.
+    - cron: '15 3,6,12,18 * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: gtt-timetable
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      publish: ${{ steps.pipeline.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Package regressions
+        run: python3 -B -m unittest discover -s scripts -p 'test_gtt_package.py'
+      - name: Download (conditional), compact, validate
+        id: pipeline
+        run: >-
+          python3 -B scripts/gtt-pipeline.py
+          --site-url "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/gtt/"
+          --output _site/gtt
+          --release-output _release
+      - uses: actions/upload-pages-artifact@v3
+        if: steps.pipeline.outputs.publish == 'true' && vars.GTT_PAGES_ENABLED == 'true'
+        with:
+          path: _site
+      - uses: actions/upload-artifact@v4
+        if: steps.pipeline.outputs.publish == 'true'
+        with:
+          name: gtt-release
+          path: _release
+          retention-days: 3
+  deploy:
+    needs: build
+    # Opt-in: deploy-pages fails while Pages is not enabled for the repository.
+    if: needs.build.outputs.publish == 'true' && vars.GTT_PAGES_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      # OIDC token for the Pages deployment only; not a signing credential.
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}gtt/manifest.json
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
+  release-mirror:
+    needs: build
+    if: needs.build.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      # Release assets of the data tag only; the job checks out no code and holds no signing material.
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      TAG: gtt-timetable
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: gtt-release
+          path: release
+      - name: Ensure the rolling data prerelease exists and is never "latest"
+        run: |
+          if ! gh release view "$TAG" -R "$REPO" >/dev/null 2>&1; then
+            gh release create "$TAG" -R "$REPO" --target "$GITHUB_SHA" --prerelease --latest=false \
+              --title "GTT timetable data (not an app release)" \
+              --notes "Hashed GTT timetable packages for Avoid Maps. Data source: GTT S.p.A. – Gruppo Torinese Trasporti (https://www.gtt.to.it), non-commercial licence https://www.gtt.to.it/gtt_gtfs_license.html. This prerelease is not an app release."
+          fi
+          gh release edit "$TAG" -R "$REPO" --prerelease --latest=false
+      - name: Upload packages, then the manifest, then remove stale assets
+        run: |
+          for file in release/gtt-*.json; do gh release upload "$TAG" "$file" -R "$REPO" --clobber; done
+          gh release upload "$TAG" release/manifest.json -R "$REPO" --clobber
+          for asset in $(gh release view "$TAG" -R "$REPO" --json assets -q '.assets[].name'); do
+            [ -e "release/$asset" ] || gh release delete-asset "$TAG" "$asset" -R "$REPO" -y
+          done
+          gh release view "$TAG" -R "$REPO" --json isPrerelease -q '.isPrerelease' | grep -qx true

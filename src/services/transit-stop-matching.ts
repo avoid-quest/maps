@@ -1,5 +1,5 @@
-import staticStops from '../data/gtt-stops.json';
 import type { RouteStop, Stop } from '../domain/types';
+import { catalogStops, subscribeCatalog } from '../transit-data/stop-catalog';
 import { distanceMeters, validCoordinate } from './geo';
 
 /** Match provider identity first; proximity only verifies that identity. */
@@ -18,4 +18,7 @@ export function createJourneyStopMatcher(stops: readonly Stop[]) {
   };
 }
 
-export const matchJourneyStop = createJourneyStopMatcher(staticStops as Stop[]);
+let matcher = createJourneyStopMatcher(catalogStops());
+// Follow the active package so journey stops resolve against the same stops as its boards.
+subscribeCatalog(() => { matcher = createJourneyStopMatcher(catalogStops()); });
+export const matchJourneyStop = (routeStop: RouteStop | undefined): Stop | null => matcher(routeStop);

@@ -1,0 +1,44 @@
+import { ZipRangeError, type RangeTransport } from './zip-range';
+
+/**
+ * Ranged GET over XMLHttpRequest, because fetch() in React Native resolves only after the whole
+ * body has arrived. The status is checked when headers arrive: anything unexpected (a server that
+ * ignores Range, or If-Range reporting a changed archive) is aborted before the body downloads.
+ * `withCredentials = false` makes React Native use OkHttp's NO_COOKIES jar: cookies are neither
+ * sent nor stored. No custom headers beyond the range validators.
+ */
+export const xhrRangeTransport: RangeTransport = (url, headers, accept, maxBytes) => new Promise((resolve, reject) => {
+  const xhr = new XMLHttpRequest();
+  let settled = false;
+  const fail = (error: Error) => { if (!settled) { settled = true; reject(error); } };
+  xhr.open('GET', url);
+  xhr.responseType = 'arraybuffer';
+  xhr.withCredentials = false;
+  // The timeout covers the whole transfer: allow 30 s plus about 1 s per 16 KiB expected, so a
+  // slow but working connection can still fetch a ~0.4 MB trips.txt range.
+  xhr.timeout = 30_000 + Math.ceil(Math.max(0, maxBytes) / 16_384) * 1000;
+  for (const [name, value] of Object.entries(headers)) xhr.setRequestHeader(name, value);
+  const tooLarge = () => { xhr.abort(); fail(new ZipRangeError('Risposta GTT più grande dell’intervallo richiesto.', 'limit')); };
+  xhr.onreadystatechange = () => {
+    if (xhr.readyState !== 2) return;
+    if (!accept.includes(xhr.status)) {
+      xhr.abort();
+      fail(new ZipRangeError(`Risposta GTT inattesa (HTTP ${xhr.status}).`, xhr.status === 200 ? 'changed' : 'unsupported'));
+      return;
+    }
+    // Refuse an oversized body before it is buffered; also enforced while receiving below.
+    const length = Number(xhr.getResponseHeader('content-length'));
+    if (Number.isFinite(length) && length > maxBytes) tooLarge();
+  };
+  xhr.onprogress = event => { if (event.loaded > maxBytes) tooLarge(); };
+  xhr.onload = () => {
+    if (settled) return;
+    if (!accept.includes(xhr.status)) { fail(new ZipRangeError(`Risposta GTT inattesa (HTTP ${xhr.status}).`, 'unsupported')); return; }
+    if (((xhr.response as ArrayBuffer | null)?.byteLength ?? 0) > maxBytes) { fail(new ZipRangeError('Risposta GTT più grande dell’intervallo richiesto.', 'limit')); return; }
+    settled = true;
+    resolve({ status: xhr.status, header: name => xhr.getResponseHeader(name) ?? undefined, body: new Uint8Array((xhr.response as ArrayBuffer | null) ?? new ArrayBuffer(0)) });
+  };
+  xhr.onerror = () => fail(new ZipRangeError('Connessione a GTT non riuscita.', 'network'));
+  xhr.ontimeout = () => fail(new ZipRangeError('Download da GTT troppo lento o interrotto.', 'network'));
+  xhr.send();
+});

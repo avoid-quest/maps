@@ -370,3 +370,21 @@ test('unexpected JS errors log a fixed category and preserve the original fatal 
   current(rawError, true);
   assert.equal(originalCalls, 2);
 });
+
+test('timetable events keep a bounded integer count; realtime join events are rate-limited', async () => {
+  const { createDiagnostics, createDiagnosticReport } = await import('./diagnostics');
+  const local = createDiagnostics(() => 1_800_000_000_000);
+  local.record({ type: 'timetable', state: 'realtime-partial', count: 12 });
+  local.record({ type: 'timetable', state: 'realtime-partial', count: 1.5 });
+  local.record({ type: 'timetable', state: 'realtime-partial', count: 1_000_000 });
+  local.record({ type: 'service', state: 'invalid', provider: 'gtt-stop', count: 3 } as never);
+  const counts = local.getSnapshot().events.map(event => event.count);
+  assert.deepEqual(counts, [12, undefined, undefined, undefined]);
+  assert.match(createDiagnosticReport(local.getSnapshot(), {}), /timetable\.realtime-partial count=12/);
+  const { recordJoin } = await import('./transit');
+  const { diagnostics } = await import('./diagnostics');
+  const before = diagnostics.getSnapshot().events.length;
+  const at = 1_900_000_000_000;
+  recordJoin('realtime-identity', 3, at); recordJoin('realtime-identity', 3, at + 30_000); recordJoin('realtime-identity', 4, at + 31 * 60_000);
+  assert.equal(diagnostics.getSnapshot().events.length - before, 2, 'first occurrence, then at most every 30 minutes');
+});

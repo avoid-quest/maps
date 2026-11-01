@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { RouteLeg, Stop } from '../domain/types';
 import {
-  createSavedTravel, JOURNEY_STORAGE_KEY, STOPS_STORAGE_KEY, MAX_JOURNEY_BYTES, MAX_STOPS_BYTES, MAX_SAVED_STOPS,
+  createSavedTravel, datasetLabel, JOURNEY_STORAGE_KEY, STOPS_STORAGE_KEY, MAX_JOURNEY_BYTES, MAX_STOPS_BYTES, MAX_SAVED_STOPS,
   type SavedJourneyInput,
 } from './saved-travel';
 
@@ -529,4 +529,9 @@ test('throwing failure callbacks cannot change storage outcomes, preserved value
   assert.equal(store.getSnapshot().journey, null);
   assert.deepEqual(store.getSnapshot().stops, []);
   assert.equal(events.length, 4);
+});
+
+test('a package with a blank feed version still records a dataset for saved stops', () => {
+  assert.equal(datasetLabel({ feedVersion: '', packageHash: 'a'.repeat(64) }), 'a'.repeat(64));
+  assert.equal(datasetLabel({ feedVersion: '20261011', packageHash: 'a'.repeat(64) }), '20261011');
 });

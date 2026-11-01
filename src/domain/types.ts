@@ -30,11 +30,6 @@ export interface RoutePlan {
   geometry: Coordinate[]; legs: RouteLeg[]; source: string; warnings: string[]; fetchedAt: number;
 }
 export interface Stop { id: string; code: string; name: string; coordinate: Coordinate; lines: string[]; distanceMeters?: number }
-export interface Departure {
-  id: string; stopId: string; line: string; headsign: string; expectedAt?: number; scheduledAt?: number;
-  status: 'live' | 'scheduled' | 'stale' | 'cancelled' | 'unknown'; sourceUpdatedAt?: number; source: string;
-}
-export interface DepartureBoard { departures: Departure[]; fetchedAt: number; sourceUpdatedAt?: number; warnings: string[]; source: string }
 export type SearchPolicy = 'local-only' | 'local-and-online';
 export interface SearchOptions { center: Coordinate; signal?: AbortSignal; policy?: SearchPolicy }
 /** Coverage of the local package only; it never describes Photon coverage or completeness. */

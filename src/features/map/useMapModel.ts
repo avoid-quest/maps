@@ -14,7 +14,7 @@ export interface MapModel {
   /** Searches the visible area explicitly, closing detail tasks. */
   searchArea(): void;
   /** A user pan: cancels pending location intent and, without an origin, starts origin picking. */
-  userPanned(coordinate: Coordinate): void;
+  userPanned(coordinate: Coordinate, zoom?: number): void;
 }
 
 export function useMapModel({ tasks, camera, location }: { tasks: TaskModel; camera: MapCamera; location: DeviceLocation }): MapModel {
@@ -24,10 +24,11 @@ export function useMapModel({ tasks, camera, location }: { tasks: TaskModel; cam
     const planning = plannerTask(getState()) !== null;
     if (planning) dispatch({ type: 'locateOrigin' });
     location.setMessage('');
-    const outcome = await location.acquire();
+    // The location hook centres the camera on the first fix, even one that arrives after the
+    // permission dialog suspended this request.
+    const outcome = await location.acquire({ recenter: true });
     if (!outcome) return;
     if ('coordinate' in outcome) {
-      camera.centerOnFix(outcome.coordinate);
       if (planning) dispatch({ type: 'originLocated', coordinate: outcome.coordinate });
     } else {
       if (planning) dispatch({ type: 'originLocateFailed' });
@@ -39,8 +40,8 @@ export function useMapModel({ tasks, camera, location }: { tasks: TaskModel; cam
     camera.searchHere();
     dispatch({ type: 'closeDetails' });
   }, [camera, location, dispatch]);
-  const userPanned = useCallback((coordinate: Coordinate) => {
-    camera.userMoved(coordinate);
+  const userPanned = useCallback((coordinate: Coordinate, zoom?: number) => {
+    camera.userMoved(coordinate, zoom);
     location.cancel();
     const planner = plannerTask(getState());
     if (planner && !planner.origin.ready) dispatch({ type: 'pickOrigin' });

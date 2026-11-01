@@ -1,7 +1,7 @@
 /** Opt-in live smoke test. Sends the documented public Docks Dora/Porta Susa coordinates. */
 import { searchPlaces } from '../src/services/search';
 import { planRoute } from '../src/services/routing';
-import { getNearbyStops, getDepartures, getTransitAlerts } from '../src/services/transit';
+import { getNearbyStops, getStopBoard, getTransitAlerts } from '../src/services/transit';
 import { TURIN_CENTER } from '../src/services/geo';
 async function main() {
   const search = await searchPlaces('Docks Dora', { center: TURIN_CENTER });
@@ -15,8 +15,8 @@ async function main() {
   }
   const stops = getNearbyStops(TURIN_CENTER, { limit: 3 });
   for (const stop of stops) {
-    const board = await getDepartures(stop.id);
-    console.log('Departures', { stop: stop.name, code: stop.code, count: board.departures.length, statuses: board.departures.map(d => d.status), warnings: board.warnings, updatedAt: board.sourceUpdatedAt });
+    const board = await getStopBoard(stop.id);
+    console.log('Board', { stop: stop.name, code: stop.code, rows: board.rows.length, realtime: board.realtime, states: board.rows.map(row => row.gtt.realtime), notices: board.notices.map(notice => notice.code) });
   }
   console.log('Alerts', (await getTransitAlerts(stops[0]?.id)).alerts.length);
 }

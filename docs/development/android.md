@@ -16,7 +16,7 @@ The build script supplies a temporary Gradle init script that appends Clang `-ff
 
 ## Expo development
 
-Use Expo’s [local development workflow](https://docs.expo.dev/guides/local-app-development/) with `expo-dev-client`. Expo Go cannot load this app’s MapLibre and local Kotlin modules. The [application variant](https://docs.expo.dev/build-reference/variants/) gives **Avoid Maps Dev** its own package so it can coexist with the release.
+Use Expo’s [local development workflow](https://docs.expo.dev/guides/local-app-development/) with `expo-dev-client`. Expo Go cannot load this app’s MapLibre and local Kotlin modules. The [application variant](https://docs.expo.dev/build-reference/variants/) gives **avoid maps dev** its own package so it can coexist with the release.
 
 After selecting the toolchain above, connect an Android device through authorized USB or [wireless ADB](https://developer.android.com/tools/adb#connect-to-a-device-over-wi-fi):
 
@@ -45,7 +45,7 @@ Install by copying the APK to the Android device and opening it in Files, or use
 
 Public release downloads need no GitHub account or token. In Obtainium, add `https://github.com/avoid-quest/maps` as a GitHub source and select `avoid-maps.apk` if needed. Keep the existing installation when updating: compatible signing preserves favourites. Obtainium access and upgrade preservation require a device test.
 
-Builds with local diagnostics read version/code from the embedded Expo configuration. The build script embeds the Git revision when the checkout has no uncommitted tracked changes or unignored untracked files. Any such change, including documentation, reports `development`. The diagnostics report uses these public build identifiers and excludes device identifiers. Native dependency changes such as the clipboard module require a new APK.
+Builds with local diagnostics read version/code from the embedded Expo configuration. The build script embeds the Git revision when the checkout has no uncommitted tracked changes or unignored untracked files. Any such change, including documentation, reports `development`. The diagnostics report uses these public build identifiers and excludes device identifiers. Native dependency changes such as the clipboard module require a new APK. The GTT timetable store adds expo-sqlite (bundled SQLite), expo-crypto (SHA-256), expo-network (Wi-Fi-only preference; merges the normal `ACCESS_NETWORK_STATE` and `ACCESS_WIFI_STATE` permissions), uses expo-asset (added with the brand assets below) to load the bundled package file and expo-file-system for package staging; fflate (pure JavaScript, MIT, no native code) inflates GTT ZIP members for the trip-ID remap; none pulls Google Play services. Verify the merged manifest and Google-free launch after rebuilding.
 
 ## Acceptance without Google Play services
 
@@ -69,6 +69,10 @@ Indoor timeouts after earlier successful fixes do not establish which platform p
 ## Dependency review
 
 The initial SDK 54 lockfile was checked with `npm audit` and compatible fixes applied. The web-only MapLibre renderer was updated to 6.13.0 and protobufjs to 8.8.0 to remove critical advisories; the native MapLibre package remains pinned separately. For the original v0.1.0 lockfile on 2026-10-11, npm reported 44 advisory paths (26 high, 16 moderate, 2 low), mostly inherited build/CLI CSS, image, glob, signing and source-map tooling. `npm audit fix --force` proposes incompatible framework changes, so those changes were not applied mechanically. Treat untrusted build input and development servers accordingly; this is not a claim that the entire dependency graph is vulnerability-free. These historical counts do not describe the later Bun lockfile. Recheck the active lockfile with `bun audit` when updating Expo or its toolchain.
+
+Brand assets add two Expo modules and enable one existing module's config plugin: `expo-font` (already a dependency; its config plugin now embeds the bundled Geist and Mona Sans TTFs as Android XML font families), `expo-splash-screen` (black splash with the brand mark; AndroidX `core-splashscreen`), and `expo-asset` (resolves the bundled font URLs that `src/theme/fonts.web.ts` declares with `@font-face` on the web). Their Android dependencies are AndroidX and React Native only; none pulls Google Play services. `@resvg/resvg-js` is a development-only renderer for `scripts/render-brand-assets.mjs` and is not part of the app. After changing the mark, run the script and commit the PNGs; `node scripts/render-brand-assets.mjs --check` fails when they are stale. Fonts and their OFL-1.1 texts are listed in [`assets/fonts/README.md`](../../assets/fonts/README.md).
+
+The task sheet uses `@gorhom/bottom-sheet` 5.2.14, a JavaScript library (with `@gorhom/portal`) on the pinned Reanimated 4.1.1, react-native-worklets 0.5.1 and Gesture Handler 2.28. Its v5.2.8 example app pins the same SDK 54 / React Native 0.81.5 new-architecture stack. It adds no native module, permission or Google dependency. Gesture, keyboard and TalkBack behaviour still require a device check after each upgrade.
 
 ## Browser preview
 

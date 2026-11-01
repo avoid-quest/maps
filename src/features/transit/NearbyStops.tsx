@@ -1,49 +1,36 @@
-import { Pressable, Text, View } from "react-native";
-import { colors } from "../../theme/tokens";
-import { EmptyState, Icon } from "../../ui/Controls";
-import { formatDistance } from "../../ui/format";
+import { useMemo } from "react";
+import { View } from "react-native";
+import { useThemeColors } from "../../theme";
+import { EmptyState, Icon, ListRow, SheetFlatList } from "../../ui";
+import { distanceFrom } from "../map/distance-reference";
+import { useDistanceReference } from "../map/useDistanceReference";
 import { useTransitContext } from "./useTransit";
 
 /** Trasporti: stops around the explicit search area. */
 export function NearbyStops() {
+  const colors = useThemeColors();
   const { nearbyStops, openStop } = useTransitContext();
-  return nearbyStops.length ? (
-    <>
-      {nearbyStops.map((item) => (
-        <Pressable
-          accessibilityRole="button"
-          key={item.id}
+  const reference = useDistanceReference();
+  // The column shows distances from the device (or the map centre); list the stops in that order.
+  const rows = useMemo(() => nearbyStops.map(stop => ({ stop, distance: distanceFrom(reference, stop.coordinate) }))
+    .sort((a, b) => a.distance.meters - b.distance.meters), [nearbyStops, reference]);
+  return (
+    <SheetFlatList
+      data={rows}
+      keyExtractor={row => row.stop.id}
+      renderItem={({ item: { stop: item, distance } }) => {
+        return <ListRow
+          title={item.name}
+          subtitle={`Fermata ${item.code} · ${item.lines.slice(0, 6).join(", ") || "GTT"}`}
+          meta={distance.value}
+          metaNote={distance.note ?? undefined}
+          accessibilityLabel={`${item.name}, fermata ${item.code}, linee ${item.lines.slice(0, 6).join(", ") || "GTT"}, ${distance.spoken}`}
+          leading={<View className="w-7 items-center"><Icon name="bus-outline" size={20} color={colors.textSecondary} /></View>}
           onPress={() => openStop(item)}
-          className="mx-5 min-h-20 flex-row items-center gap-3 border-b border-[#E2E8F0] py-3"
-        >
-          <View className="h-11 w-11 items-center justify-center rounded-xl bg-[#FFF5DE]">
-            <Icon name="bus-outline" color={colors.amber} />
-          </View>
-          <View className="flex-1">
-            <Text className="text-base font-semibold text-[#17243C]">
-              {item.name}
-            </Text>
-            <Text className="mt-1 text-xs text-[#59667A]">
-              {item.code} ·{" "}
-              {item.lines.slice(0, 6).join(", ") || "Fermata GTT"}
-            </Text>
-          </View>
-          <Text className="text-xs text-[#59667A]">
-            {formatDistance(item.distanceMeters)}
-          </Text>
-          <Icon
-            name="chevron-forward"
-            size={16}
-            color={colors.muted}
-          />
-        </Pressable>
-      ))}
-    </>
-  ) : (
-    <EmptyState
-      icon="bus-outline"
-      title="Nessuna fermata in quest’area"
-      description="Sposta la mappa verso Torino e cerca di nuovo nell’area."
+        />;
+      }}
+      ListEmptyComponent={<EmptyState icon="bus-outline" title="Nessuna fermata in quest’area" description="Sposta la mappa verso Torino e cerca di nuovo nell’area." />}
+      contentContainerStyle={{ paddingBottom: 24 }}
     />
   );
 }
