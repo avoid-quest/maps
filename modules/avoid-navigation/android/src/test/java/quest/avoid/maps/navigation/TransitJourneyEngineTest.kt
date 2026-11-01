@@ -142,7 +142,7 @@ class TransitJourneyEngineTest {
   @Test fun invalidPlansFailClosedIncludingCancelledLaterInterlineLeg() {
     val valid = plan(leg(0, true))
     val invalid = listOf(
-      valid + ("fetchedAt" to now - 120_001), valid + ("fetchedAt" to now + 1),
+      valid + ("fetchedAt" to 0L), valid + ("fetchedAt" to now + 1),
       valid + ("legs" to emptyList<Any>()), valid + ("legs" to List(65) { leg(0, true) }),
       plan(leg(0, true) + ("timingStatus" to "cancelled")),
       plan(leg(0, true) + ("geometry" to listOf(coordinate(91.0)))),
@@ -157,12 +157,17 @@ class TransitJourneyEngineTest {
     TransitJourneyEngine(valid + ("fetchedAt" to now - 120_000)) { now }
   }
 
-  @Test fun freshlyRetrievedHistoricalItineraryRequiresReplanning() {
-    // Walking-only itineraries have no boarding deadline, but still need the end-time check.
+  @Test fun agedPlanStartsWithItsConsultationAgeForManualFollowing() {
+    // Product decision: plan age is shown with a refresh offer; it never blocks following.
+    val aged = TransitJourneyEngine(plan(leg(0, true)) + ("fetchedAt" to now - 3_600_000)) { now }
+    assertEquals(now - 3_600_000, transit(aged.snapshot())["fetchedAt"])
+    assertEquals("board", phase(aged.snapshot()))
+  }
+
+  @Test fun passedItineraryTimesRemainManuallyFollowable() {
+    // Passed times are advisory (shown in the interface); only cancellation requires replanning.
     val expired = leg(0, false) + mapOf("departureAt" to now - 720_001, "arrivalAt" to now - 120_001)
-    assertThrows(IllegalArgumentException::class.java) { engine(expired) }
-    val withinSkew = expired + mapOf("departureAt" to now - 720_000, "arrivalAt" to now - 120_000)
-    assertEquals("walk", phase(engine(withinSkew).snapshot()))
+    assertEquals("walk", phase(engine(expired).snapshot()))
   }
 
   @Test fun earlierVisitToFinalStopSuppressesCuesEvenWhenBoardingIsFarAway() {
@@ -225,12 +230,14 @@ class TransitJourneyEngineTest {
     }
   }
 
-  @Test fun freshlyRetrievedDepartedServiceWithFutureArrivalRequiresReplanning() {
+  @Test fun departedServiceIsFollowableButCancelledServiceStillRequiresReplanning() {
+    // The rider may already be aboard; the interface flags the passed departure and offers a refresh.
     val departed = leg(0, true) + mapOf(
       "departureAt" to now - 1_200_000, "arrivalAt" to now + 600_000, "durationSeconds" to 1_800.0,
     )
-    assertThrows(IllegalArgumentException::class.java) { engine(departed) }
-    assertThrows(IllegalArgumentException::class.java) { engine(departed + ("timingStatus" to "prediction")) }
+    assertEquals("board", phase(engine(departed).snapshot()))
+    assertEquals("board", phase(engine(departed + ("timingStatus" to "prediction")).snapshot()))
+    assertThrows(IllegalArgumentException::class.java) { engine(departed + ("timingStatus" to "cancelled")) }
   }
 
   @Test fun firstBoardingAcceptsScheduledAndPredictedFutureTimesWithClockSkew() {
@@ -241,18 +248,24 @@ class TransitJourneyEngineTest {
       assertEquals(status, transit(snapshot)["timingStatus"])
       assertEquals(now + 300_000, transit(snapshot)["departureAt"])
     }
-    val skewBoundary = leg(0, true) + mapOf("departureAt" to now - 120_000, "arrivalAt" to now + 480_000)
-    assertEquals("board", phase(engine(skewBoundary).snapshot()))
-    assertThrows(IllegalArgumentException::class.java) {
-      engine(skewBoundary + mapOf("departureAt" to now - 120_001, "arrivalAt" to now + 479_999))
-    }
+    val departed = leg(0, true) + mapOf("departureAt" to now - 600_000, "arrivalAt" to now)
+    assertEquals(now - 600_000, transit(engine(departed).snapshot())["departureAt"])
   }
 
-  @Test fun initialWalkingMustFitBeforeFirstBoarding() {
+  @Test fun followingDoesNotAssumeTheRiderIsAtTheOrigin() {
+    // No origin gate: the rider may already be partway along the access walk.
     val walk = leg(0, false, origin, stop) + mapOf("departureAt" to now - 300_000, "arrivalAt" to now + 300_000)
-    val missedConnection = leg(1, true, stop, destination) + mapOf("departureAt" to now + 300_000, "arrivalAt" to now + 900_000)
-    assertThrows(IllegalArgumentException::class.java) { engine(walk, missedConnection) }
-    assertEquals("walk", phase(engine(leg(0, false, origin, stop), leg(1, true, stop, destination)).snapshot()))
+    val connection = leg(1, true, stop, destination) + mapOf("departureAt" to now + 300_000, "arrivalAt" to now + 900_000)
+    assertEquals("walk", phase(engine(walk, connection).snapshot()))
+  }
+
+  @Test fun positionLossSuspendsProximityButKeepsConfirmations() {
+    val engine = engine(leg(0, false, origin, stop), leg(1, true, stop, destination))
+    assertNotNull(engine.onLocation(45.004, 7.0, 5.0).fields["distanceToManeuverMeters"])
+    val lost = engine.positionLost()
+    assertNull(lost.fields["distanceToManeuverMeters"])
+    assertEquals(true, transit(lost)["canConfirmWalking"])
+    assertEquals("board", phase(engine.confirm("walk-complete")))
   }
 
   private fun assertAmbiguousEndRemainsManual(engine: TransitJourneyEngine) {

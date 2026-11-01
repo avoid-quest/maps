@@ -3,6 +3,7 @@ package quest.avoid.maps.navigation
 import android.content.Context
 import android.location.LocationManager
 import android.os.Build
+import android.util.Log
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 
@@ -10,7 +11,9 @@ import expo.modules.kotlin.functions.Coroutine
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 class AvoidNavigationModule : Module() {
   private val main = android.os.Handler(android.os.Looper.getMainLooper())
@@ -18,11 +21,16 @@ class AvoidNavigationModule : Module() {
   private val runtime: NavigationRuntime get() = retainedRuntime.value
   @Volatile private var destroyed = false
   private val observer: (Map<String, Any?>) -> Unit = { if (!destroyed) sendEvent("onNavigationState", it) }
-  private fun requireForeground() {
+  private fun resumed(): Boolean {
     val activity = appContext.currentActivity
-    if (activity == null || activity.isFinishing || activity.isDestroyed || (activity as? LifecycleOwner)?.lifecycle?.currentState?.isAtLeast(Lifecycle.State.RESUMED) != true) {
-      throw NavigationFailure("foreground-required")
-    }
+    return activity != null && !activity.isFinishing && !activity.isDestroyed &&
+      (activity as? LifecycleOwner)?.lifecycle?.currentState?.isAtLeast(Lifecycle.State.RESUMED) == true
+  }
+  /** The permission dialog resolves before the activity resumes; wait briefly instead of failing Start. */
+  private suspend fun requireForeground() {
+    if (resumed()) return
+    val ready = withTimeoutOrNull(3_000) { while (!resumed()) delay(50); true }
+    if (ready != true) { Log.w(NavigationRuntime.TAG, "start rejected foreground-required"); throw NavigationFailure("foreground-required") }
   }
   override fun definition() = ModuleDefinition {
     Name("AvoidNavigation")

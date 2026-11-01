@@ -18,7 +18,9 @@ fn policy() -> Value {
 fn config(mode: &str) -> NavigationControllerConfig {
     let p = policy();
     let m = &p[mode];
-    let accuracy = p["maximumHorizontalAccuracyMeters"].as_u64().unwrap() as u16;
+    // Step advance and arrival use the mode's guidance accuracy; deviation uses its tighter bound.
+    let accuracy = m["guidanceAccuracyMeters"].as_u64().unwrap() as u16;
+    let deviation = m["deviationAccuracyMeters"].as_u64().unwrap() as u16;
     let entry = m["entryRadiusMeters"].as_u64().unwrap() as u16;
     let exit = m["exitDistanceMeters"].as_u64().unwrap() as u16;
     let condition = match m["strategy"].as_str().unwrap() {
@@ -37,13 +39,12 @@ fn config(mode: &str) -> NavigationControllerConfig {
         step_advance_condition: condition.into(),
         arrival_step_advance_condition: SerializableStepAdvanceCondition::DistanceToEndOfStep {
             distance: p["arrivalRadiusMeters"].as_u64().unwrap() as u16,
-            minimum_horizontal_accuracy: p["maximumHorizontalAccuracyMeters"].as_u64().unwrap()
-                as u16,
+            minimum_horizontal_accuracy: accuracy,
         }
         .into(),
         route_deviation_tracking: RouteDeviationTracking::StaticThreshold {
-            minimum_horizontal_accuracy: accuracy,
-            max_acceptable_deviation: p["maximumRouteDeviationMeters"].as_f64().unwrap(),
+            minimum_horizontal_accuracy: deviation,
+            max_acceptable_deviation: m["maximumRouteDeviationMeters"].as_f64().unwrap(),
         },
         snapped_location_course_filtering: CourseFiltering::SnapToRoute,
     }
@@ -165,11 +166,11 @@ fn walking_sidewalk_does_not_advance_until_snapped_position_passes_corner() {
 
 #[test]
 fn every_accepted_accuracy_keeps_step_and_deviation_analysis_enabled() {
-    let accepted = policy()["maximumHorizontalAccuracyMeters"]
-        .as_f64()
-        .unwrap();
     for mode in ["walk", "bicycle", "car"] {
-        for accuracy in [1.0, 10.0, accepted] {
+        let p = policy();
+        let accepted = p[mode]["guidanceAccuracyMeters"].as_f64().unwrap();
+        let judged = p[mode]["deviationAccuracyMeters"].as_f64().unwrap();
+        for accuracy in [1.0, 10.0, judged, accepted] {
             let navigator = create_navigator(corner_route(), config(mode), false);
             let mut state = navigator.get_initial_state(fix(-8.0, 0.0, accuracy, 0));
             for (i, (x, y)) in [(-8.0, 0.0), (0.0, 8.0), (0.0, 22.0)]
@@ -188,9 +189,11 @@ fn every_accepted_accuracy_keeps_step_and_deviation_analysis_enabled() {
             let TripState::Navigating { deviation, .. } = state.trip_state() else {
                 panic!("Unexpected completion")
             };
-            assert!(
+            // Coarser accepted fixes still advance but never declare deviation on their own.
+            assert_eq!(
                 matches!(deviation, RouteDeviation::Deviation { .. }),
-                "{mode}: accepted {accuracy}m fix must detect deviation"
+                accuracy <= judged,
+                "{mode}: {accuracy}m fix deviation analysis must follow the policy bound"
             );
         }
     }
@@ -199,22 +202,23 @@ fn every_accepted_accuracy_keeps_step_and_deviation_analysis_enabled() {
 #[test]
 fn final_short_step_and_arrival_do_not_require_passing_destination_or_better_accuracy() {
     for mode in ["walk", "bicycle", "car"] {
+        let accepted = policy()[mode]["guidanceAccuracyMeters"].as_f64().unwrap();
         let navigator = create_navigator(
             route(&[(-100.0, 0.0), (0.0, 0.0), (0.0, 3.0)]),
             config(mode),
             false,
         );
-        let mut state = navigator.get_initial_state(fix(-30.0, 0.0, 20.0, 0));
+        let mut state = navigator.get_initial_state(fix(-30.0, 0.0, accepted, 0));
         for (i, (x, y)) in [(-8.0, 0.0), (0.0, 3.0), (0.0, 3.0), (0.0, 3.0)]
             .into_iter()
             .enumerate()
         {
-            state = navigator.update_user_location(fix(x, y, 20.0, i as u64 + 1), state);
+            state = navigator.update_user_location(fix(x, y, accepted, i as u64 + 1), state);
         }
         assert_eq!(
             remaining(state.trip_state()),
             0,
-            "{mode} arrival must work at accepted 20m accuracy"
+            "{mode} arrival must work at accepted {accepted}m accuracy"
         );
     }
 }
