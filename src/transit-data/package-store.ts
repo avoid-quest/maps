@@ -131,7 +131,9 @@ export function createPackageStore(deps: { driver: SqlDriver; files: PackageFile
     if (current && active && active.meta.packageHash === current.package_hash) { const closing = active.db; active = undefined; await closing.close().catch(() => undefined); }
     if (current) await driver.remove(current.db_name).catch(() => undefined);
     if (!previous) return undefined;
-    try { return active = await openDataset({ ...previous, role: 'active' }); } catch {
+    try { return active = await openDataset({ ...previous, role: 'active' }); } catch (error) {
+      // As in open(): a transient error keeps the retained package (now registered active) for a retry.
+      if (!integrityFailure(error)) throw error;
       await registryDb.run('DELETE FROM package WHERE db_name = ?', [previous.db_name]);
       await driver.remove(previous.db_name).catch(() => undefined);
       return undefined;

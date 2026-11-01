@@ -127,7 +127,8 @@ test('a corrupted active database rolls back to the previous package, then to th
 });
 
 test('startup rejects a structurally damaged database (missing table or index, wrong counts) and rolls back', async () => {
-  for (const damage of ['DROP TABLE timing_vector', 'DROP INDEX trip_by_pattern', "DELETE FROM trip WHERE trip_id LIKE 'N%X0%'"]) {
+  for (const damage of ['DROP TABLE timing_vector', 'DROP INDEX trip_by_pattern', "DELETE FROM trip WHERE trip_id LIKE 'N%X0%'",
+    "UPDATE dataset_meta SET value = '{not json' WHERE key = 'manifest'", "UPDATE dataset_meta SET value = '{}' WHERE key = 'manifest'"]) {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gtt-store-'));
     const first = harness(directory);
     await first.store.open();
@@ -214,6 +215,22 @@ test('a transient open error keeps the active package; real damage rolls back an
   const damaged = harness(directory);
   assert.equal((await damaged.store.open()).meta.packageHash, bundledManifest.package_hash);
   assert.equal(damaged.store.rolledBack(), true);
+});
+
+test('a transient error opening the retained package during rollback keeps it for a retry', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gtt-store-'));
+  const first = harness(directory);
+  await first.store.open();
+  const next = release('20261021', '2026-10-21T03:15:00Z');
+  await first.store.installDownloaded(next.manifest, first.serve(next.manifest, next.text));
+  const previous = (await first.store.packages()).find(entry => entry.role === 'previous')!;
+  const busy = harness(directory);
+  const open = busy.driver.open.bind(busy.driver); let failures = 1;
+  busy.driver.open = async name => { if (name === previous.db && failures-- > 0) throw new Error('SQLITE_BUSY: database is locked'); return open(name); };
+  await assert.rejects(busy.store.rollback(), /SQLITE_BUSY/);
+  assert.ok(busy.databases().includes(previous.db), 'the retained database file is kept');
+  assert.equal((await busy.store.packages()).find(entry => entry.role === 'active')?.db, previous.db, 'and registered as active');
+  assert.equal((await busy.store.open()).meta.packageHash, bundledManifest.package_hash, 'the retry opens it');
 });
 
 test('identity lookups are chunked and match first arrival or first departure in SQL', async () => {
