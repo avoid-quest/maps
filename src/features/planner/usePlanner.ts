@@ -89,6 +89,11 @@ export function usePlanner({ tasks, camera, location, places, navigation, sheet,
   }, [routes.restoredViewId, travel.journeyStatus, travel.journey, cancelLocation, dispatch]);
 
   const route = routes.route;
+  // A failed Start's message belongs to that attempt: a new query, mode or selected alternative
+  // clears it, so it never lingers beside a different plan (or a later, unrelated Avvia).
+  const planKey = `${plannerQuery(tasks.state) ?? ''}|${route?.id ?? ''}`;
+  const { dismissError } = navigation;
+  useEffect(() => { dismissError(); }, [planKey, dismissError]);
   const query = task ? { from: task.origin.coordinate, to: task.destination.coordinate, mode, transitTime } : null;
   const savedJourneyVisible = !!route && (routes.saved || (!!travel.journey && !!query
     && travel.journey.plan.id === route.id && travel.journey.plan.fetchedAt === route.fetchedAt

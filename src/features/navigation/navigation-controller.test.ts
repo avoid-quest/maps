@@ -427,3 +427,16 @@ test('mounted subscribers receive lost and recovered confidence while the transi
   assert.deepEqual(problems, Array(3).fill('transit-replan-needed'));
   assert.deepEqual(calls, ['read']); // Recovery events never retry admission or start a route request.
 });
+
+test('an ignored Start is recorded and a stale command error can be dismissed', async () => {
+  const recorded: string[] = [];
+  const { controller, emit } = fixture({ startNavigation: async () => { throw Object.assign(new Error('x'), { code: 'invalid' }); } }, state => recorded.push(state));
+  await Promise.resolve();
+  await controller.start(options);
+  assert.ok(controller.getSnapshot().error);
+  controller.dismissError();
+  assert.equal(controller.getSnapshot().error, null);
+  emit({ ...snapshot(9, 'navigating') });
+  await controller.start(options);
+  assert.deepEqual(recorded, ['start-requested', 'invalid', 'active', 'start-ignored']);
+});

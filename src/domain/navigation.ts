@@ -144,7 +144,9 @@ export function navigationPresentation(snapshot: NavigationSnapshot, now: number
   const cues = snapshot.locationUsable === true;
   // Manual transit following does not need GPS; only its advisory proximity cues do.
   const guiding = snapshot.status === 'navigating' && (transitMode || snapshot.locationUsable !== false);
-  const paused = !guiding && !terminal;
+  // Only a location loss pauses road guidance; routing, off-route and rerouting keep their own headers.
+  const paused = !terminal && !transitMode && (snapshot.status === 'location-degraded'
+    || (snapshot.status === 'navigating' && snapshot.locationUsable === false));
   const neverLocated = !snapshot.location;
   const notFound = !transitMode && !terminal && (snapshot.startTimedOut === true || (snapshot.status === 'location-degraded' && neverLocated));
   const searching = !transitMode && !terminal && (snapshot.status === 'waiting-for-fix' || notFound);
