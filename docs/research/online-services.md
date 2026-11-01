@@ -8,6 +8,8 @@ The [official site](https://openfreemap.org/) and [source README](https://github
 
 The [privacy policy](https://openfreemap.org/privacy/), updated October 8, 2026, explicitly covers the public tile service. Access logs omit IP addresses by default; error logs may include IP/URL and are deleted after seven days. Security investigations can temporarily enable IP logging for up to 30 days. Cloudflare may be used as CDN and has its own processing. Do not equate “no API key” with no network disclosure.
 
+On 2026-11-01, the Liberty, Positron, Bright, Dark and Fiord style documents at `https://tiles.openfreemap.org/styles/<name>` returned HTTP 200. All five reference the same `openmaptiles` vector TileJSON, versioned sprites and Noto Sans glyphs. The TileJSON supplies the attribution string **OpenFreeMap © OpenMapTiles Data from OpenStreetMap**. The [styles repository](https://github.com/hyperknot/openfreemap-styles) is MIT-licensed. Upstream designs are BSD-3-Clause code with CC BY 4.0 design, and Dark Matter also derives from CC BY 3.0 CartoDB Basemaps. The app bundles Liberty and Dark verbatim, with hashes, and applies documented dark paint overrides; tiles, sprites and glyphs remain remote. See the [bundled-style notice](../../src/theme/map-styles/NOTICE.md). The README marks Dark and Fiord as unmodified upstream forks, outside the Quick Start set.
+
 Direct HTTP page reads returned 403 during research, but the official site/privacy policy loaded in a browser. This is not an observed failure of map tiles. Integration instructions: https://openfreemap.org/quick_start/ . Actual native rendering remains a build test.
 
 ## Photon: geocoding

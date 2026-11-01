@@ -2,6 +2,29 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Light fallbacks for semantic colours; ThemeProvider overrides them with vars(). Kept in sync by src/theme/palette.test.ts. */
+:root {
+  --color-surface: 250 251 252;
+  --color-surface-raised: 255 255 255;
+  --color-surface-muted: 238 241 244;
+  --color-text-primary: 26 29 35;
+  --color-text-secondary: 82 90 102;
+  --color-divider: 221 225 230;
+  --color-action: 29 91 214;
+  --color-on-action: 255 255 255;
+  --color-action-subtle: 230 238 252;
+  --color-caution: 138 80 0;
+  --color-caution-subtle: 253 241 220;
+  --color-danger: 180 35 24;
+  --color-danger-subtle: 252 233 231;
+  --color-success: 28 107 58;
+  --color-success-subtle: 228 243 233;
+  --color-live: 12 110 96;
+  --color-scheduled: 62 70 82;
+  --color-stale: 138 80 0;
+  --color-cancelled: 180 35 24;
+}
+
 /* Attribution stays exposed above the task sheet. */
 .maplibregl-map .maplibregl-ctrl-top-left { top: var(--map-attribution-top, 68px); left: var(--map-attribution-left, 8px); }
 
