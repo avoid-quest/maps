@@ -1,5 +1,5 @@
 import { realtimeStateLabel } from "../domain/transit-board";
-import { agedRow, LABELS, provenanceLabel, type GttBoardRow } from "../transit-data/board-model";
+import { agedRow, LABELS, preciseEnoughForCountdown, provenanceLabel, type GttBoardRow } from "../transit-data/board-model";
 import { journeyTime } from "./journey-presentation";
 
 export interface RowPresentation {
@@ -29,12 +29,27 @@ export function rowPresentation(input: GttBoardRow, now: number): RowPresentatio
   let timeText: string;
   if (row.realtimeState === "cancelled") timeText = "—";
   else if (row.gtt.frequency && row.scheduledAt === undefined) timeText = `ogni ${minutes(row.gtt.frequency.headwaySeconds * 1000)} min`;
-  else if (live && row.predictedAt! >= now) timeText = `${Math.ceil((row.predictedAt! - now) / 60_000)} min`;
-  else timeText = journeyTime(row.predictedAt ?? row.providerTimeAt ?? row.scheduledAt);
+  else if (live && row.predictedAt! >= now && preciseEnoughForCountdown(row)) timeText = `${Math.ceil((row.predictedAt! - now) / 60_000)} min`;
+  else timeText = `${!preciseEnoughForCountdown(row) && row.providerTimeAt === undefined && row.predictedAt !== undefined ? "~" : ""}${journeyTime(row.predictedAt ?? row.providerTimeAt ?? row.scheduledAt)}`;
+  // A highly uncertain prediction is never a plain countdown: it carries its "± N min".
+  const uncertainty = row.gtt.uncertaintySeconds !== undefined && !preciseEnoughForCountdown(row) ? ` · ±${minutes(row.gtt.uncertaintySeconds * 1000)} min` : "";
+  const report = row.gtt.report;
+  const reported = (current: boolean) => report?.kind === "skipped"
+    ? `Salto della fermata segnalato ${age ?? "?"} min fa, ${current ? "non confermato" : "non più attuale"}`
+    : `Cancellazione segnalata ${age ?? "?"} min fa, ${current ? "non confermata" : "non più attuale"}`;
   let statusText: string;
   switch (row.gtt.realtime) {
-    case "fresh": statusText = `${event}${delayText(row.gtt.delaySeconds)}${row.gtt.propagated ? " (da fermata precedente)" : ""}`; break;
-    case "stale": statusText = `${event} · previsione di ${age ?? "?"} min fa${scheduled ? ` · ${scheduled}` : ""}`; break;
+    case "fresh": statusText = `${event}${delayText(row.gtt.delaySeconds)}${uncertainty}${row.gtt.propagated ? " (da fermata precedente)" : ""}`; break;
+    case "stale":
+      statusText = report
+        ? `${reported(true)}${scheduled ? ` · ${scheduled}` : ""}`
+        : `${event} · previsione di ${age ?? "?"} min fa${uncertainty}${scheduled ? ` · ${scheduled}` : ""}`;
+      break;
+    case "expired":
+      statusText = report
+        ? `${reported(false)}${scheduled ? ` · ${scheduled}` : ""}`
+        : realtimeStateLabel(row);
+      break;
     case "not-provided": statusText = row.gtt.note ?? LABELS.metroScheduledOnly; break;
     case "before-first-update": statusText = row.gtt.note ?? realtimeStateLabel(row); break;
     case "no-trip-update":

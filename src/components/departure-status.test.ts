@@ -36,3 +36,25 @@ test("scheduled, metro, cancelled and skipped rows keep honest labels", () => {
   const skipped: GttBoardRow = { ...cancelled, tripCancelled: false, gtt: { ...cancelled.gtt, realtime: "skipped" } };
   assert.match(rowPresentation(skipped, 1_010_000).statusText, /^Fermata soppressa per questa corsa/);
 });
+
+test("uncertain predictions are not plain countdowns", () => {
+  const uncertain: GttBoardRow = { ...base, gtt: { ...base.gtt, uncertaintySeconds: 600 } };
+  const view = rowPresentation(uncertain, 1_030_000);
+  assert.ok(view.timeText.startsWith("~"), view.timeText);
+  assert.match(view.statusText, /±10 min/);
+  assert.equal(rowPresentation({ ...base, gtt: { ...base.gtt, uncertaintySeconds: 30 } }, 1_030_000).timeText, "2 min");
+});
+
+test("an aging cancellation report is shown with its age, then as no longer current", () => {
+  const cancelled: GttBoardRow = { ...base, event: "departure", predictedAt: undefined, timeBasis: "scheduled", realtimeState: "cancelled", tripCancelled: true,
+    gtt: { ...base.gtt, realtime: "cancelled", delaySeconds: undefined, report: { kind: "cancelled", reportedAt: 1_000_000 } } };
+  assert.match(rowPresentation(cancelled, 1_060_000).statusText, /^Corsa cancellata/);
+  const stale = rowPresentation(cancelled, 1_000_000 + 5 * 60_000);
+  assert.notEqual(stale.timeText, "—", "no longer a definite cancellation");
+  assert.match(stale.statusText, /^Cancellazione segnalata 5 min fa, non confermata/);
+  assert.equal(stale.provenance, "Tempo reale · GTT");
+  const expired = rowPresentation(cancelled, 1_000_000 + 40 * 60_000);
+  assert.match(expired.statusText, /^Cancellazione segnalata 40 min fa, non più attuale/);
+  assert.equal(expired.provenance, "Programmato · GTT");
+  assert.notEqual(expired.timeText, "—", "the scheduled time is shown again");
+});

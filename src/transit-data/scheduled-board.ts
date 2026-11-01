@@ -1,9 +1,15 @@
-import { activeServiceIds, addDays, romeDate, serviceDayOrigin, withinCoverage, type ServiceDate } from './calendar';
+import { activeServiceIds, addDays, coverageAt, romeDate, serviceDayOrigin, withinCoverage, type ServiceDate } from './calendar';
 import type { PatternInfo, TimetableReader, TimingVector, TripInfo } from './reader';
 
 export interface BoardWindow { lookbackMs: number; horizonMs: number }
-/** Look back far enough to keep delayed vehicles; never extrapolate beyond the package calendar. */
-export const DEFAULT_WINDOW: BoardWindow = { lookbackMs: 30 * 60_000, horizonMs: 3 * 3_600_000 };
+/** Largest delay or advance accepted from realtime; larger values are treated as invalid. */
+export const MAX_REALTIME_SHIFT_S = 3 * 3600;
+/**
+ * The lookback equals the accepted delay range, so any trip whose prediction can still be upcoming
+ * is a candidate; rows whose scheduled time has passed without a prediction are dropped later.
+ * Nothing is extrapolated beyond the package calendar.
+ */
+export const DEFAULT_WINDOW: BoardWindow = { lookbackMs: MAX_REALTIME_SHIFT_S * 1000, horizonMs: 3 * 3_600_000 };
 
 /** One scheduled visit of one trip instance to the stop, with the timing needed for realtime joins. */
 export interface ScheduledEvent {
@@ -18,7 +24,13 @@ export interface ScheduledEvent {
   vector: TimingVector;
   /** Exact scheduled departure (ms); undefined for inexact frequency service. */
   scheduledAt?: number;
-  frequency?: { headwaySeconds: number; from: number; until: number };
+  /** Inexact frequency service level (ms bounds at this stop), with its period in GTFS seconds. */
+  frequency?: { headwaySeconds: number; from: number; until: number; startSeconds: number; endSeconds: number };
+  /**
+   * An instance of inexact frequency service identified by a realtime start_time: its stop times
+   * are template offsets, so only absolute predicted times may be shown, never delay arithmetic.
+   */
+  inexact?: boolean;
 }
 
 export interface ScheduledResult { events: ScheduledEvent[]; coverage: 'covered' | 'outside'; serviceDates: ServiceDate[] }
@@ -28,7 +40,8 @@ const NO_PICKUP = 1;
 export async function scheduledEvents(reader: TimetableReader, stopId: string, now: number, window: BoardWindow = DEFAULT_WINDOW): Promise<ScheduledResult> {
   const { validFrom, validTo, maxTripSeconds } = reader.meta;
   const today = romeDate(now);
-  if (!withinCoverage(today, validFrom, validTo)) return { events: [], coverage: 'outside', serviceDates: [] };
+  // Coverage follows service dates and event times: overnight trips of the final day are included.
+  if (coverageAt(reader.meta, now) === 'outside') return { events: [], coverage: 'outside', serviceDates: [] };
   const serviceDates = [addDays(today, -1), today, addDays(today, 1)].filter(date => withinCoverage(date, validFrom, validTo));
   const visits = await reader.stopVisits(stopId);
   if (!visits.length) return { events: [], coverage: 'covered', serviceDates };
@@ -73,7 +86,7 @@ export async function scheduledEvents(reader: TimetableReader, stopId: string, n
         } else {
           // Inexact headways describe a service level, not departures: no fabricated exact time.
           const first = origin + (frequency.start + offset) * 1000; const last = origin + (frequency.end + offset) * 1000;
-          if (last >= now && first <= to) events.push({ ...base, start: frequency.start, frequency: { headwaySeconds: frequency.headway, from: first, until: last } });
+          if (last >= now && first <= to) events.push({ ...base, start: frequency.start, frequency: { headwaySeconds: frequency.headway, from: first, until: last, startSeconds: frequency.start, endSeconds: frequency.end } });
         }
       }
     }

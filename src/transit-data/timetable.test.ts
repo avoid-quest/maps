@@ -78,7 +78,17 @@ test('frequencies: exact times expand, inexact headways never fabricate times', 
   const inexact = await scheduledEvents(reader, 'B', rome('20261021', '12:20'), { lookbackMs: 0, horizonMs: 30 * 60_000 });
   const level = inexact.events.find(event => event.trip.tripId === 'FQ');
   assert.equal(level?.scheduledAt, undefined);
-  assert.deepEqual(level?.frequency, { headwaySeconds: 600, from: rome('20261021', '12:02'), until: rome('20261021', '13:02') });
+  assert.deepEqual(level?.frequency, { headwaySeconds: 600, from: rome('20261021', '12:02'), until: rome('20261021', '13:02'), startSeconds: 12 * 3600, endSeconds: 13 * 3600 });
+});
+
+test('the final service day keeps its overnight trips; coverage ends after its last event', async () => {
+  // TLATE runs at 25:30 on the last service date 20261130, i.e. 01:30 on 1 December.
+  const late = await scheduledEvents(reader, 'A', rome('20261201', '01:00'), { lookbackMs: 0, horizonMs: 60 * 60_000 });
+  assert.equal(late.coverage, 'covered');
+  assert.deepEqual(late.events.map(event => `${event.trip.tripId}@${event.serviceDate}`), ['TLATE@20261130']);
+  assert.equal(late.events[0]?.scheduledAt, rome('20261201', '01:30'));
+  assert.equal((await scheduledEvents(reader, 'A', rome('20261201', '02:00'))).coverage, 'outside', 'after the last overnight event');
+  assert.equal((await scheduledEvents(reader, 'A', rome('20261019', '23:00'))).coverage, 'outside', 'before the first service day');
 });
 
 test('outside calendar coverage nothing is extrapolated', async () => {
@@ -93,7 +103,7 @@ test('outside calendar coverage nothing is extrapolated', async () => {
 const NOW = rome('20261021', '08:02');
 const sec = (ms: number) => ms / 1000;
 async function eventAt(stopId: string, tripId: string, now = NOW): Promise<ScheduledEvent> {
-  const { events } = await scheduledEvents(reader, stopId, now, { lookbackMs: 30 * 60_000, horizonMs: 3 * 3_600_000 });
+  const { events } = await scheduledEvents(reader, stopId, now, { lookbackMs: 3 * 3_600_000, horizonMs: 3 * 3_600_000 });
   return events.find(event => event.trip.tripId === tripId)!;
 }
 const update = (stopTimeUpdate: TripUpdate['stopTimeUpdate'], extra: Partial<TripUpdate> = {}): TripUpdate => ({
@@ -141,6 +151,63 @@ test('freshness needs plausible feed and entity timestamps; stale keeps its age'
   assert.equal(stale.state, 'stale'); assert.equal(stale.updatedAt, NOW - 5 * 60_000);
   assert.equal(predictEvent(atC, update(stu), NOW - 3 * 60_000, NOW).state, 'stale', 'old feed header');
   assert.equal(predictEvent(atC, update(stu, { timestamp: sec(NOW - 31 * 60_000) }), NOW, NOW).state, 'expired');
+});
+
+test('cancellations and skips age like predictions and keep their report with its age', async () => {
+  const atC = await eventAt('C', 'T1');
+  const cancelled = (age: number) => update([], { timestamp: sec(NOW - age), trip: { tripId: 'T1', startDate: '20261021', scheduleRelationship: 'CANCELED' } });
+  assert.deepEqual(predictEvent(atC, cancelled(30_000), NOW, NOW), { state: 'cancelled', report: 'cancelled', updatedAt: NOW - 30_000 });
+  assert.deepEqual(predictEvent(atC, cancelled(5 * 60_000), NOW, NOW), { state: 'stale', report: 'cancelled', updatedAt: NOW - 5 * 60_000 });
+  assert.deepEqual(predictEvent(atC, cancelled(40 * 60_000), NOW, NOW), { state: 'expired', report: 'cancelled', updatedAt: NOW - 40 * 60_000 });
+  const skipped = update([{ stopSequence: 7, scheduleRelationship: 'SKIPPED' }], { timestamp: sec(NOW - 3 * 60_000) });
+  assert.deepEqual(predictEvent(atC, skipped, NOW, NOW), { state: 'stale', report: 'skipped', updatedAt: NOW - 3 * 60_000 });
+  // A fresh cancellation on the board ages at render time without a new download.
+  const board = await composeBoard(reader, 'C', NOW, { refresh: INITIAL_REFRESH_STATE, realtime: { snapshot: indexFeed(feed([cancelled(30_000)]), NOW), matchedTrips: 1 } });
+  const row = board.rows.find(candidate => candidate.gtt.tripId === 'T1')!;
+  assert.equal(row.realtimeState, 'cancelled'); assert.equal(row.tripCancelled, true);
+  assert.deepEqual(row.gtt.report, { kind: 'cancelled', reportedAt: NOW - 30_000 });
+  const stale = agedRow(row, NOW + 3 * 60_000);
+  assert.equal(stale.realtimeState, 'unknown'); assert.equal(stale.tripCancelled, false); assert.equal(stale.gtt.realtime, 'stale');
+  const expired = agedRow(row, NOW + 31 * 60_000);
+  assert.equal(expired.gtt.realtime, 'expired'); assert.equal(expired.sourceUpdatedAt, NOW - 30_000, 'the report keeps its age');
+  assert.deepEqual(expired.gtt.report, row.gtt.report);
+});
+
+test('StopTimeEvent uncertainty is kept on predictions and rows', async () => {
+  const atC = await eventAt('C', 'T1');
+  const uncertain = predictEvent(atC, update([{ stopSequence: 7, arrival: { delay: 60, uncertainty: 600 } }]), NOW, NOW);
+  assert.equal(uncertain.uncertaintySeconds, 600);
+  assert.equal(predictEvent(atC, update([{ stopSequence: 3, arrival: { delay: 60, uncertainty: 90 } }]), NOW, NOW).uncertaintySeconds, 90, 'propagated from the source event');
+  assert.equal(predictEvent(atC, update([{ stopSequence: 7, arrival: { delay: 60 } }]), NOW, NOW).uncertaintySeconds, undefined);
+  const board = await composeBoard(reader, 'C', NOW, { refresh: INITIAL_REFRESH_STATE, realtime: { snapshot: indexFeed(feed([update([{ stopSequence: 7, arrival: { delay: 60, uncertainty: 600 } }])]), NOW), matchedTrips: 1 } });
+  assert.equal(board.rows.find(row => row.gtt.tripId === 'T1')?.gtt.uncertaintySeconds, 600);
+});
+
+test('a vehicle delayed beyond 30 minutes stays on the board until its predicted time', async () => {
+  const later = rome('20261021', '08:35');
+  const delayed = { ...update([{ stopSequence: 1, arrival: { delay: 40 * 60 } }]), timestamp: sec(later - 20_000) };
+  const board = await composeBoard(reader, 'A', later, { refresh: INITIAL_REFRESH_STATE, realtime: { snapshot: indexFeed(feed([delayed], sec(later)), later), matchedTrips: 1 } });
+  const row = board.rows.find(candidate => candidate.gtt.tripId === 'T1');
+  assert.equal(row?.predictedAt, rome('20261021', '08:40'), '08:00 service, +40 min');
+  assert.equal(predictEvent(await eventAt('A', 'T1', later), { ...delayed, stopTimeUpdate: [{ stopSequence: 1, arrival: { delay: 4 * 3600 } }] }, later, later).state, 'unverifiable', 'beyond the accepted shift');
+});
+
+test('inexact frequency instances join only by descriptor and absolute times', async () => {
+  const at = rome('20261021', '12:21');
+  const instance = (startTime: string, stu: TripUpdate['stopTimeUpdate']): TripUpdate => ({ timestamp: sec(at - 10_000), trip: { tripId: 'FQ', startDate: '20261021', startTime }, stopTimeUpdate: stu });
+  const snapshot = indexFeed(feed([
+    instance('12:20:00', [{ stopSequence: 3, arrival: { time: sec(rome('20261021', '12:24')) } }]),
+    instance('12:30:00', [{ stopSequence: 3, arrival: { delay: 60 } }]),
+    instance('13:30:00', [{ stopSequence: 3, arrival: { time: sec(rome('20261021', '13:33')) } }]),
+  ], sec(at)), at);
+  const board = await composeBoard(reader, 'B', at, { refresh: INITIAL_REFRESH_STATE, realtime: { snapshot, matchedTrips: 3 }, window: { lookbackMs: 0, horizonMs: 30 * 60_000 } });
+  const rows = board.rows.filter(row => row.gtt.tripId === 'FQ');
+  const headway = rows.find(row => row.gtt.frequency);
+  assert.ok(headway && headway.scheduledAt === undefined && headway.realtimeState === 'scheduled', 'the headway row stays as fallback');
+  const live = rows.filter(row => !row.gtt.frequency);
+  assert.equal(live.length, 1, 'delay-only and out-of-period instances are not shown');
+  assert.equal(live[0]?.predictedAt, rome('20261021', '12:24')); assert.equal(live[0]?.scheduledAt, undefined, 'no fabricated schedule');
+  assert.equal(live[0]?.gtt.delaySeconds, undefined, 'no delay against a template');
 });
 
 test('explicit stop_id is validated and repeated visits need stop_sequence', async () => {

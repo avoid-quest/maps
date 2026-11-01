@@ -30,6 +30,10 @@ export interface GttRowDetail {
   delaySeconds?: number;
   /** Delay came from an earlier stop of the same trip (GTFS-RT propagation). */
   propagated?: boolean;
+  /** StopTimeEvent.uncertainty (seconds) behind the prediction, when supplied. */
+  uncertaintySeconds?: number;
+  /** A cancellation/skip report, kept with its time even after it stops being definite. */
+  report?: { kind: 'cancelled' | 'skipped'; reportedAt: number };
   /** Frequency-based service without exact times: a service level, never a fabricated time. */
   frequency?: { headwaySeconds: number; from: number; until: number };
   /** When the schedule source was last modified upstream (ms). */
@@ -96,21 +100,23 @@ export function modeForRouteType(routeType: number | undefined): TransitBoardMod
 }
 
 /**
- * Render-time aging: a fresh GTT prediction becomes 'unknown' (time kept as providerTimeAt with its
- * age) after 2 minutes and is dropped after 30 minutes, without waiting for another download.
+ * Render-time aging, identical for predictions, cancellations and skipped stops: definite up to
+ * 2 minutes after the oldest of feed and entity timestamps; then 'unknown' with the time kept as
+ * providerTimeAt (or the report kept) and shown with its age; after 30 minutes no longer current,
+ * keeping only a cancellation/skip report with its age.
  */
 export function agedRow(row: GttBoardRow, now: number): GttBoardRow {
-  if (row.sourceUpdatedAt === undefined || (row.gtt.realtime !== 'fresh' && row.gtt.realtime !== 'stale')) return row;
+  const definite = row.gtt.realtime === 'fresh' || row.gtt.realtime === 'cancelled' || row.gtt.realtime === 'skipped';
+  if (row.sourceUpdatedAt === undefined || !(definite || row.gtt.realtime === 'stale')) return row;
   const age = now - row.sourceUpdatedAt;
-  const time = row.predictedAt ?? row.providerTimeAt;
   if (age > STALE_MAX_AGE_MS) {
     const { predictedAt: _p, providerTimeAt: _t, sourceUpdatedAt: _s, ...rest } = row;
-    const { delaySeconds: _d, propagated: _r, ...detail } = row.gtt;
-    return { ...rest, realtimeState: 'unknown', timeBasis: 'scheduled', gtt: { ...detail, realtime: 'expired' } };
+    const { delaySeconds: _d, propagated: _r, uncertaintySeconds: _u, ...detail } = row.gtt;
+    return { ...rest, ...(row.gtt.report ? { sourceUpdatedAt: row.sourceUpdatedAt } : {}), realtimeState: 'unknown', timeBasis: 'scheduled', tripCancelled: false, gtt: { ...detail, realtime: 'expired' } };
   }
-  if (age > LIVE_MAX_AGE_MS && row.realtimeState === 'realtime-with-source-time') {
-    const { predictedAt: _p, ...rest } = row;
-    return { ...rest, realtimeState: 'unknown', providerTimeAt: time, gtt: { ...row.gtt, realtime: 'stale' } };
+  if (age > LIVE_MAX_AGE_MS && definite) {
+    const { predictedAt, ...rest } = row;
+    return { ...rest, realtimeState: 'unknown', tripCancelled: false, ...(predictedAt !== undefined ? { providerTimeAt: predictedAt } : {}), gtt: { ...row.gtt, realtime: 'stale' } };
   }
   return row;
 }
@@ -118,4 +124,9 @@ export function agedRow(row: GttBoardRow, now: number): GttBoardRow {
 /** Provenance label beside a row. */
 export function provenanceLabel(row: GttBoardRow): string {
   return row.gtt.realtime === 'fresh' || row.gtt.realtime === 'stale' || row.realtimeState === 'cancelled' ? LABELS.realtime : LABELS.scheduled;
+}
+
+/** Whether a countdown is honest: no uncertainty, or uncertainty under two minutes. */
+export function preciseEnoughForCountdown(row: GttBoardRow): boolean {
+  return row.gtt.uncertaintySeconds === undefined || row.gtt.uncertaintySeconds < 120;
 }
