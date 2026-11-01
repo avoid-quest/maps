@@ -75,9 +75,17 @@ test('Tailwind semantic colours cover every token through its CSS variable', () 
   for (const scheme of ['light', 'dark'] as const) assert.deepEqual(Object.keys(themeVariables(scheme)).sort(), [...declared.keys()].map(name => `--color-${name}`).sort());
 });
 
-test('global.css light fallbacks match the light palette', () => {
+const declaredIn = (block: string) => Object.fromEntries([...block.matchAll(/(--color-[a-z-]+):\s*([^;]+);/g)].map(match => [match[1], match[2]!.trim()]));
+
+test('global.css root variables match both palettes, so native styles follow a live scheme switch', () => {
   const css = readFileSync(new URL('../../global.css', import.meta.url), 'utf8');
-  const root = /:root\s*\{([^}]*)\}/.exec(css)?.[1] ?? '';
-  const declared = Object.fromEntries([...root.matchAll(/(--color-[a-z-]+):\s*([^;]+);/g)].map(match => [match[1], match[2]!.trim()]));
-  assert.deepEqual(declared, themeVariables('light'));
+  const light = /^:root\s*\{([^}]*)\}/m.exec(css)?.[1] ?? '';
+  const dark = /@media \(prefers-color-scheme: dark\)\s*\{\s*:root\s*\{([^}]*)\}/.exec(css)?.[1] ?? '';
+  assert.deepEqual(declaredIn(light), themeVariables('light'));
+  assert.deepEqual(declaredIn(dark), themeVariables('dark'));
+});
+
+test('native views read root variables, never an inline vars() context that memoized views miss', () => {
+  const provider = readFileSync(new URL('./ThemeProvider.tsx', import.meta.url), 'utf8');
+  assert.match(provider, /if \(Platform\.OS !== 'web'\) return undefined;/);
 });

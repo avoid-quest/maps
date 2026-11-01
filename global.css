@@ -2,7 +2,8 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Light fallbacks for semantic colours; ThemeProvider overrides them with vars(). Kept in sync by src/theme/palette.test.ts. */
+/* Semantic colours, kept in sync with src/theme/palette.ts by src/theme/palette.test.ts. On web ThemeProvider
+   also sets them inline so an in-app Chiaro/Scuro choice overrides the browser preference. */
 :root {
   --color-surface: 250 251 252;
   --color-surface-raised: 255 255 255;
@@ -23,6 +24,32 @@
   --color-scheduled: 62 70 82;
   --color-stale: 138 80 0;
   --color-cancelled: 180 35 24;
+}
+
+/* Dark values. On Android/iOS NativeWind binds these root variables to the app colour scheme, which
+   ThemeProvider sets through Appearance, so every styled view updates on a live switch. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-surface: 22 24 28;
+    --color-surface-raised: 31 34 40;
+    --color-surface-muted: 42 46 53;
+    --color-text-primary: 236 238 241;
+    --color-text-secondary: 168 175 185;
+    --color-divider: 53 58 66;
+    --color-action: 138 180 248;
+    --color-on-action: 11 27 54;
+    --color-action-subtle: 29 44 69;
+    --color-caution: 240 185 92;
+    --color-caution-subtle: 54 41 15;
+    --color-danger: 244 145 137;
+    --color-danger-subtle: 61 29 27;
+    --color-success: 125 211 160;
+    --color-success-subtle: 22 48 32;
+    --color-live: 98 210 191;
+    --color-scheduled: 200 205 213;
+    --color-stale: 240 185 92;
+    --color-cancelled: 244 145 137;
+  }
 }
 
 /* Attribution stays exposed above the task sheet. */

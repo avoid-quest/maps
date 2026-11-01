@@ -32,9 +32,16 @@ function themeFor(scheme: ColorScheme, preferenceState: ThemePreferenceSnapshot,
 const fallbackTheme = themeFor('light', { ready: false, preferenceKnown: false, preference: 'system', storage: 'unavailable' }, async () => false);
 const ThemeContext = createContext<Theme>(fallbackTheme);
 
-// NativeWind identifies vars() results by object identity on native: create once and pass unmodified.
+/**
+ * Where semantic colours come from. Native: the `:root` and `prefers-color-scheme: dark` blocks in
+ * global.css, which NativeWind binds to the colour scheme set through `Appearance` (SystemChrome below).
+ * Every styled view subscribes to that, so a live switch repaints memoized rows and floating controls
+ * too; inline `vars()` only reached views that happened to re-render. Web: inline custom properties,
+ * so an in-app Chiaro/Scuro choice can override the browser preference.
+ */
 const schemeVariables: Partial<Record<ColorScheme, ReturnType<typeof vars>>> = {};
 function variablesFor(scheme: ColorScheme) {
+  if (Platform.OS !== 'web') return undefined;
   return (schemeVariables[scheme] ??= vars(themeVariables(scheme)));
 }
 
