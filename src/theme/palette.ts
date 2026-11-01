@@ -1,3 +1,5 @@
+import { basemapInks } from './brand-basemap';
+
 /**
  * Semantic colour tokens. Components describe a role (surface, secondary text, action, stale data),
  * never a hue, so each role can resolve differently in light and dark appearance.
@@ -56,8 +58,13 @@ export interface MapColors {
   selectedMarkerStroke: string;
   labelText: string;
   labelHalo: string;
+  /** The device position: the one live signal on the map, so it uses the live green. */
   userLocation: string;
   userLocationStroke: string;
+  /** Realtime transit overlays (vehicles, confirmed departures). Pair with a label or shape. */
+  live: string;
+  /** Disruption or uncertainty overlays. Pair with a label or shape. */
+  caution: string;
   coverage: string;
 }
 
@@ -86,9 +93,9 @@ const lightColors: ThemeColors = {
   cautionSubtle: '#FEF3C7',
   danger: '#B91C1C',
   dangerSubtle: '#FEE2E2',
-  success: '#0A7A4F',
+  success: '#066F44',
   successSubtle: '#DCFCE7',
-  live: '#0A7A4F',
+  live: '#066F44',
   scheduled: '#3F3F46',
   stale: '#92400E',
   cancelled: '#B91C1C',
@@ -122,37 +129,40 @@ export const palettes: Record<ColorScheme, Palette> = {
     scheme: 'light',
     colors: lightColors,
     map: {
-      background: '#F8F4F0',
-      routeLine: lightColors.action,
+      background: basemapInks.light.land,
+      routeLine: '#09090B',
       routeCasing: '#FFFFFF',
-      placeMarker: lightColors.action,
-      stopMarker: '#A35A00',
+      placeMarker: '#09090B',
+      stopMarker: '#71717A',
       markerStroke: '#FFFFFF',
-      selectedMarkerStroke: lightColors.textPrimary,
-      labelText: lightColors.textPrimary,
+      selectedMarkerStroke: '#09090B',
+      labelText: '#09090B',
       labelHalo: '#FFFFFF',
-      userLocation: lightColors.action,
+      userLocation: lightColors.live,
       userLocationStroke: '#FFFFFF',
-      coverage: '#167469',
+      live: lightColors.live,
+      caution: '#B45309',
+      coverage: '#71717A',
     },
   },
   dark: {
     scheme: 'dark',
     colors: darkColors,
     map: {
-      background: '#1B1D21',
-      routeLine: darkColors.action,
-      routeCasing: '#0E1116',
-      placeMarker: darkColors.action,
-      stopMarker: darkColors.caution,
-      markerStroke: '#0E1116',
+      background: basemapInks.dark.land,
+      routeLine: '#FFFFFF',
+      routeCasing: '#000000',
+      placeMarker: '#FFFFFF',
+      stopMarker: '#A1A1AA',
+      markerStroke: '#000000',
       selectedMarkerStroke: '#FFFFFF',
-      labelText: darkColors.textPrimary,
-      labelHalo: '#0E1116',
-      /** Saturated so the white ring reads; also distinct from place markers. */
-      userLocation: '#3B82F6',
-      userLocationStroke: '#FFFFFF',
-      coverage: darkColors.live,
+      labelText: '#F4F4F5',
+      labelHalo: '#000000',
+      userLocation: darkColors.live,
+      userLocationStroke: '#000000',
+      live: darkColors.live,
+      caution: '#F5B83D',
+      coverage: '#8E8E96',
     },
   },
 };
