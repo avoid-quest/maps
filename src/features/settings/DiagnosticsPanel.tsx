@@ -3,7 +3,7 @@ import { ScrollView, Switch, View } from 'react-native';
 import { Text } from '../../ui/Text';
 import { copyText } from '../../platform/clipboard';
 import { useThemeColors } from '../../theme';
-import { Button, Notice, useHairlines } from '../../ui';
+import { Button, Notice, switchColors, useHairlines } from '../../ui';
 import { copyDiagnosticReport, diagnostics, MAX_DIAGNOSTIC_EVENTS } from '../../services/diagnostics';
 import { diagnosticReport } from '../../services/diagnostics-runtime';
 
@@ -53,7 +53,7 @@ export function DiagnosticsPanel() {
         <Text className="text-base font-semibold text-primary">Registra eventi tecnici</Text>
         <Text className="mt-1 text-sm text-secondary">{!snapshot.ready ? 'Caricamento…' : !snapshot.preferenceKnown ? 'Sospesa' : snapshot.enabled ? 'Attiva' : 'Disattivata'} · {snapshot.events.length}/{MAX_DIAGNOSTIC_EVENTS} eventi</Text>
       </View>
-      <Switch accessibilityLabel="Registra eventi tecnici" value={snapshot.enabled} disabled={!snapshot.ready || busy} onValueChange={enabled => void setEnabled(enabled)} trackColor={{ true: colors.action, false: colors.surfaceMuted }} thumbColor={snapshot.enabled ? colors.onAction : colors.textSecondary} />
+      <Switch accessibilityLabel="Registra eventi tecnici" value={snapshot.enabled} disabled={!snapshot.ready || busy} onValueChange={enabled => void setEnabled(enabled)} {...switchColors(colors, snapshot.enabled)} />
     </View>
     <Text className="text-sm leading-5 text-secondary">Il registro conserva gli ultimi 120 eventi. Gli arresti nativi e i problemi prima dell’avvio dell’app possono non comparire.</Text>
     {snapshot.ready && !snapshot.preferenceKnown ? <>

@@ -59,6 +59,8 @@ internal class NavigationRuntime private constructor(private val context: Contex
   private var transitPlan: Map<String, Any?>? = null
   private var transitOrigin: Point? = null
   private val deviation = DeviationLatch()
+  /** A location problem reported while a route request is in flight, applied when the route installs. */
+  private var deferredLocationProblem: String? = null
   private var arrivalFixes = 0
   private val reroutes = RerouteBudget()
   private val spoken = linkedSetOf<String>()
@@ -339,6 +341,7 @@ internal class NavigationRuntime private constructor(private val context: Contex
   }
 
   private fun acceptFix(fix: Location, reducedStart: Boolean, reducedPrecision: Boolean) {
+    deferredLocationProblem = null
     latestFix = Location(fix)
     fields["location"] = fixMap(fix)
     if (reducedStart) fields["reducedAccuracyStartMeters"] = fix.accuracy.roundToInt()
@@ -515,7 +518,9 @@ internal class NavigationRuntime private constructor(private val context: Contex
         "source" to "FOSSGIS / OpenStreetMap", "fetchedAt" to response.fetchedAt)
       if (!fresh) {
         fields["status"] = "location-degraded"; fields["canRetry"] = true
-        fields["problem"] = if (fixAge(latest) > fixPolicy.maximumFixAgeMillis) "location-stale" else "location-inaccurate"
+        fields["problem"] = deferredLocationProblem
+          ?: if (fixAge(latest) > fixPolicy.maximumFixAgeMillis) "location-stale" else "location-inaccurate"
+        deferredLocationProblem = null
         publish(); return@launch
       }
       try { handleProgress(next.update(latest), latest, initial = true) } catch (error: Throwable) { engineFailed("update", error) }
@@ -546,7 +551,11 @@ internal class NavigationRuntime private constructor(private val context: Contex
       if (!recovery.transitReplanRequired) fields["problem"] = problem
       publish(); return
     }
-    if (recovery.blocksFixProgress || fields["status"] == "error" || routeJob?.isActive == true) { publish(); return }
+    if (routeJob?.isActive == true) {
+      // The route response decides the status; keep the real cause for it (e.g. location-disabled).
+      deferredLocationProblem = problem; publish(); return
+    }
+    if (recovery.blocksFixProgress || fields["status"] == "error") { publish(); return }
     fields["status"] = "location-degraded"
     fields["problem"] = problem; fields["canRetry"] = true
     publish()
@@ -565,7 +574,7 @@ internal class NavigationRuntime private constructor(private val context: Contex
     runCatching { speech?.close() }; speech = null
     runCatching { engine?.close() }; engine = null
     transitEngine = null; transitPlan = null; transitOrigin = null; admission = null; autoRouteRequested = false
-    latestFix = null; target = null; spoken.clear(); deviation.reset(); arrivalFixes = 0; reroutes.reset()
+    latestFix = null; target = null; spoken.clear(); deviation.reset(); deferredLocationProblem = null; arrivalFixes = 0; reroutes.reset()
     val old = service; service = null; old?.finish()
   }
   private fun fixAge(fix: Location) = (SystemClock.elapsedRealtimeNanos() - fix.elapsedRealtimeNanos) / 1_000_000L

@@ -99,7 +99,7 @@ class AvoidNavigationModule : Module() {
       } }
     }
     AsyncFunction("confirmTransitStep") Coroutine { sessionId: String, action: String ->
-      withContext(Dispatchers.Main.immediate) { runtime.confirmTransit(sessionId, action) }
+      withContext(Dispatchers.Main.immediate) { command("confirm-transit") { runtime.confirmTransit(sessionId, action) } }
     }
     AsyncFunction("stopNavigation") Coroutine { sessionId: String? ->
       withContext(Dispatchers.Main.immediate) { command("stop") {
@@ -115,7 +115,7 @@ class AvoidNavigationModule : Module() {
       } }
     }
     AsyncFunction("setMuted") Coroutine { sessionId: String, muted: Boolean ->
-      withContext(Dispatchers.Main.immediate) { runtime.setMuted(sessionId, muted) }
+      withContext(Dispatchers.Main.immediate) { command("set-muted") { runtime.setMuted(sessionId, muted) } }
     }
     AsyncFunction("requestRoadRoute") Coroutine { requestId: String, from: Map<String, Any?>, to: Map<String, Any?>, mode: String ->
       runtime.road.request(requestId, Point.from(from), Point.from(to), mode).bridge()

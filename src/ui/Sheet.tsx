@@ -1,5 +1,5 @@
 import BottomSheet, { BottomSheetFlatList, BottomSheetFooter, BottomSheetScrollView, type BottomSheetFooterProps } from "@gorhom/bottom-sheet";
-import { useCallback, useEffect, useMemo, useRef, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, type ReactNode } from "react";
 import { StyleSheet, View, type AccessibilityActionEvent } from "react-native";
 import { useThemeColors } from "../theme/ThemeProvider";
 import { Divider } from "./Divider";
@@ -50,23 +50,9 @@ export function AppSheet({ snap, heights, onSnapChange, header, footer, footerHe
     const target = distinctSnap(sizes, logical, direction);
     if (target !== logical) change(target);
   }, []);
-  const Handle = useCallback(() => (
-    <View
-      accessible
-      accessibilityRole="adjustable"
-      accessibilityLabel="Altezza della scheda"
-      accessibilityValue={{ text: SHEET_SNAP_LABELS[snap] }}
-      accessibilityActions={[{ name: "increment", label: "Espandi" }, { name: "decrement", label: "Riduci" }]}
-      onAccessibilityAction={(event: AccessibilityActionEvent) => step(event.nativeEvent.actionName === "increment" ? 1 : -1)}
-      className="h-5 items-center justify-center"
-    >
-      <View style={{ backgroundColor: colors.textSecondary }} className="h-1 w-9 rounded-full opacity-60" />
-    </View>
-  ), [colors.textSecondary, step, snap]);
-  const Footer = useCallback((props: BottomSheetFooterProps) => (
-    <BottomSheetFooter {...props}><View style={{ height: footerHeight }} className="bg-surface">{footer}</View></BottomSheetFooter>
-  ), [footer, footerHeight]);
+  const chrome = useMemo(() => ({ snap, step, footer, footerHeight, handleColor: colors.textSecondary, surface: colors.surface }), [snap, step, footer, footerHeight, colors.textSecondary, colors.surface]);
   return (
+    <SheetChromeContext.Provider value={chrome}>
     <BottomSheet
       ref={sheet}
       index={index}
@@ -78,8 +64,8 @@ export function AppSheet({ snap, heights, onSnapChange, header, footer, footerHe
       bottomInset={bottomInset}
       style={{ marginHorizontal: horizontalInset }}
       backgroundStyle={{ backgroundColor: colors.surface, borderColor: colors.divider, borderWidth: StyleSheet.hairlineWidth, borderRadius: 20 }}
-      handleComponent={Handle}
-      footerComponent={footer ? Footer : undefined}
+      handleComponent={SheetHandle}
+      footerComponent={footer ? SheetFooter : undefined}
       onAnimate={(_from, to) => report(to)}
       onChange={report}
       keyboardBehavior="interactive"
@@ -97,7 +83,40 @@ export function AppSheet({ snap, heights, onSnapChange, header, footer, footerHe
         {children}
       </View>
     </BottomSheet>
+    </SheetChromeContext.Provider>
   );
+}
+
+/**
+ * The handle and footer are rendered by the gesture library from component types. Their types stay
+ * stable (module-level) and read changing values through context, so a snap change or a parent
+ * re-render updates them in place instead of remounting: TalkBack keeps focus on the adjustable
+ * handle, and a tap on the route actions is not lost to a remount.
+ */
+const SheetChromeContext = createContext<{ snap: SheetSnap; step: (direction: 1 | -1) => void; footer?: ReactNode; footerHeight: number; handleColor: string; surface: string }>({
+  snap: "peek", step: () => undefined, footerHeight: 0, handleColor: "transparent", surface: "transparent",
+});
+
+function SheetHandle() {
+  const { snap, step, handleColor } = useContext(SheetChromeContext);
+  return (
+    <View
+      accessible
+      accessibilityRole="adjustable"
+      accessibilityLabel="Altezza della scheda"
+      accessibilityValue={{ text: SHEET_SNAP_LABELS[snap] }}
+      accessibilityActions={[{ name: "increment", label: "Espandi" }, { name: "decrement", label: "Riduci" }]}
+      onAccessibilityAction={(event: AccessibilityActionEvent) => step(event.nativeEvent.actionName === "increment" ? 1 : -1)}
+      className="h-5 items-center justify-center"
+    >
+      <View style={{ backgroundColor: handleColor }} className="h-1 w-9 rounded-full opacity-60" />
+    </View>
+  );
+}
+
+function SheetFooter(props: BottomSheetFooterProps) {
+  const { footer, footerHeight, surface } = useContext(SheetChromeContext);
+  return <BottomSheetFooter {...props}><View style={{ height: footerHeight, backgroundColor: surface }}>{footer}</View></BottomSheetFooter>;
 }
 
 /** Scrolling content that cooperates with sheet dragging. */
@@ -105,5 +124,5 @@ export function SheetScrollView({ children }: { children: ReactNode }) {
   return <BottomSheetScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 24 }}>{children}</BottomSheetScrollView>;
 }
 
-/** A virtualized list inside the sheet; use for results, stops and saved items. */
-export const SheetFlatList = BottomSheetFlatList;
+/** A virtualized list inside the sheet; use for results, stops and saved items. Taps work with the keyboard open. */
+export const SheetFlatList = ((props: Parameters<typeof BottomSheetFlatList>[0]) => <BottomSheetFlatList keyboardShouldPersistTaps="handled" {...props} />) as typeof BottomSheetFlatList;

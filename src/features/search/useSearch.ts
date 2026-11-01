@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore, type RefObject } from 'react';
 import { Keyboard, type TextInput } from 'react-native';
 import type { SearchPolicy, SearchResult } from '../../domain/types';
 import { searchLocalResult, searchPlaces } from '../../services';
@@ -9,6 +9,7 @@ import { rootTab, searchRoot } from '../app/task-model';
 import type { TaskModel } from '../app/useTaskModel';
 import type { DeviceLocation } from '../map/useDeviceLocation';
 import type { MapCamera } from '../map/useMapCamera';
+import { initialSearchFrame, searchFrameReducer } from './search-frame';
 
 export interface Search {
   inputRef: RefObject<TextInput | null>;
@@ -23,8 +24,11 @@ export interface Search {
   policy: SearchPolicy;
   searching: boolean;
   error: string;
-  /** Advances when a search is submitted or a category chosen; the map frames those results once. */
-  frameRevision: number;
+  /**
+   * A submitted search or chosen category the map should frame once: `settled` turns true when the
+   * search run started by that request finishes (online included). Editing or clearing withdraws it.
+   */
+  frame: { key: string; settled: boolean } | null;
   focus(): void;
   changeQuery(value: string): void;
   chooseCategory(category: string): void;
@@ -53,7 +57,8 @@ export function useSearch({ tasks, camera, location, sheet, appActive, navigatio
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState('');
   const [retryRevision, setRetryRevision] = useState(0);
-  const [frameRevision, setFrameRevision] = useState(0);
+  const [frameState, dispatchFrame] = useReducer(searchFrameReducer, initialSearchFrame);
+  const pendingFrame = frameState.pending?.revision ?? 0;
 
   useEffect(() => {
     if (!explore || navigationVisible || !hasSearch || !appActive) { setSearching(false); return; }
@@ -65,8 +70,11 @@ export function useSearch({ tasks, camera, location, sheet, appActive, navigatio
     });
     setError('');
     setCompleted({ result: localResult, policy, local: localResult });
+    // This run answers the frame requested before it started (if any).
+    const settleFrame = () => { if (pendingFrame) dispatchFrame({ type: 'settled', revision: pendingFrame }); };
     if (!preference.ready || policy === 'local-only') {
       setSearching(false);
+      settleFrame();
       return () => { unsubscribe(); controller.abort(); };
     }
     setSearching(true);
@@ -88,7 +96,7 @@ export function useSearch({ tasks, camera, location, sheet, appActive, navigatio
             }
           })
           .finally(() => {
-            if (!controller.signal.aborted) setSearching(false);
+            if (!controller.signal.aborted) { setSearching(false); settleFrame(); }
           });
       },
       query ? 450 : 0,
@@ -98,7 +106,7 @@ export function useSearch({ tasks, camera, location, sheet, appActive, navigatio
       controller.abort();
       unsubscribe();
     };
-  }, [query, category, searchCenter, retryRevision, explore, preference.ready, policy, localResult, navigationVisible, hasSearch, appActive]);
+  }, [query, category, searchCenter, retryRevision, explore, preference.ready, policy, localResult, navigationVisible, hasSearch, appActive, pendingFrame]);
 
   const { dispatch } = tasks;
   const focus = useCallback(() => {
@@ -112,6 +120,7 @@ export function useSearch({ tasks, camera, location, sheet, appActive, navigatio
     camera.touch();
     sheet.collapse();
     setQuery(value);
+    dispatchFrame({ type: 'cancel' });
     dispatch({ type: 'editQuery' });
   }, [camera, location, sheet, dispatch]);
   const chooseCategory = useCallback((next: string) => {
@@ -119,12 +128,20 @@ export function useSearch({ tasks, camera, location, sheet, appActive, navigatio
     setQuery('');
     dispatch({ type: 'chooseCategory', category: next });
     camera.searchHere();
-    setFrameRevision(value => value + 1);
-  }, [camera, dispatch]);
+    location.cancel();
+    dispatchFrame({ type: 'request' });
+  }, [camera, location, dispatch]);
   const retry = useCallback(() => setRetryRevision(value => value + 1), []);
-  const submit = useCallback(() => { Keyboard.dismiss(); retry(); setFrameRevision(value => value + 1); }, [retry]);
-  const clear = useCallback(() => setQuery(''), []);
-  return { inputRef, query, category, term, hasSearch, result, policy, searching, error, frameRevision, focus, changeQuery, chooseCategory, submit, retry, clear };
+  const submit = useCallback(() => {
+    Keyboard.dismiss();
+    // An explicit search outranks a pending Locate: a late first fix must not move the map.
+    location.cancel();
+    retry();
+    dispatchFrame({ type: 'request' });
+  }, [retry, location]);
+  const clear = useCallback(() => { setQuery(''); dispatchFrame({ type: 'cancel' }); }, []);
+  const frame = useMemo(() => frameState.pending ? { key: `results:${frameState.pending.revision}`, settled: frameState.pending.settled } : null, [frameState.pending]);
+  return { inputRef, query, category, term, hasSearch, result, policy, searching, error, frame, focus, changeQuery, chooseCategory, submit, retry, clear };
 }
 
 export const [SearchProvider, useSearchContext] = createFeatureContext<Search>('Search');

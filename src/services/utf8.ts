@@ -30,7 +30,7 @@ function decodeManually(bytes: Uint8Array): string {
     if (first >= 0xc2 && first <= 0xdf) { needed = 1; code = first & 0x1f; }
     else if (first >= 0xe0 && first <= 0xef) { needed = 2; code = first & 0x0f; if (first === 0xe0) lower = 0xa0; if (first === 0xed) upper = 0x9f; }
     else if (first >= 0xf0 && first <= 0xf4) { needed = 3; code = first & 0x07; if (first === 0xf0) lower = 0x90; if (first === 0xf4) upper = 0x8f; }
-    else { units.push(0xfffd); index += 1; continue; }
+    else { units.push(0xfffd); index += 1; if (units.length > 4096) flush(); continue; }
     let consumed = 1;
     for (; consumed <= needed; consumed++) {
       const next = bytes[index + consumed];
@@ -38,7 +38,7 @@ function decodeManually(bytes: Uint8Array): string {
       code = (code << 6) | (next & 0x3f);
       lower = 0x80; upper = 0xbf;
     }
-    if (consumed <= needed) { units.push(0xfffd); index += consumed; continue; }
+    if (consumed <= needed) { units.push(0xfffd); index += consumed; if (units.length > 4096) flush(); continue; }
     index += consumed;
     if (code > 0xffff) { code -= 0x10000; units.push(0xd800 + (code >> 10), 0xdc00 + (code & 0x3ff)); }
     else units.push(code);

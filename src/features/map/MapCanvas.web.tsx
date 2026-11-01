@@ -5,7 +5,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import { useTheme, type MapColors } from '../../theme';
 import { diagnostics } from '../../services/diagnostics';
 import type { MapCanvasProps } from './MapCanvas.types';
-import { createRouteFraming } from './map-presentation';
+import { createOnceFraming, createRouteFraming } from './map-presentation';
 import { lineLayout, markerLabelLayout, overlayPaint } from './map-overlay-style';
 
 const APP_SOURCES = ['local-coverage', 'journey', 'places', 'position'] as const;
@@ -39,7 +39,7 @@ export default function MapCanvas(props: MapCanvasProps) {
   const latest = useRef(props); latest.current = props;
   const themeRef = useRef(theme); themeRef.current = theme;
   const framing = useRef(createRouteFraming());
-  const resultFraming = useRef(createRouteFraming());
+  const resultFraming = useRef(createOnceFraming());
   const initialView = useRef({ center: props.center, zoom: props.zoom ?? 14.5 });
   const appliedScheme = useRef(theme.scheme);
   const [longitude, latitude] = props.center;
@@ -87,7 +87,7 @@ export default function MapCanvas(props: MapCanvasProps) {
       setLoaded(true); setFailed(false); diagnostics.record({ type: 'map', state: 'loaded' });
     });
     // A style swap keeps sources; push the latest data in case it changed during the swap.
-    instance.on('style.load', syncData);
+    instance.on('style.load', () => { setFailed(false); syncData(); });
     instance.on('error', () => { if (!instance.isStyleLoaded()) { setFailed(true); diagnostics.record({ type: 'map', state: 'failed' }); } });
     instance.on('click', event => {
       const features = instance.getLayer('place-circles') ? instance.queryRenderedFeatures([[event.point.x - 22, event.point.y - 22], [event.point.x + 22, event.point.y + 22]], { layers: ['place-circles'] }) : [];

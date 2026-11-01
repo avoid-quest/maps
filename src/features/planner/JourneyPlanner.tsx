@@ -144,7 +144,7 @@ export function JourneyResults({ plans, selected, onSelect, onRefresh, loading, 
             accessibilityState={{ selected: plan.id === selected.id }}
             onPress={() => onSelect(plan.id)}
             // Board rows separated by hairlines; the selected option is outlined in the accent and checked.
-            style={[hairlines.bottom, plan.id === selected.id ? { borderColor: colors.action, borderWidth: 1.5, borderRadius: 12 } : null]}
+            style={[hairlines.bottom, plan.id === selected.id ? { borderWidth: 1.5, borderColor: colors.action, borderBottomWidth: 1.5, borderBottomColor: colors.action, borderRadius: 12 } : null]}
             className="gap-2 px-3 py-3"
           >
             <View className="flex-row items-start gap-2">
@@ -207,6 +207,6 @@ function SelectedMark() {
 
 function StopArrivalButton({ stop, onOpen }: { stop: Stop; onOpen: (stop: Stop) => void }) {
   return <View className="self-start">
-    <Button variant="secondary" icon="bus-outline" accessibilityLabel={`Arrivi alla fermata ${stop.code}, ${stop.name}`} onPress={() => onOpen(stop)}>{`Arrivi · ${stop.code}`}</Button>
+    <Button variant="secondary" icon="bus-outline" accessibilityLabel={`Arrivi ${stop.code}, fermata ${stop.name}`} onPress={() => onOpen(stop)}>{`Arrivi · ${stop.code}`}</Button>
   </View>;
 }

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 const root = new URL('../../', import.meta.url);
 
@@ -34,6 +35,6 @@ test('launcher identity is lowercase and the icon layers come from the brand mar
 
 test('icon, adaptive, themed, splash and favicon PNGs match a fresh render of assets/brand/mark.svg', async () => {
   const { spawnSync } = await import('node:child_process');
-  const result = spawnSync(process.execPath.endsWith('bun') ? 'node' : process.execPath, ['scripts/render-brand-assets.mjs', '--check'], { cwd: new URL('.', root).pathname, encoding: 'utf8' });
+  const result = spawnSync(process.execPath.endsWith('bun') ? 'node' : process.execPath, ['scripts/render-brand-assets.mjs', '--check'], { cwd: fileURLToPath(root), encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr || result.stdout);
 });

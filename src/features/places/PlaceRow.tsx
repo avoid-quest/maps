@@ -10,7 +10,7 @@ function placeIcon(place: Place): IconName {
   return /bar|caff|caf|coffee/.test(label) ? "cafe-outline"
     : /shop|nego|cloth|abbigl/.test(label) ? "bag-handle-outline"
       : /super|market|spesa/.test(label) ? "basket-outline"
-        : /food|rist|pizza|burger|mangiare/.test(label) ? "restaurant-outline"
+        : /food|rist|restaurant|pizza|burger|mangiare/.test(label) ? "restaurant-outline"
           : "location-outline";
 }
 

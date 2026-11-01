@@ -3,6 +3,7 @@ import { Appearance, Platform, View, useColorScheme } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
 import * as NavigationBar from 'expo-navigation-bar';
+import * as SplashScreen from 'expo-splash-screen';
 import * as SystemUI from 'expo-system-ui';
 import { vars } from 'nativewind';
 import type { StyleSpecification } from '@maplibre/maplibre-react-native';
@@ -63,14 +64,27 @@ export function ThemeProvider({ children, store = themePreferences, storage = As
   useEffect(() => { void store.initialize(storage); }, [store, storage]);
   const scheme = resolveColorScheme(preferenceState.preference, system);
   const theme = useMemo(() => themeFor(scheme, preferenceState, store.setPreference), [scheme, preferenceState, store]);
+  // Web portals (Modal) render outside this tree: give the document root the same variables.
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof document === 'undefined') return;
+    for (const [name, value] of Object.entries(themeVariables(scheme))) document.documentElement.style.setProperty(name, value);
+  }, [scheme]);
   return <ThemeContext.Provider value={theme}>
     <View className="flex-1" style={variablesFor(scheme)}>{children}</View>
-    {systemChrome ? <SystemChrome preference={preferenceState.preference} scheme={scheme} /> : null}
+    {systemChrome ? <SystemChrome preference={preferenceState.preference} scheme={scheme} ready={preferenceState.ready} /> : null}
   </ThemeContext.Provider>;
 }
 
-function SystemChrome({ preference, scheme }: { preference: ThemePreference; scheme: ColorScheme }) {
+/** Longest the splash waits for the stored appearance before showing the system palette. */
+const SPLASH_WAIT_MS = 1500;
+
+function SystemChrome({ preference, scheme, ready }: { preference: ThemePreference; scheme: ColorScheme; ready: boolean }) {
   const chrome = systemChromeFor(preference, scheme);
+  useEffect(() => {
+    if (ready) { SplashScreen.hideAsync().catch(() => undefined); return; }
+    const timer = setTimeout(() => { SplashScreen.hideAsync().catch(() => undefined); }, SPLASH_WAIT_MS);
+    return () => clearTimeout(timer);
+  }, [ready]);
   useEffect(() => {
     if (Platform.OS === 'web') return;
     Appearance.setColorScheme(chrome.appearanceOverride);

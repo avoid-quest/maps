@@ -28,6 +28,15 @@ test('multi-value tags use the first known value; untranslated provider values n
   assert.equal(placeCategoryLabel('Café'), 'Luogo');
 });
 
+test('provider strings never resolve inherited object properties', () => {
+  for (const value of ['constructor', 'toString', '__proto__', 'hasOwnProperty', 'valueOf;bar']) {
+    const label = placeCategoryLabel(value);
+    assert.equal(typeof label, 'string', value);
+  }
+  assert.equal(placeCategoryLabel('constructor'), 'Luogo');
+  assert.equal(placeCategoryLabel('valueOf;bar'), 'Bar');
+});
+
 test('unknown raw tags never leak; app-written Italian labels pass through', () => {
   assert.equal(placeCategoryLabel('yes'), 'Luogo');
   assert.equal(placeCategoryLabel('windmill'), 'Luogo');

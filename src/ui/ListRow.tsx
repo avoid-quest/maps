@@ -1,8 +1,9 @@
 import type { ReactNode } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { useThemeColors } from "../theme/ThemeProvider";
 import { rowDividerColors } from "./control-styles";
 import { Icon, type IconName } from "./Icon";
+import { PressableSurface } from "./PressableSurface";
 import { Num, Text } from "./Text";
 
 /**
@@ -51,16 +52,16 @@ export function ListRow({ title, subtitle, subtitleLines = 2, detail, meta, meta
   const className = "min-h-14 flex-row items-center gap-3 px-4 py-3";
   if (!onPress) return <View style={style} className={className}>{content}</View>;
   return (
-    <Pressable
+    <PressableSurface
+      surfaceStyle={style}
+      contentClassName={className}
+      rippleColor={`${colors.textPrimary}14`}
       accessibilityRole={kind === "external" ? "link" : "button"}
       accessibilityLabel={accessibilityLabel ?? [title, subtitle, detail, meta, metaNote].filter(Boolean).join(", ")}
       accessibilityHint={accessibilityHint}
       onPress={onPress}
-      android_ripple={{ color: `${colors.textPrimary}14` }}
-      style={style}
-      className={className}
     >
       {content}
-    </Pressable>
+    </PressableSurface>
   );
 }

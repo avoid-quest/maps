@@ -89,7 +89,8 @@ class FixAdmission<T>(private val policy: ModeFixPolicy, nowMs: Long, startedImm
       if (!better) { duplicatesSkipped++; return Result(Outcome.DUPLICATE) }
       replacing = true
     }
-    if (!replacing) lastSampleNanos = sampleElapsedNanos
+    // The replacement becomes the anchor too, so a later copy of it is still recognised.
+    lastSampleNanos = sampleElapsedNanos
     lastSampleAccuracy = sampleAccuracy
     val result = evaluate(nowMs, ageMs, accuracyMeters, hasAccuracy, fix, implausible, replacing)
     lastSampleUsable = result.outcome == Outcome.ACCEPTED || result.outcome == Outcome.RECOVERING
@@ -176,6 +177,8 @@ class FixAdmission<T>(private val policy: ModeFixPolicy, nowMs: Long, startedImm
     started = false; confident = false; waitingSinceMs = nowMs; fixesSeen = 0
     bestRejectedAccuracyMeters = null; startTimedOut = false; candidate = null
     consecutiveRejected = 0; consecutiveAccepted = 0; lastAcceptedAtMs = null
+    // A new wait starts a new sample history: the first retry fix is evaluated and counted.
+    lastSampleNanos = null; lastSampleAccuracy = Double.NaN; lastSampleUsable = false
   }
 
   private fun reducedStartDue(nowMs: Long) = nowMs - waitingSinceMs >= policy.reducedStartAfterMillis

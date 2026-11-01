@@ -17,7 +17,8 @@ export function StopSheetActions({ stop }: { stop: Stop }) {
       icon={saved ? "bookmark" : "bookmark-outline"}
       label={saved ? `Rimuovi la fermata ${stop.code} dai salvati` : `Salva la fermata ${stop.code}`}
       active={saved}
-      disabled={transit.stopsBusy || transit.savedTravel.stopsStatus === "loading"}
+      busy={transit.stopsBusy}
+      disabled={transit.savedTravel.stopsStatus === "loading"}
       onPress={() => { void transit.mutateSavedStops(() => saved ? savedTravel.removeStop(stop.id) : savedTravel.saveStop(stop.id)); }}
     />
   );

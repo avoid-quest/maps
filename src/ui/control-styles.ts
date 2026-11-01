@@ -36,3 +36,11 @@ export function segmentColors(colors: ThemeColors, selected: boolean) {
     ? { backgroundColor: colors.surfaceRaised, borderColor: colors.divider, foreground: colors.textPrimary }
     : { backgroundColor: 'transparent', borderColor: 'transparent', foreground: colors.textSecondary };
 }
+
+/**
+ * Switch colours: the off track is a mid-grey with at least 3:1 against the sheet so the control's
+ * outline is visible; the thumb contrasts with its own track in both states.
+ */
+export function switchColors(colors: ThemeColors, on: boolean) {
+  return { trackColor: { true: colors.action, false: colors.textSecondary }, thumbColor: on ? colors.onAction : colors.surfaceRaised };
+}
