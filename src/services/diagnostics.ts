@@ -14,7 +14,7 @@ const states = {
   service: ['invalid', 'unavailable', 'network', 'rate-limit'],
   request: ['ok', 'network', 'timeout', 'cancelled', 'rate-limit', 'unavailable', 'invalid'],
 } as const;
-const providers = ['photon', 'fossgis', 'mato', 'gtt-arrivals', 'gtt-alerts', 'other'] as const;
+const providers = ['photon', 'fossgis', 'mato', 'gtt-arrivals', 'gtt-alerts', 'transitous', 'other'] as const;
 export type DiagnosticProvider = (typeof providers)[number];
 export type DiagnosticInput = {
   [K in keyof typeof states]: { type: K; state: (typeof states)[K][number] }

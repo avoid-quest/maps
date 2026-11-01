@@ -5,7 +5,7 @@ import { createRoadRoutePlanner, parseRoadRoute, parseTransitRoute, parseTransit
 import type { RoadRouteResponse, RoadRoutingTransport } from '../platform/road-routing.types';
 import { diagnostics } from './diagnostics';
 import { ServiceError } from './network';
-import { emptyRouteState, routeReducer } from '../components/route-state';
+import { emptyRouteState, routeReducer } from '../features/planner/route-state';
 import { matchJourneyStop } from './transit-stop-matching';
 import { createSavedTravel } from './saved-travel';
 
