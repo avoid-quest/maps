@@ -14,7 +14,14 @@ test('web and telephone links open without feedback', async () => {
 });
 
 test('unsupported or failing links are reported instead of ignored', async () => {
-  assert.deepEqual(await attempt('www.example.it'), { opened: [], reported: [LINK_FAILURE] }, 'Scheme-less place websites exist in the bundled data');
+  assert.deepEqual(await attempt('not a host'), { opened: [], reported: [LINK_FAILURE] });
   assert.deepEqual(await attempt('javascript:alert(1)'), { opened: [], reported: [LINK_FAILURE] });
   assert.deepEqual(await attempt('https://example.it', async () => { throw new Error('no handler'); }), { opened: ['https://example.it'], reported: [LINK_FAILURE] });
+});
+
+test('scheme-less place websites open over https', async () => {
+  assert.deepEqual(await attempt('www.example.it'), { opened: ['https://www.example.it'], reported: [] });
+  assert.deepEqual(await attempt('ficeriafllisalvioni.website/'), { opened: ['https://ficeriafllisalvioni.website/'], reported: [] });
+  assert.deepEqual(await attempt(' example.it/menu?x=1 '), { opened: ['https://example.it/menu?x=1'], reported: [] });
+  assert.deepEqual(await attempt('mailto:a@example.it'), { opened: [], reported: [LINK_FAILURE] }, 'explicit non-web schemes stay rejected');
 });
