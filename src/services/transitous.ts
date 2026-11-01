@@ -29,6 +29,8 @@ const STOP_BOARD_SIZE = 10;
 /** A response stop farther than this from the bundled coordinate is treated as a failed join. */
 const STOP_MATCH_METERS = 150;
 const STATION_MATCH_METERS = 300;
+/** Events whose every known time is older than this, relative to retrieval, are not shown. */
+const PAST_GRACE_MS = 2 * 60_000;
 /** Fixed Turin-region box sent with name searches; identical for every user and never the device position. */
 const TURIN_REGION = { min: '44.9,7.4', max: '45.3,7.95' } as const;
 const GTT_DATASET_PREFIX = 'it-Piemonte-Gruppo-Torinese-Trasporti_';
@@ -160,10 +162,13 @@ function parseStopTime(record: JsonObject, { event, retrievedAt }: { event: 'dep
   const scheduledAt = instant(departure ? place.scheduledDeparture : place.scheduledArrival);
   const providerTimeAt = instant(departure ? place.departure : place.arrival);
   if (scheduledAt === undefined && providerTimeAt === undefined) return undefined;
-  const { state, basis } = classifyEvent({
+  const classified = classifyEvent({
     realTime: record.realTime, reason: departure ? place.departureTimestampReason : place.arrivalTimestampReason,
     cancelled: record.cancelled, tripCancelled: record.tripCancelled,
   });
+  const { basis } = classified;
+  // A claimed prediction whose time cannot be read is not a prediction: never fall back to the timetable silently.
+  const state: TransitRealtimeState = classified.state === 'declared-realtime-no-source-time' && providerTimeAt === undefined ? 'unknown' : classified.state;
   const upstream = upstreamOf(record);
   const headsign = fixName(text(record.headsign), upstream.dataset);
   const destination = fixName(isObject(record.tripTo) ? text(record.tripTo.name) : undefined, upstream.dataset).name;
@@ -175,7 +180,7 @@ function parseStopTime(record: JsonObject, { event, retrievedAt }: { event: 'dep
     provider: 'transitous', upstream, event, ...modeOf(record.mode),
     line, tripNumber: tripNumber && tripNumber !== line ? tripNumber : undefined, displayName: text(record.displayName),
     headsign: headsign.name, headsignAsSupplied: headsign.asSupplied, destination,
-    stop: { id: stopId, name: text(place.name) ?? '' },
+    stop: { id: stopId, name: text(place.name) ?? '', coordinate: coordinateOf(place) },
     // A cancelled event has no meaningful realtime time; keep the timetable only.
     scheduledAt: scheduledAt ?? (state === 'scheduled' ? providerTimeAt : undefined),
     predictedAt: state === 'declared-realtime-no-source-time' ? providerTimeAt : undefined,
@@ -201,16 +206,28 @@ export function parseTrip(json: unknown, context: { tripRef: string; retrievedAt
   const headsign = fixName(text(leg.headsign), upstream.dataset);
   const tripCancelled = leg.cancelled === true;
   const line = text(leg.routeShortName); const tripNumber = text(leg.tripShortName);
-  const realTime = flag(leg.realTime);
-  const realtimeState: TransitRealtimeState = tripCancelled ? 'cancelled'
-    : realTime === true ? 'declared-realtime-no-source-time' : realTime === false ? 'scheduled' : 'unknown';
+  const realtimeState: TransitRealtimeState = tripCancelled ? 'cancelled' : tripStateFromStops(stops);
   return {
     provider: 'transitous', tripRef: context.tripRef, upstream, ...modeOf(leg.mode),
     line, tripNumber: tripNumber && tripNumber !== line ? tripNumber : undefined, displayName: text(leg.displayName),
-    headsign: headsign.name, headsignAsSupplied: headsign.asSupplied, realtimeState, tripCancelled, stops,
-    retrievedAt: context.retrievedAt,
+    headsign: headsign.name, headsignAsSupplied: headsign.asSupplied, realtimeState, tripCancelled,
+    endpointRealtimeFlag: flag(leg.realTime), stops, retrievedAt: context.retrievedAt,
     warnings: dropped ? [`${dropped} fermate scartate perché incomplete.`] : [],
   };
+}
+
+/**
+ * MOTIS's leg `realTime` covers only the endpoints, so the summary comes from each stop's own events:
+ * any realtime time makes the trip realtime; only timetable events make it scheduled; anything else is unknown.
+ */
+function tripStateFromStops(stops: TransitTripStop[]): TransitRealtimeState {
+  const events = stops.flatMap(stop => [
+    { present: stop.scheduledArrivalAt !== undefined || stop.predictedArrivalAt !== undefined, predicted: stop.predictedArrivalAt !== undefined, basis: stop.arrivalBasis },
+    { present: stop.scheduledDepartureAt !== undefined || stop.predictedDepartureAt !== undefined, predicted: stop.predictedDepartureAt !== undefined, basis: stop.departureBasis },
+  ]).filter(event => event.present);
+  if (events.some(event => event.predicted)) return 'declared-realtime-no-source-time';
+  if (events.length && events.every(event => event.basis === 'scheduled')) return 'scheduled';
+  return 'unknown';
 }
 
 function parseTripStop(place: JsonObject, dataset: string | undefined): TransitTripStop | undefined {
@@ -218,8 +235,11 @@ function parseTripStop(place: JsonObject, dataset: string | undefined): TransitT
   if (!stopId || !supplied) return undefined;
   const name = fixName(supplied, dataset);
   const side = (scheduled: unknown, actual: unknown, reason: unknown) => {
-    const basis: TransitTimeBasis = text(reason) ? BASES[text(reason)!] ?? 'unknown' : 'unknown';
-    return { scheduledAt: instant(scheduled), predictedAt: isRealtimeBasis(basis) ? instant(actual) : undefined, basis };
+    const reported: TransitTimeBasis = text(reason) ? BASES[text(reason)!] ?? 'unknown' : 'unknown';
+    const predictedAt = isRealtimeBasis(reported) ? instant(actual) : undefined;
+    // A realtime reason without a readable time is reported as unknown, not as a prediction.
+    const basis: TransitTimeBasis = isRealtimeBasis(reported) && predictedAt === undefined ? 'unknown' : reported;
+    return { scheduledAt: instant(scheduled), predictedAt, basis };
   };
   const arrival = side(place.scheduledArrival, place.arrival, place.arrivalTimestampReason);
   const departure = side(place.scheduledDeparture, place.departure, place.departureTimestampReason);
@@ -252,11 +272,12 @@ function attributionsFor(sources: TransitUpstreamSource[]): string[] {
   return [`Transitous (${TRANSITOUS_SOURCES_URL})`, ...known, ...(unknown ? [`Altre fonti originali: ${TRANSITOUS_SOURCES_URL}`] : [])];
 }
 
-function boardWarnings(parsed: ParsedStopTimes): string[] {
+function boardWarnings(rows: TransitBoardRow[], dropped: number, elsewhere: number): string[] {
   const warnings: string[] = [];
-  if (!parsed.rows.length) warnings.push('Transitous non ha restituito corse per questa fermata. Non significa che non ci siano corse.');
-  if (parsed.dropped) warnings.push(`${parsed.dropped} corse scartate perché incomplete.`);
-  if (parsed.rows.length && !parsed.rows.some(row => row.realtimeState === 'declared-realtime-no-source-time' || row.realtimeState === 'cancelled')) {
+  if (!rows.length) warnings.push('Transitous non ha restituito corse per questa fermata. Non significa che non ci siano corse.');
+  if (dropped) warnings.push(`${dropped} corse scartate perché incomplete.`);
+  if (elsewhere) warnings.push(`${elsewhere} corse scartate perché riferite a un’altra fermata.`);
+  if (rows.length && !rows.some(row => row.realtimeState === 'declared-realtime-no-source-time' || row.realtimeState === 'cancelled')) {
     warnings.push('Nessun dato in tempo reale: sono mostrati solo orari programmati.');
   }
   return warnings;
@@ -266,20 +287,29 @@ function boardWarnings(parsed: ParsedStopTimes): string[] {
 // Client
 
 type Queue = <T>(request: () => Promise<T>, signal?: AbortSignal) => Promise<T>;
-export interface TransitousClientOptions { userAgent: string; now?: () => number; queue?: Queue }
-interface CacheEntry { value: unknown; at: number; ttl: number }
+export interface TransitousClientOptions {
+  userAgent: string;
+  /** Wall clock for `retrievedAt` and displayed times. */
+  now?: () => number;
+  /** Monotonic clock for cache expiry, immune to wall-clock corrections. */
+  monotonic?: () => number;
+  queue?: Queue;
+}
+interface CacheEntry { value: unknown; storedAt: number; ttl: number }
 
 export function createTransitousClient(options: TransitousClientOptions) {
   const now = options.now ?? Date.now;
+  const monotonic = options.monotonic ?? (() => performance.now());
   const queue = options.queue ?? requestQueue(REQUEST_SPACING_MS);
   const cache = new Map<string, CacheEntry>();
   const fresh = (key: string): CacheEntry | undefined => {
-    const entry = cache.get(key); const current = now();
-    // A clock moved backwards invalidates the entry rather than extending it.
-    return entry && current >= entry.at && current - entry.at < entry.ttl ? entry : undefined;
+    const entry = cache.get(key);
+    if (!entry) return undefined;
+    const elapsed = monotonic() - entry.storedAt;
+    return elapsed >= 0 && elapsed < entry.ttl ? entry : undefined;
   };
-  const store = (key: string, value: unknown, at: number, ttl: number) => {
-    cache.delete(key); cache.set(key, { value, at, ttl });
+  const store = (key: string, value: unknown, ttl: number) => {
+    cache.delete(key); cache.set(key, { value, storedAt: monotonic(), ttl });
     while (cache.size > MAX_CACHE_ENTRIES) cache.delete(cache.keys().next().value as string);
   };
 
@@ -302,17 +332,24 @@ export function createTransitousClient(options: TransitousClientOptions) {
       checkAbort(signal);
       const retrievedAt = now();
       const value = parseServiceData('transitous', () => parse(json, retrievedAt));
-      store(url, value, retrievedAt, ttl);
+      store(url, value, ttl);
       return value;
     }, signal);
   }
 
-  function snapshot(parsed: ParsedStopTimes, event: 'departure' | 'arrival', retrievedAt: number, stop: TransitBoardSnapshot['stop'], extraWarnings: string[] = []): TransitBoardSnapshot {
-    const rows = [...parsed.rows].sort((a, b) => (a.predictedAt ?? a.scheduledAt ?? a.providerTimeAt ?? Infinity) - (b.predictedAt ?? b.scheduledAt ?? b.providerTimeAt ?? Infinity));
+  /**
+   * Keep only events at the requested stop (or an accepted equivalent) that are not already past.
+   * An event is past only when every known time is older than the grace period.
+   */
+  function snapshot(parsed: ParsedStopTimes, event: 'departure' | 'arrival', retrievedAt: number, stop: TransitBoardSnapshot['stop'], atStop: (row: TransitBoardRow) => boolean, extraWarnings: string[] = []): TransitBoardSnapshot {
+    const local = parsed.rows.filter(atStop);
+    const rows = local
+      .filter(row => Math.max(row.predictedAt ?? -Infinity, row.scheduledAt ?? -Infinity, row.providerTimeAt ?? -Infinity) >= retrievedAt - PAST_GRACE_MS)
+      .sort((a, b) => (a.predictedAt ?? a.scheduledAt ?? a.providerTimeAt ?? Infinity) - (b.predictedAt ?? b.scheduledAt ?? b.providerTimeAt ?? Infinity));
     return {
       provider: 'transitous', event, stop, rows, retrievedAt, nextRefreshAt: retrievedAt + TRANSITOUS_MIN_REFRESH_MS,
       attributions: attributionsFor(rows.map(row => row.upstream)), sourcesUrl: TRANSITOUS_SOURCES_URL,
-      warnings: [...extraWarnings, ...boardWarnings(parsed)],
+      warnings: [...extraWarnings, ...boardWarnings(rows, parsed.dropped, parsed.rows.length - local.length)],
     };
   }
 
@@ -321,14 +358,19 @@ export function createTransitousClient(options: TransitousClientOptions) {
     getRailStationBoard(station: RailPilotStation, opts: { event?: 'departure' | 'arrival'; signal?: AbortSignal } = {}): Promise<TransitBoardSnapshot> {
       const event = opts.event ?? 'departure';
       const params: [string, string][] = [['stopId', station.transitousStopId], ['n', String(RAIL_BOARD_SIZE)]];
-      if (event === 'arrival') params.push(['arriveBy', 'true']);
+      // MOTIS defaults arrivals to direction=EARLIER (past arrivals); LATER asks for upcoming ones.
+      if (event === 'arrival') params.push(['arriveBy', 'true'], ['direction', 'LATER']);
       return request('/api/v6/stoptimes', params, TRANSITOUS_MIN_REFRESH_MS, (json, retrievedAt) => {
         const parsed = parseStopTimes(json, { event, retrievedAt });
         const coordinate = parsed.stop.coordinate;
         if (parsed.stop.id !== station.transitousStopId || !coordinate || distanceMeters(coordinate, station.coordinate) > STATION_MATCH_METERS) {
           throw new ServiceError('La stazione restituita da Transitous non corrisponde alla mappatura verificata. Nessun orario mostrato.', 'invalid');
         }
-        return snapshot(parsed, event, retrievedAt, { id: station.transitousStopId, name: station.name, coordinate: station.coordinate });
+        // MOTIS adds same-station equivalents (other operators' IDs, parent/child stops): accept the exact ID
+        // or a stop within the station radius, and drop anything else.
+        const atStation = (row: TransitBoardRow) => row.stop.id === station.transitousStopId
+          || (!!row.stop.coordinate && distanceMeters(row.stop.coordinate, station.coordinate) <= STATION_MATCH_METERS);
+        return snapshot(parsed, event, retrievedAt, { id: station.transitousStopId, name: station.name, coordinate: station.coordinate }, atStation);
       }, opts.signal, 'Stazione non trovata su Transitous.');
     },
 
@@ -347,7 +389,10 @@ export function createTransitousClient(options: TransitousClientOptions) {
         if (parsed.stop.id !== stopId || codeMismatch || !coordinate || distanceMeters(coordinate, stop.coordinate) > STOP_MATCH_METERS) {
           throw new ServiceError('La fermata trovata su Transitous non corrisponde a quella selezionata. Nessun orario mostrato.', 'invalid');
         }
-        return snapshot(parsed, 'departure', retrievedAt, { id: stop.id, name: stop.name, coordinate: stop.coordinate },
+        // radius=0&exactRadius=true asks for this pole only; enforce it per event as well.
+        const atPole = (row: TransitBoardRow) => row.stop.id === stopId
+          && (!row.stop.coordinate || distanceMeters(row.stop.coordinate, stop.coordinate) <= STOP_MATCH_METERS);
+        return snapshot(parsed, 'departure', retrievedAt, { id: stop.id, name: stop.name, coordinate: stop.coordinate }, atPole,
           ['Fonte: Transitous (dati GTT tramite BusOne), non il feed GTT diretto. Orari non uniti a quelli locali.']);
       }, opts.signal);
     },

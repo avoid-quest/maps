@@ -5,15 +5,16 @@ import portaNuova from '../../tests/fixtures/transitous/stoptimes-porta-nuova.js
 import lingotto from '../../tests/fixtures/transitous/stoptimes-lingotto.json';
 import gttQuestura from '../../tests/fixtures/transitous/stoptimes-gtt-2198.json';
 import trip26481 from '../../tests/fixtures/transitous/trip-sfm-26481.json';
+import portaSusaArrivals from '../../tests/fixtures/transitous/stoptimes-porta-susa-arrivals.json';
 import unknownStop from '../../tests/fixtures/transitous/error-unknown-stop.json';
 import geocodeLingotto from '../../tests/fixtures/transitous/geocode-lingotto.json';
 import mapStopsPortaSusa from '../../tests/fixtures/transitous/map-stops-porta-susa.json';
 import type { Stop, TransitBoardRow } from '../domain/types';
-import { delayMinutes, realtimeStateLabel } from '../domain/transit-board';
+import { boardTime, delayMinutes, realtimeStateLabel } from '../domain/transit-board';
 import { TURIN_CENTER, distanceMeters } from './geo';
 import { ServiceError } from './network';
 import {
-  classifyEvent, createTransitousClient, parseStopMatches, parseStopTimes, TRANSITOUS_MIN_REFRESH_MS,
+  classifyEvent, createTransitousClient, parseStopMatches, parseStopTimes, parseTrip, TRANSITOUS_MIN_REFRESH_MS,
   TRANSITOUS_PRIVACY_NOTES, transitousGttStopId, transitousUserAgent,
 } from './transitous';
 import { getRailPilotStation, nearestRailPilotStations, RAIL_PILOT_DATA, RAIL_PILOT_STATIONS } from './transitous-stations';
@@ -23,6 +24,9 @@ const QUESTURA: Stop = { id: '2198', code: '30', name: 'Fermata 30 - QUESTURA', 
 const PORTA_SUSA = getRailPilotStation('torino-porta-susa')!;
 const direct = <T>(request: () => Promise<T>) => request();
 const clone = <T>(value: T): T => structuredClone(value);
+/** Fixture recording times (UTC); boards drop events already past at retrieval. */
+const SUSA_AT = Date.parse('2026-11-01T19:12:00Z'); const GTT_AT = Date.parse('2026-11-01T19:10:00Z');
+const clientAt = (now: number) => createTransitousClient({ userAgent: UA, now: () => now, queue: direct });
 type Call = { url: string; headers: Record<string, string> };
 
 async function withFetch<T>(respond: (url: string) => Response | Promise<Response>, run: (calls: Call[]) => Promise<T>): Promise<T> {
@@ -47,7 +51,7 @@ test('User-Agent identifies only app, version and public repository', () => {
 });
 
 test('rail board sends only the station ID and parses declared realtime, schedules, operators and attribution', async () => {
-  const now = at('2026-11-01T19:20:00Z');
+  const now = SUSA_AT;
   await withFetch(() => json(portaSusa), async calls => {
     const client = createTransitousClient({ userAgent: UA, now: () => now, queue: direct });
     const board = await client.getRailStationBoard(PORTA_SUSA);
@@ -111,22 +115,70 @@ test('platforms are reported as published, without inventing a scheduled/actual 
 
 test('a board without realtime says so instead of implying punctuality', async () => {
   await withFetch(() => json(portaNuova), async () => {
-    const board = await createTransitousClient({ userAgent: UA, queue: direct }).getRailStationBoard(getRailPilotStation('torino-porta-nuova')!);
+    const board = await clientAt(at('2026-11-01T19:19:00Z')).getRailStationBoard(getRailPilotStation('torino-porta-nuova')!);
     assert.ok(board.rows.every(r => r.realtimeState === 'scheduled'));
     assert.deepEqual(board.warnings, ['Nessun dato in tempo reale: sono mostrati solo orari programmati.']);
   });
 });
 
-test('arrivals request adds only arriveBy', async () => {
-  await withFetch(() => json(portaSusa), async calls => {
-    await createTransitousClient({ userAgent: UA, queue: direct }).getRailStationBoard(PORTA_SUSA, { event: 'arrival' });
-    assert.equal(calls[0]!.url, 'https://api.transitous.org/api/v6/stoptimes?stopId=it-trenitalia_00222&n=12&arriveBy=true');
+test('arrivals ask for upcoming events and the board keeps only the current window', async () => {
+  const recordedAt = at('2026-11-01T20:10:00Z');
+  await withFetch(() => json(portaSusaArrivals), async calls => {
+    const board = await clientAt(recordedAt).getRailStationBoard(PORTA_SUSA, { event: 'arrival' });
+    assert.equal(calls[0]!.url, 'https://api.transitous.org/api/v6/stoptimes?stopId=it-trenitalia_00222&n=12&arriveBy=true&direction=LATER');
+    assert.equal(board.event, 'arrival'); assert.equal(board.rows.length, 12);
+    for (const r of board.rows) assert.ok(boardTime(r)! >= recordedAt - 2 * 60_000, r.displayName);
+    const rv = row(board.rows, 'RV 2038');
+    assert.equal(rv.scheduledAt, at('2026-11-01T19:54:00Z')); assert.equal(rv.predictedAt, at('2026-11-01T20:11:00Z'), 'late arrival kept by its prediction');
+    assert.ok(board.rows.some(r => r.stop.id === 'fr-horaires-des-trains-trenitalia-france_10001'), 'same-station equivalent accepted');
   });
+  await withFetch(() => json(portaSusaArrivals), async () => {
+    // A response containing past arrivals (as with MOTIS's default direction) shows only the remaining window.
+    const later = at('2026-11-01T20:40:00Z');
+    const board = await clientAt(later).getRailStationBoard(PORTA_SUSA, { event: 'arrival' });
+    assert.deepEqual(board.rows.map(r => r.displayName), ['FR 9808', 'FR 9552', 'SFM 26294', 'RV 2040', 'RV 2045']);
+    assert.ok(board.rows.every(r => boardTime(r)! >= later - 2 * 60_000));
+  });
+});
+
+test('each event must be at the requested stop or an accepted station equivalent', async () => {
+  const wrongPole = clone(gttQuestura);
+  wrongPole.stopTimes[1]!.place.stopId = 'it-Piemonte-Gruppo-Torinese-Trasporti_2199';
+  Object.assign(wrongPole.stopTimes[2]!.place, { lat: 45.08, lon: 7.66921 });
+  await withFetch(() => json(wrongPole), async () => {
+    const board = await clientAt(GTT_AT).getGttStopFallbackBoard(QUESTURA);
+    assert.equal(board.rows.length, 6);
+    assert.ok(board.rows.every(r => r.stop.id === 'it-Piemonte-Gruppo-Torinese-Trasporti_2198'));
+    assert.ok(board.warnings.includes('2 corse scartate perché riferite a un’altra fermata.'));
+  });
+  const elsewhere = clone(portaSusa);
+  Object.assign(elsewhere.stopTimes[1]!.place, { stopId: 'it-trenitalia_00452', name: 'TORINO LINGOTTO', lat: 45.026604, lon: 7.65747 });
+  await withFetch(() => json(elsewhere), async () => {
+    const board = await clientAt(SUSA_AT).getRailStationBoard(PORTA_SUSA);
+    assert.equal(board.rows.length, 11);
+    assert.ok(!board.rows.some(r => r.stop.id === 'it-trenitalia_00452'));
+    assert.ok(board.rows.some(r => r.displayName === 'TGV INOUI 9255' && r.stop.id.startsWith('fr-horaires-sncf_')), 'SNCF equivalent still accepted');
+    assert.ok(board.warnings.includes('1 corse scartate perché riferite a un’altra fermata.'));
+  });
+});
+
+test('a claimed prediction with an unreadable time is unknown, not a silent timetable time', () => {
+  const data = clone(portaSusa);
+  data.stopTimes[0]!.place.departure = 'garbage';
+  delete (data.stopTimes[1]!.place as { departure?: string }).departure;
+  data.stopTimes[2]!.place.scheduledDeparture = 'garbage';
+  const [bad, missing, noSchedule] = parseStopTimes(data, { event: 'departure', retrievedAt: 1 }).rows;
+  assert.equal(bad!.realtimeState, 'unknown'); assert.equal(bad!.timeBasis, 'predicted');
+  assert.equal(bad!.predictedAt, undefined); assert.equal(bad!.scheduledAt, at('2026-11-01T19:10:00Z'));
+  assert.equal(realtimeStateLabel(bad!), 'Stato in tempo reale non determinabile'); assert.equal(delayMinutes(bad!), undefined);
+  assert.equal(missing!.realtimeState, 'unknown'); assert.equal(missing!.predictedAt, undefined);
+  assert.equal(noSchedule!.realtimeState, 'declared-realtime-no-source-time', 'a readable prediction stays realtime');
+  assert.equal(noSchedule!.scheduledAt, undefined); assert.equal(delayMinutes(noSchedule!), undefined);
 });
 
 test('GTT fallback derives the Transitous ID, restricts to the pole and labels inconsistent realtime as unknown', async () => {
   await withFetch(() => json(gttQuestura), async calls => {
-    const board = await createTransitousClient({ userAgent: UA, queue: direct }).getGttStopFallbackBoard(QUESTURA);
+    const board = await clientAt(GTT_AT).getGttStopFallbackBoard(QUESTURA);
     assert.equal(calls[0]!.url, 'https://api.transitous.org/api/v6/stoptimes?stopId=it-Piemonte-Gruppo-Torinese-Trasporti_2198&n=10&radius=0&exactRadius=true');
     assert.equal(board.stop.id, '2198');
     assert.ok(board.warnings[0]!.startsWith('Fonte: Transitous (dati GTT tramite BusOne)'));
@@ -237,19 +289,31 @@ test('stop search sends the typed text with a fixed region box, never a position
   assert.deepEqual(parseStopMatches([{ stopId: 'x', name: 'no coordinate' }, 'bad']), []);
 });
 
-test('manual refresh inside 60 s returns the cached snapshot; later refresh fetches again', async () => {
-  let now = 1_000_000;
+test('manual refresh inside 60 s of elapsed time returns the cached snapshot; later refresh fetches again', async () => {
+  let wall = SUSA_AT; let mono = 5_000;
   await withFetch(() => json(portaSusa), async calls => {
-    const client = createTransitousClient({ userAgent: UA, now: () => now, queue: direct });
+    const client = createTransitousClient({ userAgent: UA, now: () => wall, monotonic: () => mono, queue: direct });
     const first = await client.getRailStationBoard(PORTA_SUSA);
-    now += TRANSITOUS_MIN_REFRESH_MS - 1;
+    wall += TRANSITOUS_MIN_REFRESH_MS - 1; mono += TRANSITOUS_MIN_REFRESH_MS - 1;
     const second = await client.getRailStationBoard(PORTA_SUSA);
-    assert.equal(calls.length, 1); assert.equal(second, first); assert.equal(second.retrievedAt, 1_000_000);
-    now = 900_000; // clock moved backwards: refetch rather than extend the cache
-    await client.getRailStationBoard(PORTA_SUSA); assert.equal(calls.length, 2);
-    now = 900_000 + TRANSITOUS_MIN_REFRESH_MS;
+    assert.equal(calls.length, 1); assert.equal(second, first); assert.equal(second.retrievedAt, SUSA_AT, 'wall-clock retrieval time preserved');
+    mono += 1;
     const third = await client.getRailStationBoard(PORTA_SUSA);
-    assert.equal(calls.length, 3); assert.equal(third.retrievedAt, now);
+    assert.equal(calls.length, 2); assert.equal(third.retrievedAt, wall);
+  });
+});
+
+test('wall-clock corrections neither extend nor shorten cache freshness', async () => {
+  let wall = SUSA_AT; let mono = 0;
+  await withFetch(() => json(portaSusa), async calls => {
+    const client = createTransitousClient({ userAgent: UA, now: () => wall, monotonic: () => mono, queue: direct });
+    await client.getRailStationBoard(PORTA_SUSA);
+    wall += 59_000; mono += 59_000;
+    await client.getRailStationBoard(PORTA_SUSA); assert.equal(calls.length, 1);
+    wall -= 58_000; mono += 2_000; // clock rolled back, but 61 s really elapsed
+    await client.getRailStationBoard(PORTA_SUSA); assert.equal(calls.length, 2, 'rollback must not extend the cache');
+    wall += 3_600_000; mono += 1_000; // clock jumped forward, only 1 s elapsed
+    await client.getRailStationBoard(PORTA_SUSA); assert.equal(calls.length, 2, 'forward jump does not force a request');
   });
 });
 
@@ -325,4 +389,37 @@ test('stop lookup around a public stop sends only a small box around that stop',
     assert.equal(calls[0]!.url, 'https://api.transitous.org/api/v6/map/stops?min=45.07275%2C7.66535&max=45.07545%2C7.66915');
     assert.ok(matches.some(m => m.stopId === 'it-trenitalia_00222'));
   });
+});
+
+test('trip summary comes from parsed stop events, not the endpoint-only leg flag', () => {
+  const tripRef = 'trip';
+  const endpointsScheduled = clone(trip26481);
+  const leg = endpointsScheduled.legs[0]! as Record<string, unknown> & { from: Record<string, unknown>; to: Record<string, unknown>; intermediateStops: Record<string, unknown>[] };
+  leg.realTime = false; leg.from.departureTimestampReason = 'NO_RT_DATA'; leg.to.arrivalTimestampReason = 'NO_RT_DATA';
+  leg.to.arrival = leg.to.scheduledArrival;
+  const mixed = parseTrip(endpointsScheduled, { tripRef, retrievedAt: 1 });
+  assert.equal(mixed.endpointRealtimeFlag, false);
+  assert.equal(mixed.realtimeState, 'declared-realtime-no-source-time', 'intermediate PREDICTED stops make the trip realtime');
+  assert.equal(mixed.stops[0]!.departureBasis, 'scheduled');
+  assert.equal(mixed.stops.find(s => s.name === 'MONCALIERI')!.arrivalBasis, 'predicted');
+
+  const allScheduled = clone(endpointsScheduled);
+  const legAll = allScheduled.legs[0]! as typeof leg;
+  for (const place of [legAll.from, ...legAll.intermediateStops, legAll.to]) {
+    if (place.arrivalTimestampReason) place.arrivalTimestampReason = 'NO_RT_DATA';
+    if (place.departureTimestampReason) place.departureTimestampReason = 'NO_RT_DATA';
+  }
+  legAll.realTime = true;
+  const scheduled = parseTrip(allScheduled, { tripRef, retrievedAt: 1 });
+  assert.equal(scheduled.realtimeState, 'scheduled'); assert.equal(scheduled.endpointRealtimeFlag, true);
+
+  const unreadable = clone(allScheduled);
+  const stop = (unreadable.legs[0]! as typeof leg).intermediateStops[3]!;
+  stop.arrivalTimestampReason = 'PREDICTED'; stop.arrival = 'garbage';
+  const parsed = parseTrip(unreadable, { tripRef, retrievedAt: 1 });
+  assert.equal(parsed.stops[4]!.arrivalBasis, 'unknown'); assert.equal(parsed.stops[4]!.predictedArrivalAt, undefined);
+  assert.equal(parsed.realtimeState, 'unknown');
+
+  const real = parseTrip(trip26481, { tripRef, retrievedAt: 1 });
+  assert.equal(real.realtimeState, 'declared-realtime-no-source-time'); assert.equal(real.endpointRealtimeFlag, true);
 });
