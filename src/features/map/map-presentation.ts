@@ -22,3 +22,27 @@ export function createRouteFraming() {
     },
   };
 }
+
+type Bounds = [west: number, south: number, east: number, north: number];
+const RESULT_FRAME_LIMIT = 10;
+const RESULT_FRAME_RADIUS_DEGREES = 0.25;
+const MIN_SPAN_DEGREES = 0.004;
+
+/**
+ * The area to frame for a submitted search: the leading results near the searched area. Far-away
+ * online matches stay listed but do not zoom the map out to the whole country.
+ */
+export function resultFrameBounds(points: readonly { latitude: number; longitude: number }[], center: { latitude: number; longitude: number }): Bounds | null {
+  const near = points.slice(0, RESULT_FRAME_LIMIT).filter(point =>
+    Math.abs(point.latitude - center.latitude) <= RESULT_FRAME_RADIUS_DEGREES && Math.abs(point.longitude - center.longitude) <= RESULT_FRAME_RADIUS_DEGREES);
+  const framed = near.length ? near : points.slice(0, 1);
+  if (!framed.length) return null;
+  let [west, south, east, north] = [Infinity, Infinity, -Infinity, -Infinity];
+  for (const point of framed) {
+    west = Math.min(west, point.longitude); east = Math.max(east, point.longitude);
+    south = Math.min(south, point.latitude); north = Math.max(north, point.latitude);
+  }
+  const padLongitude = Math.max(0, (MIN_SPAN_DEGREES - (east - west)) / 2);
+  const padLatitude = Math.max(0, (MIN_SPAN_DEGREES - (north - south)) / 2);
+  return [west - padLongitude, south - padLatitude, east + padLongitude, north + padLatitude];
+}

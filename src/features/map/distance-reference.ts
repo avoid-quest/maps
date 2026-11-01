@@ -4,8 +4,9 @@ import { formatDistance } from '../../ui/format';
 
 /**
  * Where a listed distance is measured from. A fresh device fix is the natural reference; otherwise the
- * distance is from the searched map area's centre and says so, because the map centre can be far
- * from the user (the launch overview, a restored view, or a panned map).
+ * distance is from the centre the map currently shows and says so, because that can be far from the
+ * user (the launch overview, a restored view, or a panned map). A single selected item centred on the
+ * map shows a distance only from the device (see `detailDistance`).
  */
 export type DistanceReference = { kind: 'device' | 'map'; coordinate: Coordinate };
 
@@ -25,4 +26,9 @@ export function distanceFrom(reference: DistanceReference, target: Coordinate): 
   return reference.kind === 'device'
     ? { meters, label: distance, spoken: `a ${distance} da te` }
     : { meters, label: `${distance} dal centro mappa`, spoken: `${distance} dal centro della mappa` };
+}
+
+/** A detail view (one stop or place, usually centred on the map) shows a distance only from the device. */
+export function detailDistance(reference: DistanceReference, target: Coordinate) {
+  return reference.kind === 'device' ? distanceFrom(reference, target) : null;
 }

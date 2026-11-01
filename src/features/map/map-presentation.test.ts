@@ -24,3 +24,18 @@ test('side sheets, expanded sheets, short windows and navigation leave a usable 
     }
   }
 });
+
+test('a submitted search frames its leading nearby results, never the whole country', async () => {
+  const { resultFrameBounds } = await import('./map-presentation');
+  const turin = { latitude: 45.07, longitude: 7.68 };
+  const mole = { latitude: 45.069, longitude: 7.6933 };
+  const castello = { latitude: 45.0712, longitude: 7.6854 };
+  const rome = { latitude: 41.9, longitude: 12.5 };
+  const bounds = resultFrameBounds([castello, rome, mole], turin)!;
+  assert.ok(bounds[0] <= mole.longitude && bounds[2] >= mole.longitude && bounds[1] <= mole.latitude && bounds[3] >= mole.latitude, 'a result ~650 m away is inside the frame');
+  assert.ok(bounds[2] < 8, 'a far online match does not widen the frame');
+  const single = resultFrameBounds([mole], turin)!;
+  assert.ok(single[2] - single[0] >= 0.0039 && single[3] - single[1] >= 0.0039, 'one result is framed as a street area, not a point');
+  assert.deepEqual(resultFrameBounds([rome], turin)!.map(value => Math.round(value)), [12, 42, 13, 42], 'only far results: frame the first one');
+  assert.equal(resultFrameBounds([], turin), null);
+});

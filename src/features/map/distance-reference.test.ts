@@ -25,3 +25,9 @@ test('without a fresh fix the distance is labelled as measured from the map cent
     assert.match(distance.spoken, /dal centro della mappa/);
   }
 });
+
+test('a selected stop or place shows a distance only from a fresh fix', async () => {
+  const { detailDistance } = await import('./distance-reference');
+  assert.equal(detailDistance(distanceReference({ device: null, fixedAt: null, now, mapCenter: mole }), mole), null, 'no "0 m dal centro mappa" for an item centred on the map');
+  assert.match(detailDistance(distanceReference({ device: nearMole, fixedAt: now, now, mapCenter: centralItaly }), mole)!.label, /^\d+ m$/);
+});

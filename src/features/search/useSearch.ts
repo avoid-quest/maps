@@ -23,6 +23,8 @@ export interface Search {
   policy: SearchPolicy;
   searching: boolean;
   error: string;
+  /** Advances when a search is submitted or a category chosen; the map frames those results once. */
+  frameRevision: number;
   focus(): void;
   changeQuery(value: string): void;
   chooseCategory(category: string): void;
@@ -51,6 +53,7 @@ export function useSearch({ tasks, camera, location, sheet, appActive, navigatio
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState('');
   const [retryRevision, setRetryRevision] = useState(0);
+  const [frameRevision, setFrameRevision] = useState(0);
 
   useEffect(() => {
     if (!explore || navigationVisible || !hasSearch || !appActive) { setSearching(false); return; }
@@ -116,11 +119,12 @@ export function useSearch({ tasks, camera, location, sheet, appActive, navigatio
     setQuery('');
     dispatch({ type: 'chooseCategory', category: next });
     camera.searchHere();
+    setFrameRevision(value => value + 1);
   }, [camera, dispatch]);
   const retry = useCallback(() => setRetryRevision(value => value + 1), []);
-  const submit = useCallback(() => { Keyboard.dismiss(); retry(); }, [retry]);
+  const submit = useCallback(() => { Keyboard.dismiss(); retry(); setFrameRevision(value => value + 1); }, [retry]);
   const clear = useCallback(() => setQuery(''), []);
-  return { inputRef, query, category, term, hasSearch, result, policy, searching, error, focus, changeQuery, chooseCategory, submit, retry, clear };
+  return { inputRef, query, category, term, hasSearch, result, policy, searching, error, frameRevision, focus, changeQuery, chooseCategory, submit, retry, clear };
 }
 
 export const [SearchProvider, useSearchContext] = createFeatureContext<Search>('Search');

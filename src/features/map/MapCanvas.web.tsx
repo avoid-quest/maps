@@ -39,6 +39,7 @@ export default function MapCanvas(props: MapCanvasProps) {
   const latest = useRef(props); latest.current = props;
   const themeRef = useRef(theme); themeRef.current = theme;
   const framing = useRef(createRouteFraming());
+  const resultFraming = useRef(createRouteFraming());
   const initialView = useRef({ center: props.center, zoom: props.zoom ?? 14.5 });
   const appliedScheme = useRef(theme.scheme);
   const [longitude, latitude] = props.center;
@@ -48,6 +49,16 @@ export default function MapCanvas(props: MapCanvasProps) {
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
 
+  /**
+   * GL JS adds fitBounds padding to the map's own padding, which the effect below keeps equal to the
+   * camera padding. Apply the current padding first, then fit with a small margin inside it.
+   */
+  const fitWithinPadding = useCallback((instance: WebMap | null, bounds: [number, number, number, number]) => {
+    if (!instance) return;
+    const padding = latest.current.cameraPadding;
+    if (padding) instance.setPadding(padding);
+    instance.fitBounds(bounds, { padding: padding ? 24 : 50, duration: 500 });
+  }, []);
   const syncData = useCallback(() => {
     const instance = map.current;
     if (!instance) return;
@@ -84,7 +95,15 @@ export default function MapCanvas(props: MapCanvasProps) {
       if (typeof id === 'string') latest.current.onPressMarker?.(id);
       else latest.current.onMapPress?.([event.lngLat.lng, event.lngLat.lat]);
     });
-    instance.on('moveend', event => { if (event.originalEvent) { framing.current.userMoved(latest.current.routeFitKey); const center = instance.getCenter(); latest.current.onRegionChanged?.([center.lng, center.lat], instance.getZoom()); } });
+    instance.on('moveend', event => {
+      const center = instance.getCenter();
+      latest.current.onViewChanged?.([center.lng, center.lat], instance.getZoom());
+      if (event.originalEvent) {
+        framing.current.userMoved(latest.current.routeFitKey);
+        resultFraming.current.userMoved(latest.current.resultFrame?.key);
+        latest.current.onRegionChanged?.([center.lng, center.lat], instance.getZoom());
+      }
+    });
     const observer = new ResizeObserver(() => instance.resize()); observer.observe(container.current);
     return () => { observer.disconnect(); instance.remove(); map.current = null; };
   }, [syncData]);
@@ -98,15 +117,22 @@ export default function MapCanvas(props: MapCanvasProps) {
   // The sheet's height changes the visible map: keep the camera's centre in the visible part.
   const { top = 0, right = 0, bottom = 0, left = 0 } = props.cameraPadding ?? {};
   useEffect(() => { if (loaded) map.current?.easeTo({ padding: { top, right, bottom, left }, duration: 250 }); }, [loaded, top, right, bottom, left]);
+  // A submitted search frames its results once; a pan before the results settle consumes the frame.
+  const frameKey = props.resultFrame?.key;
+  const frameBounds = props.resultFrame?.ready ? props.resultFrame.bounds : null;
+  useEffect(() => {
+    if (!loaded || !resultFraming.current.claim(frameKey, !!frameBounds) || !frameBounds) return;
+    fitWithinPadding(map.current, frameBounds);
+  }, [loaded, frameKey, frameBounds, fitWithinPadding]);
   useEffect(() => { if (loaded && followLocation !== false) map.current?.easeTo({ center: [longitude, latitude], zoom, padding: latest.current.cameraPadding, duration: 450 }); }, [loaded, longitude, latitude, zoom, followLocation, cameraRevision]);
   useEffect(() => { if (loaded) syncData(); }, [loaded, syncData, props.coverageBounds, props.markers, props.selectedMarkerId, props.userLocation, props.route]);
   useEffect(() => {
     if (!loaded || !map.current) return;
     if (followLocation === undefined && framing.current.claim(props.routeFitKey, !!props.route?.coordinates.length) && props.route) {
       const bounds = new maplibregl.LngLatBounds(); props.route.coordinates.forEach(p => bounds.extend([p[0]!, p[1]!]));
-      map.current.fitBounds(bounds, { padding: latest.current.cameraPadding ?? 50, duration: 500 });
+      fitWithinPadding(map.current, [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()]);
     }
-  }, [loaded, props.route, props.routeFitKey, followLocation]);
+  }, [loaded, props.route, props.routeFitKey, followLocation, fitWithinPadding]);
   return <div data-scheme={theme.scheme} style={{ flex: 1, minHeight: 160, position: 'relative', background: theme.map.background, '--map-attribution-top': `${props.attributionTop ?? 68}px`, '--map-attribution-left': `${props.attributionLeft ?? 8}px` } as React.CSSProperties}>
     <div ref={container} style={{ position: 'absolute', inset: 0 }} />
     {failed && <div role="status" style={{ position: 'absolute', top: (props.attributionTop ?? 68) + 52, left: 10, background: theme.colors.cautionSubtle, color: theme.colors.textPrimary, padding: 8, borderRadius: 8 }}>Mappa non disponibile · controlla la connessione</div>}

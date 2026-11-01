@@ -22,6 +22,8 @@ export interface MapCamera {
   frameRevision: number;
   /** The launch overview, a restored view, a fix, or a view the user chose. */
   view: CameraView;
+  /** The centre the map actually shows after its last settled move, user-driven or programmatic. */
+  viewCenter: Coordinate;
   viewport(): Coordinate;
   /** Records an intentional camera choice, which a late background fix must respect. */
   touch(): void;
@@ -34,6 +36,8 @@ export interface MapCamera {
   adoptInitialFix(coordinate: Coordinate): void;
   searchHere(): void;
   userMoved(coordinate: Coordinate, zoom?: number): void;
+  /** Any settled camera move reported by the map, including fits and animations. */
+  viewSettled(coordinate: Coordinate): void;
   stopFollowing(): void;
   follow(): void;
   recenterGuidance(): void;
@@ -59,6 +63,7 @@ export function useMapCamera(): MapCamera {
   const [following, setFollowing] = useState(true);
   const [frameRevision, setFrameRevision] = useState(0);
   const [view, setView] = useState<CameraView>('overview');
+  const [viewCenter, setViewCenter] = useState<Coordinate>(TURIN_OVERVIEW.center);
   const viewportRef = useRef<Coordinate>(TURIN_OVERVIEW.center);
   const zoomRef = useRef<number>(TURIN_OVERVIEW.zoom);
   const touched = useRef(false);
@@ -111,11 +116,15 @@ export function useMapCamera(): MapCamera {
       const area = searchCenterRef.current;
       if (Math.abs(coordinate.longitude - area.longitude) + Math.abs(coordinate.latitude - area.latitude) > 0.004) setAreaChanged(true);
     },
+    viewSettled: (coordinate: Coordinate) => {
+      viewportRef.current = coordinate;
+      setViewCenter(current => Math.abs(current.latitude - coordinate.latitude) + Math.abs(current.longitude - coordinate.longitude) < 1e-6 ? current : coordinate);
+    },
     stopFollowing: () => setFollowing(false),
     follow: () => setFollowing(true),
     recenterGuidance: () => { setFollowing(true); setRevision(value => value + 1); },
     frameRoute: () => setFrameRevision(value => value + 1),
     forgetLastView: () => { clearTimeout(saveTimer.current); return viewportStore.clear(); },
   }), [setCenter, setCameraZoom, setSearchCenter, scheduleSave]);
-  return { center, zoom, revision, searchCenter, areaChanged, following, frameRevision, view, ...actions };
+  return { center, zoom, revision, searchCenter, areaChanged, following, frameRevision, view, viewCenter, ...actions };
 }

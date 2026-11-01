@@ -4,7 +4,7 @@ import type { Departure, Stop } from '../../domain/types';
 import { transitAlertWarnings } from '../../domain/transit-alert-freshness';
 import { useThemeColors } from '../../theme';
 import { Button, EmptyState, IconButton, Notice, SectionHeader, TransitLineBadge, transitModeFromLineName } from '../../ui';
-import { distanceFrom } from '../map/distance-reference';
+import { detailDistance } from '../map/distance-reference';
 import { useDistanceReference } from '../map/useDistanceReference';
 import { journeyDate, journeyTime } from '../planner/journey-presentation';
 import { displayedDepartureStatus } from './departure-status';
@@ -17,11 +17,11 @@ export function StopBoardPanel({ stop, state, now, onLink, onDirections, actions
   actions?: ReactNode;
 }) {
   const reference = useDistanceReference();
-  const distance = distanceFrom(reference, stop.coordinate);
+  const distance = detailDistance(reference, stop.coordinate);
   const { board, alerts, arrivalsLoading, alertsLoading, arrivalsError, alertsError, refreshArrivals, refreshAlerts } = state;
   return <View className="gap-3">
     <View className="flex-row items-center gap-2 px-4">
-      <Text accessibilityLabel={`Fermata ${stop.code}, ${distance.spoken}`} className="flex-1 text-sm text-secondary">Fermata {stop.code} · {distance.label}</Text>
+      <Text accessibilityLabel={`Fermata ${stop.code}${distance ? `, ${distance.spoken}` : ''}`} className="flex-1 text-sm text-secondary">Fermata {stop.code}{distance ? ` · ${distance.label}` : ''}</Text>
       <IconButton icon="refresh-outline" label="Aggiorna arrivi" disabled={arrivalsLoading} onPress={refreshArrivals} />
       {actions}
     </View>

@@ -25,6 +25,13 @@ export interface MapCanvasProps {
   followLocation?: boolean;
   onPressMarker?: (id: string) => void;
   onMapPress?: (coordinate: MapCoordinate) => void;
+  /**
+   * Frame these bounds once per key, with the current camera padding (submitted search results).
+   * A user pan consumes a pending frame; `ready` false defers it until results settle.
+   */
+  resultFrame?: { key: string; bounds: [west: number, south: number, east: number, north: number] | null; ready: boolean };
+  /** Every settled camera change, user-driven or programmatic: the centre and zoom now shown. */
+  onViewChanged?: (center: MapCoordinate, zoom: number) => void;
   /** A user-driven camera change: the new centre and zoom. */
   onRegionChanged?: (center: MapCoordinate, zoom: number) => void;
 }

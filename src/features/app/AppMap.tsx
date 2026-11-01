@@ -4,6 +4,7 @@ import { View } from "react-native";
 import { point, tuple } from "../map/coordinates";
 import MapCanvas from "../map/MapCanvas";
 import { placeMarker, stopMarker, taskMarkers } from "../map/map-layers";
+import { resultFrameBounds } from "../map/map-presentation";
 import { useMapContext } from "../map/useMapModel";
 import { useNavigationContext } from "../navigation/useNavigation";
 import { usePlacesContext } from "../places/usePlaces";
@@ -39,6 +40,12 @@ export function AppMap({ height, padding, attributionLeft, attributionTop }: {
   const markers = useMemo(() => taskMarkers(
     tab === "transit" ? nearbyStops.map(stopMarker) : shownPlaces.map(placeMarker), selected, board,
   ), [tab, nearbyStops, shownPlaces, selected, board]);
+  // Submitted searches and category choices frame their settled results once (see MapCanvas).
+  const resultFrame = useMemo(() => {
+    if (tab !== "explore" || !search.hasSearch || search.frameRevision === 0) return undefined;
+    const ready = !search.searching && !selected && !board && searchPlaces.length > 0;
+    return { key: `results:${search.frameRevision}`, ready, bounds: ready ? resultFrameBounds(searchPlaces.map(place => place.coordinate), camera.searchCenter) : null };
+  }, [tab, search.hasSearch, search.frameRevision, search.searching, selected, board, searchPlaces, camera.searchCenter]);
   const route = planner.routes.route;
   const routeGeometry = useMemo<LineString | null>(
     () => route && route.geometry.length > 1 ? { type: "LineString", coordinates: route.geometry.map(tuple) } : null,
@@ -58,6 +65,8 @@ export function AppMap({ height, padding, attributionLeft, attributionTop }: {
         userLocation={navigating ? navigation.snapshot.location ? tuple(navigation.snapshot.location) : null : location.coordinate ? tuple(location.coordinate) : null}
         route={navigating ? navRoute : routeGeometry}
         routeFitKey={navigating ? undefined : planner.fitKey}
+        resultFrame={navigating ? undefined : resultFrame}
+        onViewChanged={coordinate => camera.viewSettled(point(coordinate))}
         cameraPadding={padding}
         attributionLeft={attributionLeft}
         attributionTop={attributionTop}
