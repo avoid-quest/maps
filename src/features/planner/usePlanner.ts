@@ -174,8 +174,13 @@ export function usePlanner({ tasks, camera, location, places, navigation, sheet,
     location.cancel();
     suspend(); suspendBoard();
     // Keep preview requests suspended while Stop settles and the new origin is chosen.
+    const before = plannerTask(getState());
     dispatch({ type: 'pickOrigin' });
-    if (!await navigation.stop()) return;
+    if (!await navigation.stop()) {
+      // Guidance continues; leave the planner beneath it as it was, not awaiting a map tap.
+      if (before?.originStep === 'idle' && before.origin.ready) dispatch({ type: 'cancelOriginPicking' });
+      return;
+    }
     const from = navigationLocationForReplan(current);
     if (from) {
       location.accept(from);
@@ -187,7 +192,7 @@ export function usePlanner({ tasks, camera, location, places, navigation, sheet,
         ? { id: 'navigation-destination', name: 'Destinazione del viaggio', coordinate: current.destination, source: 'MATO / 5T', attributions: [] }
         : undefined,
     });
-  }, [navigation, location, suspend, suspendBoard, camera, dispatch]);
+  }, [navigation, location, suspend, suspendBoard, camera, getState, dispatch]);
 
   return {
     task, mode, transitTime, routes, savedJourneyVisible, journeyBusy,

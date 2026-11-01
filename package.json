@@ -2,6 +2,7 @@
   "name": "avoid-maps",
   "version": "0.1.9",
   "private": true,
+  "license": "GPL-3.0-or-later",
   "main": "index.ts",
   "scripts": {
     "start": "AVOID_MAPS_VARIANT=development expo start --dev-client --lan --scheme avoid-maps-dev",

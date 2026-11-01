@@ -1,7 +1,7 @@
 import type { LineString } from "geojson";
 import { useMemo } from "react";
 import { View } from "react-native";
-import { point, tuple } from "../map/coordinates";
+import { toCoordinate, toMapCoordinate } from "../map/coordinates";
 import MapCanvas from "../map/MapCanvas";
 import { placeMarker, stopMarker, taskMarkers } from "../map/map-layers";
 import { resultFrameBounds } from "../map/map-presentation";
@@ -48,25 +48,25 @@ export function AppMap({ height, padding, attributionLeft, attributionTop }: {
   }, [tab, search.hasSearch, search.frameRevision, search.searching, selected, board, searchPlaces, camera.searchCenter]);
   const route = planner.routes.route;
   const routeGeometry = useMemo<LineString | null>(
-    () => route && route.geometry.length > 1 ? { type: "LineString", coordinates: route.geometry.map(tuple) } : null,
+    () => route && route.geometry.length > 1 ? { type: "LineString", coordinates: route.geometry.map(toMapCoordinate) } : null,
     [route],
   );
   const navGeometry = navigation.snapshot.route?.geometry;
   const navRoute = useMemo<LineString | null>(() => navGeometry && navGeometry.length > 1
-    ? { type: "LineString", coordinates: navGeometry.map(tuple) } : null, [navGeometry]);
+    ? { type: "LineString", coordinates: navGeometry.map(toMapCoordinate) } : null, [navGeometry]);
   const navCenter = navigation.snapshot.location ?? navigation.snapshot.destination ?? camera.center;
   const navigating = navigation.visible;
   return (
     <View testID="map-viewport" style={{ position: "absolute", top: 0, left: 0, right: 0, height, backgroundColor: theme.map.background }}>
       <MapCanvas
-        center={tuple(navigating ? navCenter : camera.center)}
+        center={toMapCoordinate(navigating ? navCenter : camera.center)}
         markers={navigating ? [] : markers}
         selectedMarkerId={journeyStop(tasks)?.id ?? selected?.id ?? selectedStop(tasks)?.id}
-        userLocation={navigating ? navigation.snapshot.location ? tuple(navigation.snapshot.location) : null : location.coordinate ? tuple(location.coordinate) : null}
+        userLocation={navigating ? navigation.snapshot.location ? toMapCoordinate(navigation.snapshot.location) : null : location.coordinate ? toMapCoordinate(location.coordinate) : null}
         route={navigating ? navRoute : routeGeometry}
         routeFitKey={navigating ? undefined : planner.fitKey}
         resultFrame={navigating ? undefined : resultFrame}
-        onViewChanged={coordinate => camera.viewSettled(point(coordinate))}
+        onViewChanged={coordinate => camera.viewSettled(toCoordinate(coordinate))}
         cameraPadding={padding}
         attributionLeft={attributionLeft}
         attributionTop={attributionTop}
@@ -74,16 +74,16 @@ export function AppMap({ height, padding, attributionLeft, attributionTop }: {
         coverageBounds={!navigating && tab === "explore" && search.hasSearch && !selected ? search.result.coverage.bounds : undefined}
         zoom={navigating ? 17 : camera.zoom}
         cameraRevision={camera.revision}
-        onMapPress={navigating ? undefined : coordinate => planner.chooseOrigin(point(coordinate))}
+        onMapPress={navigating ? undefined : coordinate => planner.chooseOrigin(toCoordinate(coordinate))}
         onRegionChanged={(coordinate, zoom) => {
           if (navigating) { camera.stopFollowing(); return; }
-          userPanned(point(coordinate), zoom);
+          userPanned(toCoordinate(coordinate), zoom);
         }}
         onPressMarker={(id) => {
           if (navigating) return;
           if (picking) {
             const marker = markers.find((item) => item.id === id);
-            if (marker) planner.chooseOrigin(point(marker.coordinate));
+            if (marker) planner.chooseOrigin(toCoordinate(marker.coordinate));
             return;
           }
           if (tab === "transit") {

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Coordinate } from '../../domain/types';
 import { getAuthorizedLocation, getCurrentLocation, LocationError } from '../../platform/location';
 import type { TaskModel } from '../app/useTaskModel';
-import { point } from './coordinates';
+import { toCoordinate } from './coordinates';
 import { createRecenterIntent } from './recenter-intent';
 import type { MapCamera } from './useMapCamera';
 
@@ -63,7 +63,7 @@ export function useDeviceLocation({ tasks, camera, appActive, navigationVisible 
     setLocating(true);
     try {
       const position = await getCurrentLocation();
-      const next = point(position.coordinate);
+      const next = toCoordinate(position.coordinate);
       if (id !== request.current) {
         // Suspended by the lifecycle (permission dialog) but not by the user: honour a pending Locate.
         if (recenter.pending(Date.now())) { record(next); place(next); }
@@ -93,7 +93,7 @@ export function useDeviceLocation({ tasks, camera, appActive, navigationVisible 
       if (!position) { recenter.notAuthorized(); return; }
       if (!active) return;
       setMessage('');
-      const next = point(position.coordinate);
+      const next = toCoordinate(position.coordinate);
       record(next);
       if (id === request.current) place(next);
     }).catch(error => {

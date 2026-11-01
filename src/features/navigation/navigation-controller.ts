@@ -3,11 +3,12 @@ import type { DiagnosticInput } from '../../services/diagnostics';
 
 type NavigationDiagnostic = Extract<DiagnosticInput, { type: 'navigation' }>['state'];
 const diagnosticStatuses: Partial<Record<NavigationSnapshot['status'], NavigationDiagnostic>> = {
-  navigating: 'active', 'location-degraded': 'degraded', 'off-route': 'off-route', rerouting: 'rerouting', arrived: 'arrived', stopped: 'stopped', interrupted: 'interrupted',
+  'waiting-for-fix': 'waiting-for-fix', routing: 'routing', navigating: 'active', 'location-degraded': 'degraded', 'off-route': 'off-route', rerouting: 'rerouting', arrived: 'arrived', stopped: 'stopped', interrupted: 'interrupted',
 };
 const diagnosticProblems: Partial<Record<NonNullable<NavigationSnapshot['problem']>, NavigationDiagnostic>> = {
-  'location-permission': 'denied', 'engine-unavailable': 'engine-unavailable', 'service-unavailable': 'service-unavailable',
-  'route-unavailable': 'route-unavailable', 'rate-limit': 'rate-limit', 'reroute-limit': 'reroute-limit', 'transit-replan-needed': 'transit-replan-needed', 'native-error': 'native-error',
+  'location-permission': 'denied', 'location-disabled': 'location-disabled', 'engine-unavailable': 'engine-unavailable', 'service-unavailable': 'service-unavailable',
+  'location-inaccurate': 'location-inaccurate', 'location-stale': 'location-stale', 'location-unavailable': 'location-unavailable',
+  'route-unavailable': 'route-unavailable', 'route-invalid': 'route-invalid', 'route-network': 'route-network', 'route-timeout': 'route-timeout', 'route-not-started': 'route-not-started', 'rate-limit': 'rate-limit', 'reroute-limit': 'reroute-limit', 'transit-replan-needed': 'transit-replan-needed', 'native-error': 'native-error',
 };
 const unavailableStateMessage = 'Stato della navigazione non disponibile. Riapri l’app per controllarlo.';
 function errorCode(error: unknown): string {
@@ -21,12 +22,21 @@ export interface NavigationState {
   busy: 'start' | 'stop' | 'retry' | 'confirm' | null;
   error: string | null;
 }
+const commandDiagnostics: Partial<Record<string, NavigationDiagnostic>> = {
+  'location-permission': 'denied', 'navigation-unavailable': 'service-unavailable', 'service-unavailable': 'service-unavailable',
+  'engine-unavailable': 'engine-unavailable', 'foreground-required': 'foreground-required', invalid: 'invalid',
+};
+/** Only short fixed identifiers are ever shown; raw native messages never are. */
+const SAFE_CODE = /^[A-Za-z][A-Za-z0-9_-]{0,39}$/;
 function failureMessage(error: unknown): string {
+  if (errorCode(error) === 'foreground-required') return 'Avvio non riuscito perché l’app non era in primo piano. Tienila aperta e riprova.';
+  if (errorCode(error) === 'invalid') return 'Destinazione o viaggio non validi. Scegli di nuovo il percorso.';
   if (errorCode(error) === 'location-permission') return 'Per avviare serve la posizione precisa. Abilitala nelle impostazioni dell’app e riprova.';
   if (errorCode(error) === 'navigation-unavailable') return 'La navigazione richiede la versione Android con il modulo di navigazione.';
   if (errorCode(error) === 'engine-unavailable') return 'Il motore di navigazione non è disponibile. Interrompi la sessione e riapri l’app.';
   if (errorCode(error) === 'service-unavailable') return 'Android non ha avviato il servizio di navigazione. Mantieni l’app visibile e riprova.';
-  return 'Operazione non riuscita. Controlla lo stato della navigazione e riprova.';
+  const code = error && typeof error === 'object' && 'code' in error && typeof error.code === 'string' && SAFE_CODE.test(error.code) ? error.code : null;
+  return `Operazione non riuscita${code ? ` (codice ${code})` : ''}. Controlla lo stato della navigazione e riprova.`;
 }
 /** Commands and native events meet here, including events arriving before command responses. */
 export function createNavigationController(platform: NavigationPlatform, record: (state: NavigationDiagnostic) => void = () => {}) {
@@ -50,6 +60,7 @@ export function createNavigationController(platform: NavigationPlatform, record:
     const problem = snapshot.problem ? diagnosticProblems[snapshot.problem] : undefined;
     if (status && snapshot.status !== previous.status) record(status);
     if (problem && snapshot.problem !== previous.problem) record(problem);
+    if (snapshot.startTimedOut === true && previous.startTimedOut !== true) record('start-timeout');
     const keepRoute = sameRoute && !['idle', 'stopped', 'arrived', 'interrupted', 'error'].includes(snapshot.status);
     if (keepRoute && !Object.hasOwn(snapshot, 'route')) snapshot = { ...snapshot, route: previous.route };
     else if (snapshot.route && previous.route && sameRoute) snapshot = { ...snapshot, route: previous.route };
@@ -66,7 +77,7 @@ export function createNavigationController(platform: NavigationPlatform, record:
     catch (error) {
       if (operation === id) {
         const code = errorCode(error);
-        record(code === 'location-permission' ? 'denied' : code === 'navigation-unavailable' || code === 'service-unavailable' ? 'service-unavailable' : code === 'engine-unavailable' ? 'engine-unavailable' : 'native-error');
+        record(commandDiagnostics[code] ?? 'native-error');
         publish({ ...state, error: failureMessage(error) });
       }
     }
