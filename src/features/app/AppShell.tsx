@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useLayoutEffect, useRef } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useThemeColors } from "../../theme";
@@ -52,6 +52,8 @@ export function AppShell() {
   const heights = sheetHeights({ availableHeight, fontScale, peekContent: peekContentHeight(tasks, search.hasSearch) });
   const resting = defaultSnap(tasks, search.hasSearch);
   const snap = resolveSnap(sheet.requested, resting);
+  const sheetHeightsRef = sheet.heights;
+  useLayoutEffect(() => { sheetHeightsRef.current = heights; });
   // The camera padding follows the sheet's target height, so pins and routes stay in the visible map.
   const currentSheetHeight = heights[snap];
   const mapPadding = mapCameraPadding({ width, height: mapHeight, sheetHeight: currentSheetHeight + 8, panelVisible, navigating: navigation.visible, fontScale });
@@ -75,7 +77,7 @@ export function AppShell() {
           <View pointerEvents="box-none" className="absolute left-3 right-3 top-20 flex-row items-start justify-between">
             <View className="flex-1" pointerEvents="none">
               {location.locating ? <Text accessibilityLiveRegion="polite" className="self-start rounded-full bg-surface-raised px-3 py-2 text-sm text-secondary">Ricerca della posizione…</Text>
-                : !location.coordinate && camera.view === "overview" ? <Text accessibilityLabel="Vista panoramica di Torino, non la tua posizione" className="self-start rounded-full bg-surface-raised px-3 py-2 text-sm text-secondary">Panoramica di Torino</Text>
+                : !location.coordinate && camera.view === "overview" && !panelVisible ? <Text accessibilityLabel="Vista panoramica di Torino, non la tua posizione" className="self-start rounded-full bg-surface-raised px-3 py-2 text-sm text-secondary">Panoramica di Torino</Text>
                   : null}
             </View>
             {location.locating ? (
@@ -98,7 +100,10 @@ export function AppShell() {
             </View>
           </View>
           {panelVisible ? (
-            <View pointerEvents="box-none" style={[StyleSheet.absoluteFill, wide ? { right: undefined, width: SIDE_SHEET_WIDTH } : null]}>
+            // The sheet library sizes its content to the highest snap, so at peek and half the lower part
+            // sits below the visible sheet. Clip at this container, which ends above the navigation bar
+            // (SafeAreaView bottom edge), so content never draws under the system buttons.
+            <View pointerEvents="box-none" style={[StyleSheet.absoluteFill, { overflow: "hidden" }, wide ? { right: undefined, width: SIDE_SHEET_WIDTH } : null]}>
               <TaskSheet snap={snap} resting={resting} heights={heights} now={now} />
             </View>
           ) : (

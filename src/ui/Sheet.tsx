@@ -2,7 +2,7 @@ import BottomSheet, { BottomSheetFlatList, BottomSheetFooter, BottomSheetScrollV
 import { useCallback, useEffect, useMemo, useRef, type ReactNode } from "react";
 import { View, type AccessibilityActionEvent } from "react-native";
 import { useThemeColors } from "../theme/ThemeProvider";
-import { SHEET_SNAP_LABELS, SHEET_SNAPS, type SheetHeights, type SheetSnap } from "./sheet-snaps";
+import { distinctSnap, logicalSnapAt, physicalIndex, physicalSnaps, SHEET_SNAP_LABELS, type SheetHeights, type SheetSnap } from "./sheet-snaps";
 
 /**
  * The app's one sheet interface. Features describe content and a snap; the gesture library stays
@@ -26,24 +26,28 @@ export function AppSheet({ snap, heights, onSnapChange, header, footer, footerHe
 }) {
   const colors = useThemeColors();
   const sheet = useRef<BottomSheet>(null);
-  const index = SHEET_SNAPS.indexOf(snap);
+  // Gorhom resolves positions with indexOf, so it gets unique physical heights; logical snaps map onto them.
+  const { peek, half, full } = heights;
+  const snapPoints = useMemo(() => physicalSnaps({ peek, half, full }), [peek, half, full]);
+  const index = physicalIndex(heights, snap);
   const current = useRef(index);
-  const snapPoints = useMemo(() => [heights.peek, heights.half, heights.full], [heights.peek, heights.half, heights.full]);
-  const latest = useRef(onSnapChange); latest.current = onSnapChange;
+  const latest = useRef({ onSnapChange, snap, heights }); latest.current = { onSnapChange, snap, heights };
   useEffect(() => {
     if (current.current === index) return;
     current.current = index;
     sheet.current?.snapToIndex(index);
-  }, [index]);
+  }, [index, snapPoints]);
   const report = useCallback((next: number) => {
-    const target = SHEET_SNAPS[next];
-    if (!target || current.current === next) return;
+    if (next < 0 || current.current === next) return;
     current.current = next;
-    latest.current(target);
+    const { onSnapChange: change, snap: logical, heights: sizes } = latest.current;
+    const target = logicalSnapAt(sizes, next, logical);
+    if (target !== logical) change(target);
   }, []);
   const step = useCallback((direction: 1 | -1) => {
-    const next = SHEET_SNAPS[Math.min(SHEET_SNAPS.length - 1, Math.max(0, current.current + direction))];
-    if (next) latest.current(next);
+    const { onSnapChange: change, snap: logical, heights: sizes } = latest.current;
+    const target = distinctSnap(sizes, logical, direction);
+    if (target !== logical) change(target);
   }, []);
   const Handle = useCallback(() => (
     <View

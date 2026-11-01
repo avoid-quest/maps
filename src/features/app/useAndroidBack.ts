@@ -27,7 +27,7 @@ export function useAndroidBack(dependencies: {
       ], { cancelable: true }))) return true;
       const state = tasks.getState();
       const resting = defaultSnap(state, search.hasSearch);
-      const step = sheetBackStep(state, resolveSnap(sheet.requested, resting), resting);
+      const step = sheetBackStep(state, resolveSnap(sheet.requested, resting), resting, sheet.heights.current);
       if (step === 'collapse') { sheet.collapse(); return true; }
       if (step === 'exit') return false;
       if (hasTaskAboveRoot(state)) {

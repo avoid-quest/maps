@@ -1,4 +1,4 @@
-import { SHEET_SNAPS, type SheetHeights, type SheetSnap } from '../../ui/sheet-snaps';
+import { distinctSnap, SHEET_SNAPS, type SheetHeights, type SheetSnap } from '../../ui/sheet-snaps';
 import { hasTaskAboveRoot, searchRoot, selectedPlace, sheetVisible, taskReducer, topTask, type TaskState } from './task-model';
 
 export { SHEET_SNAPS, type SheetHeights, type SheetSnap };
@@ -41,9 +41,23 @@ export function defaultSnap(tasks: TaskState, hasSearch: boolean): SheetSnap {
 export const resolveSnap = (requested: SheetSnap | null, fallback: SheetSnap): SheetSnap => requested ?? fallback;
 export function nextSnapUp(snap: SheetSnap): SheetSnap { return SHEET_SNAPS[Math.min(rank(snap) + 1, SHEET_SNAPS.length - 1)]!; }
 export function nextSnapDown(snap: SheetSnap): SheetSnap { return SHEET_SNAPS[Math.max(rank(snap) - 1, 0)]!; }
-/** The header control: expand one step, or from full return to the task's resting height. */
-export function toggledSnap(snap: SheetSnap, fallback: SheetSnap): SheetSnap {
-  return snap === 'full' ? (fallback === 'full' ? 'half' : fallback) : nextSnapUp(snap);
+/**
+ * The header control: expand to the next visibly taller snap, or from the top return to the task's
+ * resting height (or the next lower one when the task rests at the top). Snaps sharing a height in a
+ * short window are skipped so the control always moves the sheet.
+ */
+export function toggledSnap(snap: SheetSnap, fallback: SheetSnap, heights?: SheetHeights): SheetSnap {
+  const sizes = heights ?? { peek: 0, half: 1, full: 2 };
+  const up = distinctSnap(sizes, snap, 1);
+  if (up !== snap) return up;
+  if (sizes[fallback] < sizes[snap]) return fallback;
+  return distinctSnap(sizes, snap, -1);
+}
+
+/** Whether the explicit control expands (true) or reduces (false) the sheet from `snap`. */
+export function toggleExpands(snap: SheetSnap, fallback: SheetSnap, heights?: SheetHeights): boolean {
+  const sizes = heights ?? { peek: 0, half: 1, full: 2 };
+  return sizes[toggledSnap(snap, fallback, heights)] > sizes[snap];
 }
 
 /**
@@ -51,8 +65,9 @@ export function toggledSnap(snap: SheetSnap, fallback: SheetSnap): SheetSnap {
  * height comes down first, then the task stack unwinds, and only the bare map exits the app.
  */
 export type SheetBackStep = 'collapse' | 'task' | 'exit';
-export function sheetBackStep(tasks: TaskState, snap: SheetSnap, resting: SheetSnap): SheetBackStep {
-  if (sheetVisible(tasks) && rank(snap) > rank(resting)) return 'collapse';
+export function sheetBackStep(tasks: TaskState, snap: SheetSnap, resting: SheetSnap, heights?: SheetHeights | null): SheetBackStep {
+  const raised = heights ? heights[snap] > heights[resting] : rank(snap) > rank(resting);
+  if (sheetVisible(tasks) && raised) return 'collapse';
   if (!sheetVisible(tasks)) return 'exit';
   return 'task';
 }

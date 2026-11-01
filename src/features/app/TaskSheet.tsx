@@ -12,7 +12,7 @@ import { SettingsSheet } from "../settings/SettingsSheet";
 import { NearbyStops } from "../transit/NearbyStops";
 import { StopSheet } from "../transit/StopSheet";
 import { useSheet } from "./sheet";
-import { sheetHeaderNavigation, toggledSnap } from "./sheet-model";
+import { sheetHeaderNavigation, toggleExpands, toggledSnap } from "./sheet-model";
 import { detailKey, topTask, type Task } from "./task-model";
 import { useShellActions } from "./useShellActions";
 import { useTaskState } from "./useTaskModel";
@@ -51,7 +51,8 @@ export function TaskSheet({ snap, resting, heights, now }: { snap: SheetSnap; re
   const { closeTask, closeTopTask } = useShellActions();
   const top = topTask(tasks);
   const navigation = sheetHeaderNavigation(tasks);
-  const expandTo = toggledSnap(snap, resting);
+  const expandTo = toggledSnap(snap, resting, heights);
+  const expands = toggleExpands(snap, resting, heights);
   const header = (
     <SheetHeader
       title={taskTitle(top, search)}
@@ -59,8 +60,8 @@ export function TaskSheet({ snap, resting, heights, now }: { snap: SheetSnap; re
       onClose={closeTask}
       closeLabel="Chiudi e torna alla mappa"
       actions={
-        <IconButton icon={snap === "full" ? "chevron-down" : "chevron-up"}
-          label={snap === "full" ? "Riduci scheda" : "Espandi scheda"} onPress={() => sheet.request(expandTo)} />
+        <IconButton icon={expands ? "chevron-up" : "chevron-down"}
+          label={expands ? "Espandi scheda" : "Riduci scheda"} onPress={() => sheet.request(expandTo)} />
       }
     />
   );

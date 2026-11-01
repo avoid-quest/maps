@@ -55,3 +55,22 @@ test('the header shows Back only when it leads somewhere other than the map', ()
   assert.deepEqual(sheetHeaderNavigation(run({ type: 'toggleSettings' })), { back: false, close: true });
   assert.deepEqual(sheetHeaderNavigation(run({ type: 'openTab', tab: 'saved' }, { type: 'toggleSettings' })), { back: true, close: true }, 'settings over Salvati returns to Salvati');
 });
+
+test('a short window with shared heights keeps logical snaps, camera padding and controls consistent', async () => {
+  const { logicalSnapAt, physicalIndex, physicalSnaps } = await import('../../ui/sheet-snaps');
+  const keyboard = sheetHeights({ availableHeight: 380, fontScale: 1, peekContent: 220 });
+  assert.deepEqual(keyboard, { peek: 220, half: 220, full: 244 });
+  assert.deepEqual(physicalSnaps(keyboard), [220, 244], 'the gesture library never sees duplicate detents');
+  assert.equal(physicalIndex(keyboard, 'half'), 0);
+  assert.equal(physicalIndex(keyboard, 'peek'), 0);
+  assert.equal(physicalIndex(keyboard, 'full'), 1);
+  assert.equal(logicalSnapAt(keyboard, 0, 'half'), 'half', 'reaching the shared height keeps "half", not "peek"');
+  assert.equal(logicalSnapAt(keyboard, 1, 'half'), 'full');
+  assert.equal(logicalSnapAt(keyboard, 0, 'full'), 'peek', 'dragging down lands on the lowest snap at that height');
+  assert.equal(logicalSnapAt(sheetHeights({ availableHeight: 380, fontScale: 1, peekContent: 140 }), 1, 'peek'), 'half');
+  assert.equal(toggledSnap('peek', 'peek', keyboard), 'full', 'the expand control skips a snap of the same height');
+  assert.equal(toggledSnap('full', 'half', keyboard), 'half');
+  const tall = { peek: 220, half: 244, full: 244 };
+  assert.equal(toggledSnap('full', 'half', tall), 'peek', 'from the top, the control always moves the sheet');
+  assert.equal(sheetBackStep(run({ type: 'openTab', tab: 'transit' }, { type: 'openStop', stop }), 'full', 'half', tall), 'task', 'Back does not "collapse" to an identical height');
+});
