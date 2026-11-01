@@ -1,4 +1,5 @@
-import { Text, View } from "react-native";
+import { View } from "react-native";
+import { Text } from "../../ui/Text";
 import type { Place } from "../../domain/types";
 import { Button, Disclosure, ListRow } from "../../ui";
 import { useFeedback } from "../app/feedback";

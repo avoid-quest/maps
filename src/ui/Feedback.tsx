@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
-import { ActivityIndicator, Pressable, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, View } from "react-native";
+import { Text } from "./Text";
 import { useThemeColors } from "../theme/ThemeProvider";
 import { Icon, type IconName } from "./Icon";
 
@@ -17,7 +18,7 @@ export function EmptyState({ icon, title, description }: { icon: IconName; title
   const colors = useThemeColors();
   return (
     <View className="items-center px-7 py-8">
-      <View className="mb-4 h-14 w-14 items-center justify-center rounded-full bg-surface-muted">
+      <View className="mb-3 h-14 w-14 items-center justify-center">
         <Icon name={icon} size={26} color={colors.textSecondary} />
       </View>
       <Text className="text-center text-lg font-semibold text-primary">{title}</Text>

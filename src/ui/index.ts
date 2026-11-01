@@ -11,3 +11,6 @@ export { TransitLineBadge } from "./TransitLineBadge";
 export { lineBadgeColors, transitModeFromLeg, transitModeFromLineName, type TransitMode } from "./transit-line";
 export { AppSheet, SheetFlatList, SheetScrollView } from "./Sheet";
 export { SHEET_SNAPS, type SheetHeights, type SheetSnap } from "./sheet-snaps";
+export { Divider, useHairlines } from "./Divider";
+export { Display, Num, Text } from "./Text";
+export { Wordmark } from "./Wordmark";

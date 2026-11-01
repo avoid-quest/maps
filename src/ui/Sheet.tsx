@@ -1,7 +1,8 @@
 import BottomSheet, { BottomSheetFlatList, BottomSheetFooter, BottomSheetScrollView, type BottomSheetFooterProps } from "@gorhom/bottom-sheet";
 import { useCallback, useEffect, useMemo, useRef, type ReactNode } from "react";
-import { View, type AccessibilityActionEvent } from "react-native";
+import { StyleSheet, View, type AccessibilityActionEvent } from "react-native";
 import { useThemeColors } from "../theme/ThemeProvider";
+import { Divider } from "./Divider";
 import { distinctSnap, logicalSnapAt, physicalIndex, physicalSnaps, SHEET_SNAP_LABELS, type SheetHeights, type SheetSnap } from "./sheet-snaps";
 
 /**
@@ -76,7 +77,7 @@ export function AppSheet({ snap, heights, onSnapChange, header, footer, footerHe
       detached
       bottomInset={bottomInset}
       style={{ marginHorizontal: horizontalInset }}
-      backgroundStyle={{ backgroundColor: colors.surface, borderColor: colors.divider, borderWidth: 1, borderRadius: 20 }}
+      backgroundStyle={{ backgroundColor: colors.surface, borderColor: colors.divider, borderWidth: StyleSheet.hairlineWidth, borderRadius: 20 }}
       handleComponent={Handle}
       footerComponent={footer ? Footer : undefined}
       onAnimate={(_from, to) => report(to)}
@@ -92,7 +93,7 @@ export function AppSheet({ snap, heights, onSnapChange, header, footer, footerHe
     >
       <View testID={testID} style={{ flex: 1, paddingBottom: footerHeight }}>
         {header}
-        <View className="border-b border-divider" />
+        <Divider />
         {children}
       </View>
     </BottomSheet>

@@ -12,6 +12,6 @@ export function systemChromeFor(preference: ThemePreference, scheme: ColorScheme
     statusBarStyle: scheme === 'dark' ? 'light' : 'dark',
     navigationBarStyle: scheme,
     /** Root window colour shown behind edge-to-edge content and before the first frame paints. */
-    rootBackground: palettes[scheme].colors.surface,
+    rootBackground: palettes[scheme].colors.chrome,
   } as const;
 }

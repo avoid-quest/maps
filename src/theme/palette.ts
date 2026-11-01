@@ -7,7 +7,9 @@
 export type ColorScheme = 'light' | 'dark';
 
 export interface ThemeColors {
-  /** App background and task-card body. */
+  /** Window, status/navigation bars and guidance chrome: pure black in dark, white in light. */
+  chrome: string;
+  /** Task-card body and list backgrounds (near-black in dark, off-white in light). */
   surface: string;
   /** Cards, controls and inputs lifted above `surface`. */
   surfaceRaised: string;
@@ -18,7 +20,7 @@ export interface ThemeColors {
   textSecondary: string;
   /** Hairlines and card borders. Decorative, not a text colour. */
   divider: string;
-  /** Primary action fill, links, active icons and route emphasis. */
+  /** The only accent: primary pill fill, links and active icons (white in dark, black in light). */
   action: string;
   /** Text or icon drawn on an `action` fill. */
   onAction: string;
@@ -31,7 +33,7 @@ export interface ThemeColors {
   dangerSubtle: string;
   success: string;
   successSubtle: string;
-  /** Transit: a realtime prediction from the operator feed. */
+  /** Signal green: a realtime prediction from the operator feed, a current fix, verified data. */
   live: string;
   /** Transit: a timetable time without realtime confirmation. */
   scheduled: string;
@@ -65,48 +67,54 @@ export interface Palette {
   map: MapColors;
 }
 
+/**
+ * avoid.quest family palette: zinc greyscale with white (dark) or black (light) as the only accent.
+ * Colour carries meaning only: signal green for live/verified, amber for caution, red for disruption.
+ */
 const lightColors: ThemeColors = {
-  surface: '#FAFBFC',
+  chrome: '#FFFFFF',
+  surface: '#FAFAFA',
   surfaceRaised: '#FFFFFF',
-  surfaceMuted: '#EEF1F4',
-  textPrimary: '#1A1D23',
-  textSecondary: '#525A66',
-  divider: '#DDE1E6',
-  action: '#1D5BD6',
-  onAction: '#FFFFFF',
-  actionSubtle: '#E6EEFC',
-  caution: '#8A5000',
-  cautionSubtle: '#FDF1DC',
-  danger: '#B42318',
-  dangerSubtle: '#FCE9E7',
-  success: '#1C6B3A',
-  successSubtle: '#E4F3E9',
-  live: '#0C6E60',
-  scheduled: '#3E4652',
-  stale: '#8A5000',
-  cancelled: '#B42318',
+  surfaceMuted: '#F4F4F5',
+  textPrimary: '#09090B',
+  textSecondary: '#52525B',
+  divider: '#E4E4E7',
+  action: '#09090B',
+  onAction: '#FAFAFA',
+  actionSubtle: '#E4E4E7',
+  caution: '#92400E',
+  cautionSubtle: '#FEF3C7',
+  danger: '#B91C1C',
+  dangerSubtle: '#FEE2E2',
+  success: '#0A7A4F',
+  successSubtle: '#DCFCE7',
+  live: '#0A7A4F',
+  scheduled: '#3F3F46',
+  stale: '#92400E',
+  cancelled: '#B91C1C',
 };
 
 const darkColors: ThemeColors = {
-  surface: '#16181C',
-  surfaceRaised: '#1F2228',
-  surfaceMuted: '#2A2E35',
-  textPrimary: '#ECEEF1',
-  textSecondary: '#A8AFB9',
-  divider: '#353A42',
-  action: '#8AB4F8',
-  onAction: '#0B1B36',
-  actionSubtle: '#1D2C45',
-  caution: '#F0B95C',
-  cautionSubtle: '#36290F',
-  danger: '#F49189',
-  dangerSubtle: '#3D1D1B',
-  success: '#7DD3A0',
-  successSubtle: '#163020',
-  live: '#62D2BF',
-  scheduled: '#C8CDD5',
-  stale: '#F0B95C',
-  cancelled: '#F49189',
+  chrome: '#000000',
+  surface: '#0B0B0C',
+  surfaceRaised: '#111113',
+  surfaceMuted: '#1C1C1F',
+  textPrimary: '#FAFAFA',
+  textSecondary: '#A1A1AA',
+  divider: '#27272A',
+  action: '#FAFAFA',
+  onAction: '#09090B',
+  actionSubtle: '#27272A',
+  caution: '#FBBF24',
+  cautionSubtle: '#2A2006',
+  danger: '#F87171',
+  dangerSubtle: '#2D1213',
+  success: '#3DDC97',
+  successSubtle: '#0D2A1E',
+  live: '#3DDC97',
+  scheduled: '#D4D4D8',
+  stale: '#FBBF24',
+  cancelled: '#F87171',
 };
 
 export const palettes: Record<ColorScheme, Palette> = {

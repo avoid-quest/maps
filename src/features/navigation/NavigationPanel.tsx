@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Linking, Modal, Pressable, ScrollView, Text, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, Linking, Modal, Pressable, ScrollView, useWindowDimensions, View } from 'react-native';
+import { Text } from '../../ui/Text';
 import { useThemeColors } from '../../theme';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NavigationSnapshot, TransitConfirmation } from '../../domain/navigation';
 import { navigationLocationForReplan } from '../../domain/navigation';
-import { Button, Icon, IconButton, Notice } from '../../ui';
+import { Button, Display, Icon, IconButton, Notice, Num, useHairlines } from '../../ui';
 import type { NavigationState } from './navigation-controller';
 import { journeyDuration } from '../planner/journey-presentation';
 
@@ -32,6 +33,7 @@ export function NavigationPanel({ snapshot, busy, error, following, onRecenter, 
   onConfirmTransit: (action: TransitConfirmation) => void; onReplan: () => void;
 }) {
   const colors = useThemeColors();
+  const hairlines = useHairlines();
   const { width, height, fontScale } = useWindowDimensions();
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [now, setNow] = useState(Date.now());
@@ -52,28 +54,30 @@ export function NavigationPanel({ snapshot, busy, error, following, onRecenter, 
   const landscape = width >= 650 && height < 500;
   const panelHeight = Math.min(height * 0.46, Math.max(176, 176 * Math.min(fontScale, 1.5)));
   return <View pointerEvents="box-none" className="flex-1">
-    <View testID="navigation-instruction" style={{ height: Math.min(height * 0.3, 104 * Math.min(fontScale, 1.5)), ...(landscape ? { position: "absolute", top: 0, left: 0, right: 320 } as const : {}) }} className="bg-action px-4 py-3">
+    <View testID="navigation-instruction" style={{ height: Math.min(height * 0.3, 104 * Math.min(fontScale, 1.5)), ...(landscape ? { position: "absolute", top: 0, left: 0, right: 320 } as const : {}), backgroundColor: colors.chrome, ...hairlines.bottom }} className="px-4 py-3">
       <ScrollView>
         <View className="flex-row items-center gap-2">
-          <View className="w-6">{waiting ? <ActivityIndicator color={colors.onAction} /> : <Icon name={snapshot.status === 'arrived' ? 'flag-outline' : 'navigate-outline'} color={colors.onAction} />}</View>
-          <Text accessibilityRole="header" accessibilityLiveRegion="polite" className="flex-1 text-sm font-semibold text-on-action">{paused && snapshot.instruction ? 'Guida in pausa · Ultima indicazione' : guiding && snapshot.distanceToManeuverMeters != null ? `Tra ${distance(snapshot.distanceToManeuverMeters)}` : statuses[snapshot.status]}</Text>
+          <View className="w-6">{waiting ? <ActivityIndicator color={colors.textPrimary} /> : <Icon name={snapshot.status === 'arrived' ? 'flag-outline' : 'navigate-outline'} color={colors.textPrimary} />}</View>
+          {guiding && !paused && snapshot.distanceToManeuverMeters != null
+            ? <Display accessibilityRole="header" accessibilityLiveRegion="polite" accessibilityLabel={`Tra ${distance(snapshot.distanceToManeuverMeters)}`} size={34} className="flex-1 text-primary">{distance(snapshot.distanceToManeuverMeters)}</Display>
+            : <Text accessibilityRole="header" accessibilityLiveRegion="polite" className="flex-1 text-sm font-semibold text-primary">{paused && snapshot.instruction ? 'Guida in pausa · Ultima indicazione' : statuses[snapshot.status]}</Text>}
         </View>
-        <Text className="mt-2 text-xl font-semibold leading-7 text-on-action">{terminal ? statuses[snapshot.status] : snapshot.instruction ?? (waiting ? 'Attendi la posizione precisa' : 'In attesa di indicazioni')}</Text>
+        <Text className="mt-1 text-xl font-semibold leading-7 text-primary">{terminal ? statuses[snapshot.status] : snapshot.instruction ?? (waiting ? 'Attendi la posizione precisa' : 'In attesa di indicazioni')}</Text>
       </ScrollView>
     </View>
     <View pointerEvents="box-none" className="flex-1">
       <View style={{ position: "absolute", right: landscape ? 332 : 12, top: landscape ? Math.min(height * 0.3, 104 * Math.min(fontScale, 1.5)) + 48 : 48 }}>
-        <IconButton icon="locate-outline" label="Ricentra sulla mia posizione" active={following} disabled={!snapshot.location} onPress={onRecenter} />
+        <IconButton floating icon="locate-outline" label="Ricentra sulla mia posizione" active={following} disabled={!snapshot.location} onPress={onRecenter} />
       </View>
     </View>
-    <View testID="navigation-sheet" style={landscape ? { position: "absolute", right: 0, top: 0, bottom: 0, width: 320 } : { height: panelHeight }} className="rounded-t-3xl border-t border-divider bg-surface">
+    <View testID="navigation-sheet" style={[landscape ? { position: "absolute", right: 0, top: 0, bottom: 0, width: 320 } : { height: panelHeight }, hairlines.top]} className="rounded-t-3xl bg-surface">
       <View className="flex-row items-center gap-3 px-4 pt-2" style={{ height: 52 }}>
-        <Text className="flex-1 text-lg font-semibold text-primary" numberOfLines={1}>{!transit && snapshot.distanceRemainingMeters != null ? `${remainingSeconds != null ? journeyDuration(remainingSeconds) + ' · ' : ''}${distance(snapshot.distanceRemainingMeters)}` : transit ? `Tratta ${transit.legIndex + 1} di ${transit.legCount}` : 'Il tuo viaggio'}</Text>
-        <Pressable accessibilityRole="button" accessibilityLabel={`Dettagli navigazione, ${voiceLabel}`} onPress={() => setDetailsOpen(true)} className="min-h-12 min-w-12 items-center justify-center px-2"><Text className="text-sm font-semibold text-action">Dettagli</Text></Pressable>
+        <Num className="flex-1 text-lg font-semibold text-primary" numberOfLines={1}>{!transit && snapshot.distanceRemainingMeters != null ? `${remainingSeconds != null ? journeyDuration(remainingSeconds) + ' · ' : ''}${distance(snapshot.distanceRemainingMeters)}` : transit ? `Tratta ${transit.legIndex + 1} di ${transit.legCount}` : 'Il tuo viaggio'}</Num>
+        <Pressable accessibilityRole="button" accessibilityLabel={`Dettagli navigazione, ${voiceLabel}`} onPress={() => setDetailsOpen(true)} className="min-h-12 min-w-12 items-center justify-center px-2"><Text className="text-sm font-semibold text-primary underline">Dettagli</Text></Pressable>
       </View>
       <ScrollView className="flex-1" contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 8, gap: 8 }}>
         <Text testID="navigation-quality" accessibilityLiveRegion="polite" className="text-sm leading-5 text-secondary">{snapshot.problem ? problems[snapshot.problem] : guiding ? arrival ? `Arrivo stimato ${arrival}` : 'Posizione valida' : statuses[snapshot.status]}</Text>
-        {paused && snapshot.location ? <Text className="text-sm leading-5 text-secondary">Ultima posizione accettata: {time(snapshot.location.timestamp)} · ±{distance(snapshot.location.accuracyMeters)}</Text> : null}
+        {paused && snapshot.location ? <Text className="text-sm leading-5 text-secondary">Ultima posizione accettata: <Num className="text-sm text-secondary">{time(snapshot.location.timestamp)} · ±{distance(snapshot.location.accuracyMeters)}</Num></Text> : null}
         {snapshot.problem === 'location-permission' ? <Button variant="secondary" onPress={() => { void Linking.openSettings(); }}>Apri impostazioni</Button> : null}
         {error ? <Notice tone="danger" text={error} /> : null}
       {transit ? <Text className="text-sm leading-5 text-secondary">{transit.line ? `${transit.line} · ` : ''}{transit.timingStatus === 'prediction' ? 'Previsioni' : transit.timingStatus === 'scheduled' ? 'Da orario' : transit.timingStatus === 'cancelled' ? 'Corsa cancellata' : 'Orari non disponibili'} · consultato {time(transit.fetchedAt)}{transitAge >= 2 ? ' · Da aggiornare' : ''}</Text> : null}
@@ -81,7 +85,7 @@ export function NavigationPanel({ snapshot, busy, error, following, onRecenter, 
       {snapshot.status === 'arrived' ? <Text className="text-base leading-6 text-primary">Guida terminata. Verifica l’ingresso sul posto.</Text> : null}
       {snapshot.status === 'arrived' && snapshot.destinationDistanceMeters != null && snapshot.destinationDistanceMeters > 30 ? <Text className="text-sm leading-5 text-secondary">La destinazione dista ancora {distance(snapshot.destinationDistanceMeters)} in linea d’aria.</Text> : null}
       </ScrollView>
-      <View className="border-t border-divider px-4 pb-3 pt-2">
+      <View style={hairlines.top} className="px-4 pb-3 pt-2">
         <View className="flex-row gap-2">
           <View className="min-w-0 flex-1">{!terminal && confirmation ? <Button variant="secondary" disabled={!!busy} onPress={() => onConfirmTransit(confirmation)}>{confirmation === 'board' ? 'Sono a bordo' : confirmation === 'alight' ? 'Sono sceso' : 'Sono arrivato'}</Button> : <Button variant="secondary" icon="refresh-outline" loading={busy === 'retry'} disabled={!!busy || !snapshot.canRetry} onPress={onRetry}>{snapshot.status === 'interrupted' ? 'Riprendi' : 'Riprova'}</Button>}</View>
           <View className="min-w-0 flex-1"><Button icon={terminal ? 'close-outline' : 'stop-circle-outline'} loading={busy === 'stop'} onPress={onStop}>{terminal ? 'Chiudi' : 'Interrompi'}</Button></View>
@@ -91,7 +95,7 @@ export function NavigationPanel({ snapshot, busy, error, following, onRecenter, 
     <Modal visible={detailsOpen} transparent animationType="slide" onRequestClose={() => setDetailsOpen(false)}>
       <View style={{ backgroundColor: "rgba(0,0,0,0.45)" }} className="flex-1 justify-end">
         <SafeAreaView edges={['bottom']} accessibilityViewIsModal className="max-h-[80%] rounded-t-3xl bg-surface">
-          <View className="flex-row items-center justify-between border-b border-divider px-4 py-2">
+          <View style={hairlines.bottom} className="flex-row items-center justify-between px-4 py-2">
             <Text accessibilityRole="header" className="mr-2 flex-1 text-lg font-semibold text-primary">Dettagli navigazione</Text>
             <IconButton icon="close-outline" label="Chiudi dettagli" onPress={() => setDetailsOpen(false)} />
           </View>

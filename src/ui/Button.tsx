@@ -1,24 +1,16 @@
 import type { ReactNode } from "react";
-import { ActivityIndicator, Pressable, Text } from "react-native";
+import { ActivityIndicator, Pressable } from "react-native";
 import { useThemeColors } from "../theme/ThemeProvider";
+import { buttonColors, type ButtonVariant } from "./control-styles";
 import { Icon, type IconName } from "./Icon";
+import { Text } from "./Text";
 
-export type ButtonVariant = "primary" | "secondary" | "quiet";
-
-const surfaces: Record<ButtonVariant, string> = {
-  primary: "bg-action",
-  secondary: "bg-action-subtle",
-  quiet: "",
-};
-const labels: Record<ButtonVariant, string> = {
-  primary: "text-on-action",
-  secondary: "text-action",
-  quiet: "text-action",
-};
+export type { ButtonVariant };
 
 /**
- * One action per intent: `primary` for the task's main step, `secondary` for supporting actions,
- * `quiet` for low-emphasis links inside content. Always at least 48 dp tall.
+ * One action per intent: `primary` is the brand pill (white on black, black on white), `secondary`
+ * a hairline pill, `quiet` a text action inside content. Always at least 48 dp tall. Colours are
+ * inline from the resolved palette so a live theme switch repaints them (see control-styles.ts).
  */
 export function Button({ children, icon, onPress, variant = "primary", disabled = false, loading = false, accessibilityLabel, accessibilityHint }: {
   children: ReactNode;
@@ -31,7 +23,7 @@ export function Button({ children, icon, onPress, variant = "primary", disabled 
   accessibilityHint?: string;
 }) {
   const colors = useThemeColors();
-  const foreground = variant === "primary" ? colors.onAction : colors.action;
+  const tone = buttonColors(colors, variant);
   const inactive = disabled || loading;
   return (
     <Pressable
@@ -41,11 +33,12 @@ export function Button({ children, icon, onPress, variant = "primary", disabled 
       accessibilityState={{ disabled: inactive, busy: loading }}
       disabled={inactive}
       onPress={onPress}
-      android_ripple={{ color: variant === "primary" ? `${colors.onAction}33` : `${colors.action}26`, borderless: false }}
-      className={`min-h-12 flex-row items-center justify-center gap-2 overflow-hidden rounded-full ${variant === "quiet" ? "px-2" : "px-5"} py-2.5 ${surfaces[variant]} ${disabled ? "opacity-40" : ""}`}
+      android_ripple={{ color: `${tone.foreground}26`, borderless: false }}
+      style={{ backgroundColor: tone.backgroundColor, borderColor: tone.borderColor, borderWidth: variant === "secondary" ? 1 : 0, opacity: disabled ? 0.4 : 1 }}
+      className={`min-h-12 flex-row items-center justify-center gap-2 overflow-hidden rounded-full ${variant === "quiet" ? "px-2" : "px-5"} py-2.5`}
     >
-      {loading ? <ActivityIndicator color={foreground} /> : icon ? <Icon name={icon} size={20} color={foreground} /> : null}
-      <Text className={`shrink text-center text-base font-semibold ${labels[variant]}`}>{children}</Text>
+      {loading ? <ActivityIndicator color={tone.foreground} /> : icon ? <Icon name={icon} size={20} color={tone.foreground} /> : null}
+      <Text style={{ color: tone.foreground }} className="shrink text-center text-base font-semibold">{children}</Text>
     </Pressable>
   );
 }

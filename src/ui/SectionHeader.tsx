@@ -1,4 +1,5 @@
-import { Pressable, Text, View } from "react-native";
+import { Pressable, View } from "react-native";
+import { Text } from "./Text";
 
 /** A heading for a group of rows, with an optional quiet action such as Aggiorna. */
 export function SectionHeader({ title, action, onAction, actionLabel }: {

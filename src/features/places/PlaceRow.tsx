@@ -22,10 +22,12 @@ export function PlaceRow({ place, saved, reference, onPress }: { place: Place; s
   return (
     <ListRow
       title={place.name}
-      subtitle={`${category} · ${distance.label}`}
+      subtitle={category}
+      meta={distance.value}
+      metaNote={distance.note ?? undefined}
       detail={place.address ?? undefined}
       icon={placeIcon(place)}
-      trailing={saved ? <View accessibilityLabel="Salvato"><Icon name="bookmark" size={16} color={colors.action} /></View> : undefined}
+      trailing={saved ? <View accessibilityLabel="Salvato"><Icon name="bookmark" size={16} color={colors.textPrimary} /></View> : undefined}
       accessibilityLabel={[place.name, category, distance.spoken, place.address, saved ? "salvato" : ""].filter(Boolean).join(", ")}
       onPress={onPress}
     />

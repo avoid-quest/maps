@@ -20,9 +20,10 @@ export function NearbyStops() {
         return <ListRow
           title={item.name}
           subtitle={`Fermata ${item.code} · ${item.lines.slice(0, 6).join(", ") || "GTT"}`}
-          detail={distance.label}
+          meta={distance.value}
+          metaNote={distance.note ?? undefined}
           accessibilityLabel={`${item.name}, fermata ${item.code}, linee ${item.lines.slice(0, 6).join(", ") || "GTT"}, ${distance.spoken}`}
-          leading={<View className="h-10 w-10 items-center justify-center rounded-lg bg-surface-muted"><Icon name="bus-outline" size={20} color={colors.textPrimary} /></View>}
+          leading={<View className="w-7 items-center"><Icon name="bus-outline" size={20} color={colors.textSecondary} /></View>}
           onPress={() => openStop(item)}
         />;
       }}

@@ -1,8 +1,9 @@
 import { useLayoutEffect, useRef } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
+import { Text } from "../../ui/Text";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useThemeColors } from "../../theme";
-import { Button, Icon, IconButton, Notice } from "../../ui";
+import { Button, Icon, IconButton, Notice, useHairlines } from "../../ui";
 import { formatDistance } from "../../ui/format";
 import { mapCameraPadding } from "../map/map-presentation";
 import { useMapContext } from "../map/useMapModel";
@@ -30,6 +31,7 @@ const SIDE_SHEET_WIDTH = 434;
 /** Screen layout: one map, the search bar, map controls, and one task sheet or guidance. */
 export function AppShell() {
   const colors = useThemeColors();
+  const hairlines = useHairlines();
   const { width, height, fontScale } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   // Android resizes the window for the keyboard; the geographic viewport stays put.
@@ -61,7 +63,7 @@ export function AppShell() {
   const dismissMessage = () => location.message ? location.setMessage("") : feedback.dismiss();
   const overlayPosition = { bottom: !wide && panelVisible ? currentSheetHeight + 24 : 88, left: wide && panelVisible ? SIDE_SHEET_WIDTH + 8 : 16, right: 16 };
   return (
-    <SafeAreaView className="flex-1 bg-surface" edges={["top", "bottom"]}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.chrome }} edges={["top", "bottom"]}>
       <View className="flex-1">
         <AppMap
           height={mapHeight}
@@ -74,21 +76,22 @@ export function AppShell() {
             onStop={() => { void navigation.stop(); }} onRetry={() => { void navigation.retry(); }} onMute={() => { void navigation.toggleMuted(); }}
             onConfirmTransit={action => { void navigation.confirmTransit(action); }} onReplan={() => { void planner.replanFromNavigation(); }} />
         ) : <>
-          <View pointerEvents="box-none" className="absolute left-3 right-3 top-20 flex-row items-start justify-between">
+          {/* Status chips start after the attribution control (top 68, left 8, 44 px), which must stay reachable. */}
+          <View pointerEvents="box-none" style={{ left: 64 }} className="absolute right-3 top-20 flex-row items-start justify-between">
             <View className="flex-1" pointerEvents="none">
-              {location.locating ? <Text accessibilityLiveRegion="polite" className="self-start rounded-full bg-surface-raised px-3 py-2 text-sm text-secondary">Ricerca della posizione…</Text>
-                : !location.coordinate && camera.view === "overview" && !panelVisible ? <Text accessibilityLabel="Vista panoramica di Torino, non la tua posizione" className="self-start rounded-full bg-surface-raised px-3 py-2 text-sm text-secondary">Panoramica di Torino</Text>
+              {location.locating ? <Text accessibilityLiveRegion="polite" style={hairlines.floating} className="self-start overflow-hidden rounded-full px-3 py-2 text-sm text-secondary">Ricerca della posizione…</Text>
+                : !location.coordinate && camera.view === "overview" && !panelVisible ? <Text accessibilityLabel="Vista panoramica di Torino, non la tua posizione" style={hairlines.floating} className="self-start overflow-hidden rounded-full px-3 py-2 text-sm text-secondary">Panoramica di Torino</Text>
                   : null}
             </View>
             {location.locating ? (
-              <View style={{ elevation: 3 }} accessible accessibilityLabel="Ricerca della posizione in corso" className="h-12 w-12 items-center justify-center rounded-full bg-surface-raised">
+              <View style={hairlines.floating} accessible accessibilityLabel="Ricerca della posizione in corso" className="h-12 w-12 items-center justify-center rounded-full">
                 <ActivityIndicator color={colors.action} />
               </View>
             ) : <IconButton floating icon="locate-outline" label="Usa la mia posizione" onPress={locate} />}
           </View>
           {message ? <View style={overlayPosition} className="absolute"><Notice tone="caution" text={message} action="Chiudi" onAction={dismissMessage} /></View> : null}
           {camera.areaChanged && (search.hasSearch || tab === "transit") && !selectedPlace(tasks) && !selectedStop(tasks) ? (
-            <View style={[overlayPosition, { elevation: 3 }]} className="absolute max-w-[95%] items-center self-center rounded-2xl bg-surface-raised">
+            <View style={[overlayPosition, hairlines.floating]} className="absolute max-w-[95%] items-center self-center rounded-2xl">
               <Button icon="search-outline" variant="secondary" onPress={searchArea}>Cerca in quest’area</Button>
               <Text className="px-3 pb-2 text-center text-sm text-secondary">{tab === "transit" ? "Fermate intorno al centro" : search.result.coverage.radiusMeters !== null ? `Raggio ${formatDistance(search.result.coverage.radiusMeters)} dal centro` : search.policy === "local-only" ? "Nomi nell’intero pacchetto locale" : "Nomi nel pacchetto; area come riferimento online"}</Text>
             </View>
@@ -109,9 +112,9 @@ export function AppShell() {
           ) : (
             <View pointerEvents="box-none" style={{ position: "absolute", bottom: 12, left: 12, right: 12 }} className="flex-row justify-center gap-2">
               {ROOT_SHORTCUTS.map(item => (
-                <Pressable key={item.id} accessibilityRole="button" onPress={() => shell.openTab(item.id)} style={{ elevation: 3 }}
-                  className="min-h-12 flex-row items-center justify-center gap-2 rounded-full bg-surface-raised px-5">
-                  <Icon name={item.icon} size={22} color={colors.action} />
+                <Pressable key={item.id} accessibilityRole="button" onPress={() => shell.openTab(item.id)} style={hairlines.floating}
+                  className="min-h-12 flex-row items-center justify-center gap-2 rounded-full px-5">
+                  <Icon name={item.icon} size={22} color={colors.textPrimary} />
                   <Text className="text-base font-medium text-primary">{item.label}</Text>
                 </Pressable>
               ))}

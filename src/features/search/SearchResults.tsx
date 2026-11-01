@@ -1,6 +1,7 @@
-import { ActivityIndicator, Text, View } from "react-native";
+import { ActivityIndicator, View } from "react-native";
+import { Text } from "../../ui/Text";
 import { useThemeColors } from "../../theme";
-import { Disclosure, EmptyState, Loading, Notice, SheetFlatList } from "../../ui";
+import { Disclosure, EmptyState, Loading, Notice, Num, SheetFlatList } from "../../ui";
 import { formatDistance } from "../../ui/format";
 import { useDistanceReference } from "../map/useDistanceReference";
 import { PlaceRow } from "../places/PlaceRow";
@@ -16,8 +17,8 @@ export function SearchResults() {
   const reference = useDistanceReference();
   const header = (
     <View className="h-9 flex-row items-center gap-2 px-4">
-      <View className="w-4">{searching ? <ActivityIndicator size="small" color={colors.action} /> : null}</View>
-      <Text numberOfLines={1} accessibilityLiveRegion="polite" className="flex-1 text-sm text-secondary">{searching ? "Aggiorno i risultati…" : `${places.length} risultati${result.truncated ? ` · primi ${result.resultLimit}` : ""}${policy === "local-only" ? " · solo locali" : ""}`}</Text>
+      <View className="w-4">{searching ? <ActivityIndicator size="small" color={colors.textPrimary} /> : null}</View>
+      <Text numberOfLines={1} accessibilityLiveRegion="polite" className="flex-1 text-sm text-secondary">{searching ? "Aggiorno i risultati…" : <><Num className="text-sm text-primary">{places.length}</Num> risultati{result.truncated ? <> · primi <Num className="text-sm text-secondary">{result.resultLimit}</Num></> : null}{policy === "local-only" ? " · solo locali" : ""}</>}</Text>
     </View>
   );
   const empty = searching ? <Loading label="Cerco nell’area…" />

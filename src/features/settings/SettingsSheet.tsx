@@ -1,8 +1,10 @@
 import { useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Pressable, View } from "react-native";
+import { Text } from "../../ui/Text";
 import { DATA_LICENSES, PROVIDER_NOTICES } from "../../services";
-import { MAP_STYLE_NOTICES, ThemePreferenceControl, useThemeColors } from "../../theme";
-import { Button, Disclosure, Icon, ListRow, type IconName } from "../../ui";
+import Constants from "expo-constants";
+import { FONT_NOTICES, MAP_STYLE_NOTICES, ThemePreferenceControl, useThemeColors } from "../../theme";
+import { Button, Disclosure, Icon, ListRow, useHairlines, Wordmark, type IconName } from "../../ui";
 import { useFeedback } from "../app/feedback";
 import { useMapContext } from "../map/useMapModel";
 import { NavigationNotices } from "../navigation/NavigationNotices";
@@ -14,8 +16,9 @@ const PROVIDER_ICONS: IconName[] = ["map-outline", "location-outline", "search-o
 /** A licence or notice whose full text expands in place and stays readable offline. */
 function LicenceText({ id, title, text, expanded, onToggle }: { id: string; title: string; text: string; expanded: boolean; onToggle: (id: string) => void }) {
   const colors = useThemeColors();
+  const hairlines = useHairlines();
   return (
-    <View className="border-b border-divider pb-2">
+    <View style={hairlines.bottom} className="pb-2">
       <Pressable accessibilityRole="button" accessibilityState={{ expanded }} onPress={() => onToggle(id)} className="min-h-12 flex-row items-center justify-between gap-2">
         <Text className="flex-1 text-base font-medium text-primary">{title}</Text>
         <Icon name={expanded ? "chevron-up" : "chevron-down"} size={18} color={colors.textSecondary} />
@@ -34,6 +37,10 @@ export function SettingsSheet() {
   const [viewForgotten, setViewForgotten] = useState<boolean | null>(null);
   return (
     <View className="gap-4 px-4 py-2">
+      <View className="gap-1">
+        <Wordmark version={Constants.expoConfig?.version} />
+        <Text className="text-sm leading-5 text-secondary">Mappe e trasporti di Torino, senza account. Parte di avoid.quest.</Text>
+      </View>
       <ThemePreferenceControl />
       <Text className="text-sm text-secondary">Salvataggi sul dispositivo. Nessun account o telemetria.</Text>
       <Disclosure title="Posizione e privacy">
@@ -55,6 +62,9 @@ export function SettingsSheet() {
         <Text accessibilityRole="header" className="mt-2 text-lg font-semibold text-primary">Stili della mappa</Text>
         <Text className="text-sm leading-5 text-secondary">Stili OpenFreeMap inclusi nell’app; il tema scuro ne modifica i colori. Testi completi leggibili senza connessione.</Text>
         {MAP_STYLE_NOTICES.map(notice => <LicenceText key={notice.id} id={`map:${notice.id}`} title={notice.title} text={notice.text} expanded={expanded === `map:${notice.id}`} onToggle={toggle} />)}
+        <Text accessibilityRole="header" className="mt-2 text-lg font-semibold text-primary">Caratteri</Text>
+        <Text className="text-sm leading-5 text-secondary">Geist Sans, Geist Mono e Mona Sans sono inclusi nell’app con la SIL Open Font License 1.1.</Text>
+        {FONT_NOTICES.map(notice => <LicenceText key={notice.id} id={`font:${notice.id}`} title={notice.title} text={notice.text} expanded={expanded === `font:${notice.id}`} onToggle={toggle} />)}
         <Text accessibilityRole="header" className="mt-2 text-lg font-semibold text-primary">Licenze dei dati</Text>
         {DATA_LICENSES.map(license => <LicenceText key={license.id} id={license.id} title={license.id} text={license.text} expanded={expanded === license.id} onToggle={toggle} />)}
       </Disclosure>

@@ -1,8 +1,9 @@
 import React, { useState, useSyncExternalStore } from 'react';
-import { ScrollView, Switch, Text, View } from 'react-native';
+import { ScrollView, Switch, View } from 'react-native';
+import { Text } from '../../ui/Text';
 import { copyText } from '../../platform/clipboard';
 import { useThemeColors } from '../../theme';
-import { Button, Notice } from '../../ui';
+import { Button, Notice, useHairlines } from '../../ui';
 import { copyDiagnosticReport, diagnostics, MAX_DIAGNOSTIC_EVENTS } from '../../services/diagnostics';
 import { diagnosticReport } from '../../services/diagnostics-runtime';
 
@@ -11,6 +12,7 @@ export function DiagnosticsPanel() {
   const [report, setReport] = useState<string | null>(null);
   const [feedback, setFeedback] = useState('');
   const colors = useThemeColors();
+  const hairlines = useHairlines();
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
 
@@ -40,8 +42,8 @@ export function DiagnosticsPanel() {
     setBusy(false);
   }
 
-  return <View className="gap-3 border-y border-divider py-5">
-    <Text className="text-lg font-semibold text-primary">Diagnostica locale</Text>
+  return <View style={[hairlines.top, hairlines.bottom]} className="gap-3 py-5">
+    <Text className="text-base font-semibold text-primary">Diagnostica locale</Text>
     <Text className="text-sm leading-6 text-secondary">
       Stati tecnici, tempi delle richieste e versione dell’app restano su questo dispositivo.
       Nessuna posizione, ricerca, nome di luogo o testo degli errori. Nessun invio automatico.
@@ -64,7 +66,7 @@ export function DiagnosticsPanel() {
     {report !== null ? <>
       <Text className="text-sm leading-5 text-secondary">Verrà copiato esattamente questo testo. Controllalo prima di condividerlo.</Text>
       <ScrollView className="max-h-72 rounded-xl bg-surface-muted p-3" nestedScrollEnabled accessibilityLabel="Anteprima del report diagnostico">
-        <Text selectable className="text-sm leading-5 text-primary">{report}</Text>
+        <Text selectable className="font-mono text-sm leading-5 text-primary">{report}</Text>
       </ScrollView>
       <Button icon="copy-outline" disabled={busy} onPress={() => void copy()}>Copia report</Button>
     </> : null}

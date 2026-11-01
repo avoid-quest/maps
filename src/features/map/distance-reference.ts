@@ -20,12 +20,13 @@ export function distanceReference({ device, fixedAt, now, mapCenter }: {
   return fresh ? { kind: 'device', coordinate: device } : { kind: 'map', coordinate: mapCenter };
 }
 
-export function distanceFrom(reference: DistanceReference, target: Coordinate): { meters: number; label: string; spoken: string } {
+/** `value` is the bare distance for a numeric column; `note` qualifies it when not measured from the device. */
+export function distanceFrom(reference: DistanceReference, target: Coordinate): { meters: number; value: string; note: string | null; label: string; spoken: string } {
   const meters = distanceMeters(reference.coordinate, target);
-  const distance = formatDistance(meters);
+  const value = formatDistance(meters);
   return reference.kind === 'device'
-    ? { meters, label: distance, spoken: `a ${distance} da te` }
-    : { meters, label: `${distance} dal centro mappa`, spoken: `${distance} dal centro della mappa` };
+    ? { meters, value, note: null, label: value, spoken: `a ${value} da te` }
+    : { meters, value, note: 'dal centro mappa', label: `${value} dal centro mappa`, spoken: `${value} dal centro della mappa` };
 }
 
 /** A detail view (one stop or place, usually centred on the map) shows a distance only from the device. */

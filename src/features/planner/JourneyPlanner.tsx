@@ -1,8 +1,9 @@
 import { useReducer, useState } from 'react';
-import { Keyboard, Pressable, Text, TextInput, View } from 'react-native';
+import { Keyboard, Pressable, TextInput, View } from 'react-native';
+import { Text } from '../../ui/Text';
 import type { RouteLeg, RoutePlan, RouteStop, Stop, TransitTime } from '../../domain/types';
 import { useThemeColors } from '../../theme';
-import { Button, Chip, Disclosure, Icon, Notice, SegmentedControl, TransitLineBadge, transitModeFromLeg } from '../../ui';
+import { Button, Chip, Disclosure, Icon, Notice, Num, SegmentedControl, TransitLineBadge, transitModeFromLeg, useHairlines } from '../../ui';
 import { matchJourneyStop } from '../../services/transit-stop-matching';
 import {
   createTransitTimeDraft, draftTransitTime, italianDate, journeyDate, journeyDistance, journeyDuration,
@@ -19,6 +20,7 @@ export function TransitTimeForm({ value, onSubmit, disabled }: {
   const [{ kind, date, time }, updateDraft] = useReducer(transitTimeDraftReducer, value, createTransitTimeDraft);
   const [error, setError] = useState('');
   const colors = useThemeColors();
+  const hairlines = useHairlines();
   function submit() {
     try {
       const next = draftTransitTime(kind, date.trim(), time.trim());
@@ -54,7 +56,8 @@ export function TransitTimeForm({ value, onSubmit, disabled }: {
                 inputMode="text"
                 maxLength={10}
                 placeholderTextColor={colors.textSecondary}
-                className="min-h-12 min-w-0 rounded-xl border border-divider bg-surface-raised px-3 py-2 text-base text-primary"
+                style={hairlines.box}
+                className="min-h-12 min-w-0 rounded-xl px-3 py-2 font-mono text-base text-primary"
               />
             </View>
             <View className="min-w-24 flex-1 gap-1">
@@ -70,7 +73,8 @@ export function TransitTimeForm({ value, onSubmit, disabled }: {
                 returnKeyType="search"
                 onSubmitEditing={disabled ? undefined : submit}
                 placeholderTextColor={colors.textSecondary}
-                className="min-h-12 min-w-0 rounded-xl border border-divider bg-surface-raised px-3 py-2 text-base text-primary"
+                style={hairlines.box}
+                className="min-h-12 min-w-0 rounded-xl px-3 py-2 font-mono text-base text-primary"
               />
             </View>
           </View>
@@ -113,6 +117,8 @@ export function JourneyResults({ plans, selected, onSelect, onRefresh, loading, 
   plans: RoutePlan[]; selected: RoutePlan; onSelect: (id: string) => void; onRefresh: () => void;
   loading: boolean; error: string; now: number; query: TransitTime; saved?: boolean; retained?: boolean; onOpenStop?: (stop: Stop) => void;
 }) {
+  const colors = useThemeColors();
+  const hairlines = useHairlines();
   const age = Math.max(0, Math.floor((now - selected.fetchedAt) / 60_000));
   const stale = saved || retained || now - selected.fetchedAt > 120_000;
   return (
@@ -122,14 +128,14 @@ export function JourneyResults({ plans, selected, onSelect, onRefresh, loading, 
       {retained ? <Notice text="Percorso precedente da aggiornare. Scegli un’alternativa aggiornata." /> : null}
       <View className="gap-2">
         <Text className="text-sm leading-5 text-secondary">
-          Consultato il {journeyDate(selected.fetchedAt)} alle {journeyTime(selected.fetchedAt)}
+          Consultato il {journeyDate(selected.fetchedAt)} alle <Num className="text-sm text-secondary">{journeyTime(selected.fetchedAt)}</Num>
           {age === 0 ? ' (meno di 1 min fa).' : ` (${age} min fa).`}{stale ? ' Da aggiornare.' : ''}
         </Text>
         <Button variant="secondary" icon={saved && query.kind === 'now' ? undefined : 'refresh-outline'} loading={loading} onPress={onRefresh}>
           {loading ? 'Aggiornamento…' : saved && query.kind === 'now' ? 'Ricalcola adesso' : 'Aggiorna'}
         </Button>
       </View>
-      <View className="gap-2">
+      <View style={hairlines.top}>
         {plans.map((plan, index) => (
           <Pressable
             key={plan.id}
@@ -137,13 +143,15 @@ export function JourneyResults({ plans, selected, onSelect, onRefresh, loading, 
             accessibilityLabel={`Percorso ${index + 1}, ${timeRange(plan)}, ${journeyDuration(plan.durationSeconds)}, ${transferLabel(plan)}${plan.id === selected.id ? ', selezionato' : ''}${plan.legs.some(leg => leg.timingStatus === 'cancelled') ? ', include una corsa cancellata' : ''}`}
             accessibilityState={{ selected: plan.id === selected.id }}
             onPress={() => onSelect(plan.id)}
-            className={`gap-2 rounded-xl border px-4 py-3 ${plan.id === selected.id ? 'border-action bg-action-subtle' : 'border-divider bg-surface-raised'}`}
+            // Board rows separated by hairlines; the selected option is outlined in the accent and checked.
+            style={[hairlines.bottom, plan.id === selected.id ? { borderColor: colors.action, borderWidth: 1.5, borderRadius: 12 } : null]}
+            className="gap-2 px-3 py-3"
           >
             <View className="flex-row items-start gap-2">
               <View className="min-w-0 flex-1 gap-1">
                 {plan.departureAt != null ? <Text className="text-sm text-secondary">{journeyDate(plan.departureAt)}</Text> : null}
-                <Text className="text-lg font-bold text-primary">{timeRange(plan)}</Text>
-                <Text className="text-sm text-secondary">{journeyDuration(plan.durationSeconds)} · {transferLabel(plan)}</Text>
+                <Num className="text-lg font-semibold text-primary">{timeRange(plan)}</Num>
+                <Text className="text-sm text-secondary"><Num className="text-sm text-secondary">{journeyDuration(plan.durationSeconds)}</Num> · {transferLabel(plan)}</Text>
               </View>
               {plan.id === selected.id ? <SelectedMark /> : null}
             </View>
@@ -163,19 +171,19 @@ export function JourneyResults({ plans, selected, onSelect, onRefresh, loading, 
         const overnight = leg.departureAt != null && leg.arrivalAt != null && journeyDate(leg.departureAt) !== journeyDate(leg.arrivalAt);
         return (
           <View key={leg.id} className="gap-3">
-            {wait > 0 ? <Text className="border-l-2 border-divider pl-3 text-sm leading-5 text-secondary">{leg.interlineWithPreviousLeg ? 'Sosta a bordo' : 'Attesa'}: {journeyDuration(wait)} a {previous?.toStop?.name ?? previous?.to ?? leg.from}</Text> : null}
-            <View className={`gap-3 border-l-2 pl-3 ${leg.transitLeg ? 'border-action' : 'border-divider'}`}>
+            {wait > 0 ? <Text style={{ borderLeftWidth: 2, borderLeftColor: colors.divider }} className="pl-3 text-sm leading-5 text-secondary">{leg.interlineWithPreviousLeg ? 'Sosta a bordo' : 'Attesa'}: {journeyDuration(wait)} a {previous?.toStop?.name ?? previous?.to ?? leg.from}</Text> : null}
+            <View style={{ borderLeftWidth: 2, borderLeftColor: leg.transitLeg ? colors.action : colors.divider }} className="gap-3 pl-3">
               <View className="gap-1">
                 {leg.transitLeg && leg.line ? <TransitLineBadge line={leg.line} mode={transitModeFromLeg(leg.mode)} /> : <Text className="text-base font-bold text-primary">{legLabel(leg)}</Text>}
                 {leg.transitLeg ? <Text className="text-sm leading-5 text-primary">{leg.headsign ? `Direzione ${leg.headsign}` : 'Direzione non fornita dal servizio'}</Text> : <Text className="text-sm text-secondary">{journeyDuration(leg.durationSeconds)} · {journeyDistance(leg.distanceMeters)}</Text>}
               </View>
               <View className="gap-1">
-                <Text className="text-sm font-semibold text-action">{journeyTime(leg.departureAt)} · {leg.transitLeg ? leg.timingStatus === 'cancelled' ? 'Partenza cancellata da' : leg.interlineWithPreviousLeg ? 'Rimani a bordo' : 'Sali a' : 'Parti da'}</Text>
+ <Text className="text-sm font-semibold text-primary"><Num className="text-sm font-semibold text-primary">{journeyTime(leg.departureAt)}</Num> · {leg.transitLeg ? leg.timingStatus === 'cancelled' ? 'Partenza cancellata da' : leg.interlineWithPreviousLeg ? 'Rimani a bordo' : 'Sali a' : 'Parti da'}</Text>
                 <Text className="text-base leading-6 text-primary">{stopLabel(leg.fromStop, leg.from)}</Text>
                 {boardingStop && onOpenStop ? <StopArrivalButton stop={boardingStop} onOpen={onOpenStop} /> : null}
               </View>
               <View className="gap-1">
-                <Text className="text-sm font-semibold text-action">{journeyTime(leg.arrivalAt)}{overnight ? ` del ${journeyDate(leg.arrivalAt!)}` : ''} · {leg.transitLeg ? leg.timingStatus === 'cancelled' ? 'Arrivo programmato a' : next?.interlineWithPreviousLeg ? 'Prosegui a bordo da' : 'Scendi a' : 'Arrivi a'}</Text>
+                <Text className="text-sm font-semibold text-primary"><Num className="text-sm font-semibold text-primary">{journeyTime(leg.arrivalAt)}</Num>{overnight ? ` del ${journeyDate(leg.arrivalAt!)}` : ''} · {leg.transitLeg ? leg.timingStatus === 'cancelled' ? 'Arrivo programmato a' : next?.interlineWithPreviousLeg ? 'Prosegui a bordo da' : 'Scendi a' : 'Arrivi a'}</Text>
                 <Text className="text-base leading-6 text-primary">{stopLabel(leg.toStop, leg.to)}</Text>
                 {alightingStop && onOpenStop ? <StopArrivalButton stop={alightingStop} onOpen={onOpenStop} /> : null}
               </View>
@@ -198,10 +206,7 @@ function SelectedMark() {
 }
 
 function StopArrivalButton({ stop, onOpen }: { stop: Stop; onOpen: (stop: Stop) => void }) {
-  const colors = useThemeColors();
-  return <Pressable accessibilityRole="button" accessibilityLabel={`Arrivi alla fermata ${stop.code}, ${stop.name}`}
-    onPress={() => onOpen(stop)} className="min-h-12 flex-row items-center gap-2 self-start rounded-xl bg-action-subtle px-3 py-2">
-    <Icon name="bus-outline" size={18} color={colors.action} />
-    <Text className="shrink font-semibold text-action">Arrivi alla fermata {stop.code}</Text>
-  </Pressable>;
+  return <View className="self-start">
+    <Button variant="secondary" icon="bus-outline" accessibilityLabel={`Arrivi alla fermata ${stop.code}, ${stop.name}`} onPress={() => onOpen(stop)}>{`Arrivi · ${stop.code}`}</Button>
+  </View>;
 }

@@ -1,4 +1,5 @@
-import { Text, View } from "react-native";
+import { View } from "react-native";
+import { Text } from "./Text";
 import { useThemeColors } from "../theme/ThemeProvider";
 import { Icon, type IconName } from "./Icon";
 import { lineAccessibilityLabel, lineBadgeColors, type TransitMode } from "./transit-line";
@@ -30,7 +31,7 @@ export function TransitLineBadge({ line, mode, color, textColor, size = "md" }: 
       className="flex-row items-center justify-center gap-1 self-start px-2"
     >
       {shape.icon ? <Icon name={shape.icon} size={large ? 16 : 14} color={colors.text} /> : null}
-      <Text numberOfLines={1} style={{ color: colors.text }} className={`${large ? "text-lg" : "text-base"} font-bold`}>{line}</Text>
+      <Text numberOfLines={1} style={{ color: colors.text, fontVariant: ["tabular-nums"] }} className={`font-mono ${large ? "text-lg" : "text-base"} font-bold`}>{line}</Text>
     </View>
   );
 }

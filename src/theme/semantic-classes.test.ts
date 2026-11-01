@@ -12,7 +12,7 @@ function sources(directory: string): string[] {
   });
 }
 
-test('components use semantic colour classes, never literal colours or dark: variants', () => {
+test('components use semantic colour classes and the brand Text, never literal colours or dark: variants', () => {
   const literal = /\b(?:bg|text|border|ring|fill|stroke|divide|placeholder)-(?:\[#|\[rgb|(?:white|black|gray|slate|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)\b)/;
   const problems: string[] = [];
   for (const file of [join(root, 'App.tsx'), ...sources(join(root, 'src'))]) {
@@ -23,6 +23,7 @@ test('components use semantic colour classes, never literal colours or dark: var
       if (/["'`\s]dark:[a-z]/.test(line)) problems.push(`${name}:${index + 1} dark: variant`);
       if (/theme\/tokens/.test(line)) problems.push(`${name}:${index + 1} legacy tokens import`);
       if (/<StatusBar\b/.test(line) && !name.endsWith('ThemeProvider.tsx')) problems.push(`${name}:${index + 1} StatusBar outside ThemeProvider`);
+      if (/import \{[^}]*\bText\b[^}]*\} from ['"]react-native['"]/.test(line) && !name.endsWith('ui/Text.tsx')) problems.push(`${name}:${index + 1} Text without the brand face (use src/ui/Text)`);
     });
   }
   assert.deepEqual(problems, []);

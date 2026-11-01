@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, View } from 'react-native';
+import { Text } from '../../ui/Text';
 import notices from '../../../modules/avoid-navigation/android/src/main/assets/third-party/navigation-notices.json';
 import { useThemeColors } from '../../theme';
-import { Button, Icon } from '../../ui';
+import { Button, Icon, useHairlines } from '../../ui';
 
 const groups = [
   { id: 'ferrostar', label: 'Ferrostar' },
@@ -16,6 +17,7 @@ type Group = typeof groups[number]['id'];
 /** The same original notice texts are bundled as native assets and readable offline here. */
 export function NavigationNotices({ onLink }: { onLink: (url: string) => void }) {
   const colors = useThemeColors();
+  const hairlines = useHairlines();
   const [group, setGroup] = useState<Group | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   return <View className="gap-3">
@@ -26,7 +28,7 @@ export function NavigationNotices({ onLink }: { onLink: (url: string) => void })
         setGroup(group === item.id ? null : item.id); setExpanded(null);
       }}>{group === item.id ? `Chiudi ${item.label}` : item.label}</Button>)}
     </View>
-    {notices.components.filter(component => component.group === group).map(component => <View key={component.id} className="border-b border-divider pb-3">
+    {notices.components.filter(component => component.group === group).map(component => <View key={component.id} style={hairlines.bottom} className="pb-3">
       <Pressable accessibilityRole="button" accessibilityState={{ expanded: expanded === component.id }}
         onPress={() => setExpanded(expanded === component.id ? null : component.id)}
         className="min-h-12 flex-row items-center gap-2 py-2">

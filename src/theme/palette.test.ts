@@ -6,7 +6,7 @@ import { AA_NON_TEXT, AA_TEXT, contrastRatio, parseHex, rgbChannels } from './co
 import { themeVariables } from './css-variables';
 import { kebabTokenName, palettes, themeColorNames, type ThemeColors } from './palette';
 
-const surfaces = ['surface', 'surfaceRaised', 'surfaceMuted'] as const;
+const surfaces = ['chrome', 'surface', 'surfaceRaised', 'surfaceMuted'] as const;
 const textRoles = ['textPrimary', 'textSecondary', 'action', 'caution', 'danger', 'success', 'live', 'scheduled', 'stale', 'cancelled'] as const;
 const pairs: [foreground: keyof ThemeColors, background: keyof ThemeColors][] = [
   ['onAction', 'action'],
@@ -17,6 +17,10 @@ const pairs: [foreground: keyof ThemeColors, background: keyof ThemeColors][] = 
   // Notice actions on tinted notices, and the neutral transit line badge (surface text on a primary fill).
   ['action', 'cautionSubtle'], ['action', 'dangerSubtle'], ['action', 'successSubtle'],
   ['surface', 'textPrimary'],
+  // The primary pill (white on black chrome in dark, black in light) and its label.
+  ['onAction', 'action'],
+  // Live minutes and the live label on the subtle success fill used for verified notices.
+  ['live', 'successSubtle'], ['textPrimary', 'successSubtle'],
 ];
 
 test('contrast arithmetic matches WCAG reference values', () => {
@@ -58,13 +62,23 @@ for (const palette of Object.values(palettes)) {
   });
 }
 
+test('greyscale everywhere except meaning: only live/success, caution/stale and danger/cancelled carry hue', () => {
+  const saturation = (hex: string) => { const [r, g, b] = parseHex(hex); return Math.max(r, g, b) - Math.min(r, g, b); };
+  const meaningful = new Set(['caution', 'cautionSubtle', 'danger', 'dangerSubtle', 'success', 'successSubtle', 'live', 'stale', 'cancelled']);
+  for (const palette of Object.values(palettes)) for (const name of themeColorNames) {
+    if (!meaningful.has(name)) assert.ok(saturation(palette.colors[name]) <= 12, `${palette.scheme} ${name} is greyscale`);
+  }
+  assert.equal(palettes.dark.colors.live, '#3DDC97', 'signal green on dark surfaces');
+});
+
 test('both palettes define the same opaque tokens and the light scheme is lighter', () => {
   for (const palette of Object.values(palettes)) {
     assert.deepEqual(Object.keys(palette.colors), themeColorNames);
     for (const value of [...Object.values(palette.colors), ...Object.values(palette.map)]) parseHex(value);
   }
   assert.ok(contrastRatio(palettes.light.colors.surface, '#000000') > contrastRatio(palettes.dark.colors.surface, '#000000'));
-  assert.notEqual(palettes.dark.colors.surface.toUpperCase(), '#000000', 'dark surfaces are neutral, not pure black');
+  assert.notEqual(palettes.dark.colors.surface.toUpperCase(), '#000000', 'dark surfaces are near-black, distinct from the pure black chrome');
+  assert.equal(palettes.dark.colors.chrome, '#000000');
 });
 
 test('Tailwind semantic colours cover every token through its CSS variable', () => {

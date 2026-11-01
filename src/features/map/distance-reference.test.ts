@@ -22,6 +22,8 @@ test('without a fresh fix the distance is labelled as measured from the map cent
     assert.equal(reference.kind, 'map');
     const distance = distanceFrom(reference, mole);
     assert.match(distance.label, /km dal centro mappa$/);
+    assert.equal(distance.note, 'dal centro mappa', 'a numeric column keeps the qualifier beside the value');
+    assert.match(distance.value, /^\d+(,\d)? km$/);
     assert.match(distance.spoken, /dal centro della mappa/);
   }
 });

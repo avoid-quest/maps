@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
-import { Text, View } from "react-native";
+import { View } from "react-native";
+import { Display, Text } from "./Text";
 import { IconButton } from "./IconButton";
 
 /**
@@ -20,7 +21,7 @@ export function SheetHeader({ title, subtitle, onBack, onClose, backLabel = "Ind
     <View className="min-h-14 flex-row items-center gap-1 px-2">
       {onBack ? <IconButton icon="arrow-back" label={backLabel} onPress={onBack} /> : <View className="w-2" />}
       <View className="min-w-0 flex-1 py-1">
-        <Text accessibilityRole="header" numberOfLines={2} className="text-lg font-semibold leading-6 text-primary">{title}</Text>
+        <Display accessibilityRole="header" numberOfLines={2} size={22} className="text-primary">{title}</Display>
         {subtitle ? <Text numberOfLines={1} className="text-sm text-secondary">{subtitle}</Text> : null}
       </View>
       {actions}
