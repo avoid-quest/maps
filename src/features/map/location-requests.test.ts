@@ -8,9 +8,9 @@ const here: Coordinate = { longitude: 7.68, latitude: 45.07 };
 
 function harness() {
   const log: string[] = [];
-  let pending: { resolve(value: Coordinate): void; reject(error: unknown): void } | null = null;
+  const pending: { resolve(value: Coordinate): void; reject(error: unknown): void }[] = [];
   const requests = createLocationRequests({
-    locate: () => new Promise<Coordinate>((resolve, reject) => { pending = { resolve, reject }; }),
+    locate: () => new Promise<Coordinate>((resolve, reject) => { pending.push({ resolve, reject }); }),
     now: () => 1_000,
     record: () => log.push('record'),
     center: () => log.push('center'),
@@ -18,7 +18,9 @@ function harness() {
     setLocating: () => {},
     cancelled: () => log.push('cancelled'),
   });
-  return { requests, log, fix: () => pending!.resolve(here), fail: (error: unknown) => pending!.reject(error) };
+  // Settles every request still waiting for the platform, oldest first.
+  const all = (settle: (entry: (typeof pending)[number]) => void) => { for (const entry of pending.splice(0)) settle(entry); };
+  return { requests, log, fix: () => all(entry => entry.resolve(here)), fail: (error: unknown) => all(entry => entry.reject(error)) };
 }
 
 test('a Locate suspended by the permission dialog resolves with the fix it centres on', async () => {
@@ -72,6 +74,9 @@ test('only a user choice or a newer request resolves Locate with null', async ()
   const older = superseded.requests.acquire({ recenter: true });
   void superseded.requests.acquire();
   assert.equal(await older, null);
+  superseded.fix();
+  await Promise.resolve();
+  assert.deepEqual(superseded.log, ['record', 'center', 'record'], 'a newer request does not withdraw a live centre; each records its fix');
 
   const plain = harness();
   const route = plain.requests.acquire();

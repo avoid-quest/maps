@@ -74,7 +74,11 @@ export function createLocationRequests(deps: Dependencies, intent = createRecent
       void deps.locate().then(next => {
         // Suspended by the lifecycle (permission dialog) but not by the user: the fix still answers
         // Locate; `place` centres only while the bounded intent is still live.
-        if (id !== request && owner?.id !== id) return;
+        if (id !== request && owner?.id !== id) {
+          // Superseded by a newer request, not withdrawn by the user: a still-live centre intent is honoured.
+          if (intent.pending(deps.now())) { deps.record(next); place(next); }
+          return;
+        }
         deps.record(next);
         place(next);
         settle({ coordinate: next }, id);
