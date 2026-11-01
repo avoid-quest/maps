@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { activeServiceIds, addDays, romeDate, serviceDayOrigin, serviceTime, weekday } from './calendar';
 import { composeBoard } from './board';
 import { agedRow } from './board-model';
+import { realtimeStateLabel } from '../domain/transit-board';
 import { joinFeed } from './identity-join';
 import { indexFeed, predictEvent, updateForEvent, type RTFeed, type TripUpdate } from './realtime';
 import { INITIAL_REFRESH_STATE } from './refresh-policy';
@@ -242,6 +243,8 @@ test('board rows use the provider-neutral model with GTT provenance', async () =
   assert.equal(t1.event, 'arrival', 'arrival-only prediction presented as an arrival');
   assert.equal(t1.predictedAt, rome('20261021', '08:02')); assert.equal(t1.scheduledAt, rome('20261021', '08:00'));
   assert.equal(t1.sourceUpdatedAt, NOW - 30_000); assert.equal(t1.retrievedAt, NOW + 1_000);
+  assert.equal(realtimeStateLabel(t1), 'In tempo reale');
+  for (const row of board.rows) if (row.realtimeState === 'realtime-with-source-time') assert.ok(Number.isFinite(row.sourceUpdatedAt), 'realtime state always carries its source time');
   assert.equal(t1.upstream.attribution, 'Data source: GTT S.p.A. – Gruppo Torinese Trasporti');
   assert.equal(t1.tripRef, 'gtt:T1:20261021');
   const t2 = board.rows.find(row => row.gtt.tripId === 'T2')!;

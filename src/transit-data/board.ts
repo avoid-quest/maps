@@ -43,7 +43,8 @@ function toRow(event: ScheduledEvent, prediction: Prediction, context: {
   const event_ = predicted && prediction.predictedEvent === 'arrival' ? 'arrival' : 'departure';
   const scheduledAt = event.scheduledAt === undefined ? undefined
     : event_ === 'arrival' ? event.origin + scheduledSeconds(event, event.position, 'arrival') * 1000 : event.scheduledAt;
-  const neutral = NEUTRAL[detail];
+  // 'realtime-with-source-time' is claimed only with the provider's own timestamp beside it.
+  const neutral = detail === 'fresh' && prediction.updatedAt === undefined ? NEUTRAL.unverifiable : NEUTRAL[detail];
   const note = detail === 'not-provided' ? LABELS.metroScheduledOnly
     : detail === 'before-first-update' ? 'Il mezzo potrebbe essere già transitato: previsioni disponibili solo per le fermate successive.'
     : event.extended ? 'Corsa fuori dal calendario installato: orari del pacchetto, abbinati alla corsa in tempo reale GTT per linea, direzione, percorso e partenza.' : undefined;

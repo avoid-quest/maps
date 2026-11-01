@@ -103,7 +103,8 @@ export interface TransitBoardRow {
   headsignAsSupplied?: string;
   /** Final stop of the trip, when supplied; useful when the headsign is empty. */
   destination?: string;
-  stop: { id: string; name: string };
+  /** Stop where this event happens; may be an equivalent of the requested stop (e.g. another operator's ID). */
+  stop: { id: string; name: string; coordinate?: Coordinate };
   scheduledAt?: number;
   /** Realtime time, present only for realtime states. */
   predictedAt?: number;
@@ -144,7 +145,10 @@ export interface TransitTripDetails {
   provider: TransitBoardProvider; tripRef: string; upstream: TransitUpstreamSource;
   mode: TransitBoardMode; providerMode?: string; line?: string; tripNumber?: string; displayName?: string;
   headsign?: string; headsignAsSupplied?: string;
+  /** Derived from the parsed stop events: realtime if any stop carries a realtime time. */
   realtimeState: TransitRealtimeState; tripCancelled: boolean;
+  /** Provider's leg-level realtime flag as supplied; it describes only the first departure and last arrival. */
+  endpointRealtimeFlag?: boolean;
   stops: TransitTripStop[];
   retrievedAt: number; nextRefreshAt: number; sourceUpdatedAt?: number;
   attributions: string[]; sourcesUrl?: string; warnings: string[];
