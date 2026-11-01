@@ -20,3 +20,5 @@ public/vendor/
 /modules/*/android/.gradle/
 
 /tests/navigation-core/target/
+__pycache__/
+*.pyc
