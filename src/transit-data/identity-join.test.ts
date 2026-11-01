@@ -85,6 +85,7 @@ test('identity joins are exact or absent: date, start time, calendar and stop_se
     [update('NEW-T1', { stopTimeUpdate: [{ stopSequence: 3, stopId: 'C', arrival: { delay: 0 } }] }), 'mismatch'], // seq 3 is stop B
     [update('NEW-T1', { trip: { tripId: 'NEW-T1', startTime: '08:00:00' } }), 'mismatch'], // no start_date: never guessed
     [update('NEW-T1', { trip: { tripId: 'NEW-T1', startDate: '20261021', startTime: '08:01:00' } }), 'noSchedule'],
+    [update('NEW-T1', { trip: { tripId: 'NEW-T1', startDate: '20261345', startTime: '08:00:00' } }), 'mismatch'], // impossible date
     [update('NEW-SHAPE'), 'noSchedule'],
     [update('UNKNOWN'), 'unknown'],
   ];

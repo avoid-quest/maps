@@ -26,9 +26,10 @@ export function subscribeCatalog(listener: () => void) { listeners.add(listener)
 /** Adopt the stops of the active package (after first import or a package switch). */
 let adopting: string | undefined;
 export async function adoptCatalog(reader: TimetableReader): Promise<void> {
-  if (reader.meta.packageHash === current.packageHash) return;
-  // Only the most recently requested package may land: an older, slower adoption is discarded.
+  // Only the most recently requested package may land: an older, slower adoption is discarded,
+  // also when the latest request is for the package already shown (e.g. after a rollback).
   const wanted = adopting = reader.meta.packageHash;
+  if (wanted === current.packageHash) return;
   const [stops, stopRoutes, routes] = await Promise.all([reader.stops(), reader.stopRoutes(), reader.routes()]);
   if (adopting !== wanted) return;
   const next: Stop[] = stops.filter(stop => stop.locationType === 0).map(stop => ({

@@ -18,6 +18,8 @@ export const timetableService = createStaticTimetableService(async () => {
   const manifest = validateManifest(bundledManifest);
   // Verified like the native import: exact bytes and SHA-256 of the asset, then its own metadata.
   const bytes = new Uint8Array(await response.arrayBuffer());
+  // Web Crypto exists only in secure contexts (HTTPS or localhost).
+  if (!globalThis.crypto?.subtle) throw new PackageError('L’anteprima web degli orari richiede HTTPS o localhost.');
   const digest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), byte => byte.toString(16).padStart(2, '0')).join('');
   if (bytes.length !== manifest.package_bytes || digest !== manifest.package_hash) throw new PackageError('Il pacchetto orari incluso non corrisponde al suo hash.', 'hash');
   const pkg = validatePackage(JSON.parse(new TextDecoder().decode(bytes)));

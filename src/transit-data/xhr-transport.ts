@@ -14,7 +14,9 @@ export const xhrRangeTransport: RangeTransport = (url, headers, accept, maxBytes
   xhr.open('GET', url);
   xhr.responseType = 'arraybuffer';
   xhr.withCredentials = false;
-  xhr.timeout = 30_000;
+  // The timeout covers the whole transfer: allow 30 s plus about 1 s per 16 KiB expected, so a
+  // slow but working connection can still fetch a ~0.4 MB trips.txt range.
+  xhr.timeout = 30_000 + Math.ceil(Math.max(0, maxBytes) / 16_384) * 1000;
   for (const [name, value] of Object.entries(headers)) xhr.setRequestHeader(name, value);
   const tooLarge = () => { xhr.abort(); fail(new ZipRangeError('Risposta GTT più grande dell’intervallo richiesto.', 'limit')); };
   xhr.onreadystatechange = () => {
@@ -37,6 +39,6 @@ export const xhrRangeTransport: RangeTransport = (url, headers, accept, maxBytes
     resolve({ status: xhr.status, header: name => xhr.getResponseHeader(name) ?? undefined, body: new Uint8Array((xhr.response as ArrayBuffer | null) ?? new ArrayBuffer(0)) });
   };
   xhr.onerror = () => fail(new ZipRangeError('Connessione a GTT non riuscita.', 'network'));
-  xhr.ontimeout = () => fail(new ZipRangeError('GTT non ha risposto in tempo.', 'network'));
+  xhr.ontimeout = () => fail(new ZipRangeError('Download da GTT troppo lento o interrotto.', 'network'));
   xhr.send();
 });

@@ -72,5 +72,7 @@ test('per-stop rows: unique keys per direction, suppression only for the same di
   assert.equal(new Set(unjoined.map(row => row.id)).size, 3, 'distinct React keys');
   assert.equal(sameDirection('Borgata Lesna', 'BORGATA LESNA, VIA BRISSOGNE'), true);
   assert.equal(sameDirection('', 'SASSI'), false);
+  assert.equal(sameDirection('PORTA', 'PORTANUOVA'), false, 'whole words only');
+  assert.equal(sameDirection('Porta Nuova', 'PORTA NUOVA FS'), true);
   assert.equal(rowPresentation(rows[0]!, AT + 31 * 60_000).provenance, 'Programmato · GTT');
 });

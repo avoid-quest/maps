@@ -27,6 +27,7 @@ export interface RemapData { meta: RemapMeta; trips: Map<string, RemapTrip>; cal
 /** Parse the remap members already fetched from the directory. */
 export async function fetchRemapMembers(transport: RangeTransport, url: string, directory: CentralDirectory, now: number): Promise<{ data: RemapData; bytes: number }> {
   const trips = new Map<string, RemapTrip>(); const calendar: CalendarRow[] = []; const exceptions: CalendarException[] = [];
+  const exceptionKeys = new Set<string>();
   let feedVersion: string | undefined;
   const parsers: Record<string, (chunk: string, final: boolean) => void> = {
     // Record limits well above GTT's ~61k trips, ~400 services and ~10k exceptions.
@@ -47,6 +48,10 @@ export async function fetchRemapMembers(transport: RangeTransport, url: string, 
     }, { maxRows: 20_000, maxLineLength: 1024 }),
     'calendar_dates.txt': csvRows(row => {
       if (!row.service_id || !validDate(row.date) || (row.exception_type !== '1' && row.exception_type !== '2')) throw new ZipRangeError('calendar_dates.txt: riga non valida.');
+      // A repeated (service_id, date) would make service activity depend on row order.
+      const key = `${row.service_id}\u0000${row.date}`;
+      if (exceptionKeys.has(key)) throw new ZipRangeError('calendar_dates.txt: riga duplicata.');
+      exceptionKeys.add(key);
       exceptions.push({ serviceId: row.service_id, date: row.date!, added: row.exception_type === '1' });
     }, { maxRows: 500_000, maxLineLength: 1024 }),
     'feed_info.txt': csvRows(row => { feedVersion = row.feed_version || feedVersion; }, { maxRows: 10, maxLineLength: 4096 }),
@@ -93,14 +98,20 @@ export function createMemoryRemapStore(): RemapStore {
 }
 
 export async function createSqlRemapStore(db: SqlDatabase): Promise<RemapStore> {
-  // An unreadable or damaged file is refused here, so the caller can delete and recreate it.
-  const [check] = await db.all<Record<string, string>>('PRAGMA quick_check');
-  if (Object.values(check ?? {})[0] !== 'ok') throw new Error('remap database damaged');
-  await db.exec(`
+  // An unreadable or damaged file is refused here (its connection closed first), so the caller
+  // can delete and recreate it.
+  try {
+    const [check] = await db.all<Record<string, string>>('PRAGMA quick_check');
+    if (Object.values(check ?? {})[0] !== 'ok') throw new Error('remap database damaged');
+    await db.exec(`
     CREATE TABLE IF NOT EXISTS remap_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;
     CREATE TABLE IF NOT EXISTS remap_trip (trip_id TEXT PRIMARY KEY, route_id TEXT NOT NULL, direction INTEGER NOT NULL, shape_id TEXT NOT NULL, service_id TEXT NOT NULL) WITHOUT ROWID;
     CREATE TABLE IF NOT EXISTS remap_calendar (service_id TEXT PRIMARY KEY, weekday_mask INTEGER NOT NULL, start_date TEXT NOT NULL, end_date TEXT NOT NULL) WITHOUT ROWID;
     CREATE TABLE IF NOT EXISTS remap_exception (date TEXT NOT NULL, service_id TEXT NOT NULL, added INTEGER NOT NULL, PRIMARY KEY (date, service_id)) WITHOUT ROWID;`);
+  } catch (error) {
+    await db.close().catch(() => undefined);
+    throw error;
+  }
   const getValue = async (key: string) => (await db.all<{ value: string }>('SELECT value FROM remap_meta WHERE key = ?', [key]))[0]?.value;
   const insert = async (table: string, columns: string[], rows: (string | number)[][]) => {
     const batch = Math.floor(900 / columns.length);
@@ -231,9 +242,14 @@ export function createRemapService(deps: {
       deps.onUpdated?.();
       return { outcome: 'updated', bytes: bytes + directory.bytes, requests, durationMs: now() - started };
     } catch (error) {
-      const stored = await deps.store.writeState({ ...state, lastAttemptAt: started, failures: Math.min(20, state.failures + 1) }).then(() => true, () => false);
-      // A storage failure (not a network or archive problem) discards the damaged remap.
-      if (!stored || !(error instanceof ZipRangeError)) await deps.store.reset().catch(() => undefined);
+      const failed: RemapState = { ...state, lastAttemptAt: started, failures: Math.min(20, state.failures + 1) };
+      const stored = await deps.store.writeState(failed).then(() => true, () => false);
+      // A storage failure (not a network or archive problem) discards the damaged remap; the
+      // attempt is recorded again afterwards so the daily throttle still holds.
+      if (!stored || !(error instanceof ZipRangeError)) {
+        await deps.store.reset().catch(() => undefined);
+        await deps.store.writeState(failed).catch(() => undefined);
+      }
       return { outcome: 'failed', requests, error: error instanceof Error ? error.message : String(error) };
     }
   }

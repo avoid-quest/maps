@@ -165,7 +165,8 @@ export function validateManifest(value: unknown): PackageManifest {
 /** The package's own metadata must agree with the manifest that announced it. */
 export function checkManifestMatchesPackage(manifest: PackageManifest, pkg: TimetablePackage) {
   check(manifest.feed_version === pkg.feed.feed_version && manifest.valid_from === pkg.feed.valid_from && manifest.valid_to === pkg.feed.valid_to, 'Il pacchetto non corrisponde al manifest.');
-  check(manifest.counts.trips === pkg.trips.trip_id.length && manifest.counts.stops === pkg.stops.length && manifest.counts.patterns === pkg.patterns.length, 'Conteggi del pacchetto diversi dal manifest.');
+  check(manifest.counts.trips === pkg.trips.trip_id.length && manifest.counts.stops === pkg.stops.length && manifest.counts.patterns === pkg.patterns.length
+    && manifest.counts.routes === pkg.routes.length && manifest.counts.vectors === pkg.vectors.length && manifest.counts.services === pkg.services.length, 'Conteggi del pacchetto diversi dal manifest.');
 }
 
 const VERSION = /^\d+$/;

@@ -233,6 +233,23 @@ test('a transient error opening the retained package during rollback keeps it fo
   assert.equal((await busy.store.open()).meta.packageHash, bundledManifest.package_hash, 'the retry opens it');
 });
 
+test('a candidate that cannot be reopened never becomes the registered active package', async () => {
+  const { store, driver, serve, databases } = harness();
+  await store.open();
+  const before = databases();
+  const next = release('20261021', '2026-10-21T03:15:00Z');
+  const open = driver.open.bind(driver); const opened = new Map<string, number>();
+  driver.open = async name => {
+    const count = (opened.get(name) ?? 0) + 1; opened.set(name, count);
+    if (name.startsWith(`gtt-${next.manifest.package_hash.slice(0, 16)}`) && count === 2) throw new Error('SQLITE_BUSY: database is locked');
+    return open(name);
+  };
+  await assert.rejects(store.installDownloaded(next.manifest, serve(next.manifest, next.text)), /SQLITE_BUSY/);
+  assert.deepEqual((await store.packages()).map(entry => [entry.role, entry.hash]), [['active', bundledManifest.package_hash]]);
+  assert.equal(store.active()?.meta.packageHash, bundledManifest.package_hash, 'memory and registry agree');
+  assert.deepEqual(databases(), before, 'the candidate file is removed');
+});
+
 test('identity lookups are chunked and match first arrival or first departure in SQL', async () => {
   const { store } = harness();
   const { reader } = await store.open();

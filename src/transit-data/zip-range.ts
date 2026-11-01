@@ -208,13 +208,19 @@ export interface CsvLimits { maxRows: number; maxLineLength: number }
 export function csvRows(onRow: (row: Record<string, string>) => void, limits: CsvLimits = { maxRows: 1_000_000, maxLineLength: 64 * 1024 }) {
   let buffer = ''; let header: string[] | undefined; let first = true; let rows = 0;
   const parse = (line: string): string[] => {
-    const fields: string[] = []; let field = ''; let quoted = false;
+    // RFC 4180: a quote may only open a field and must be followed by a separator once closed;
+    // a stray quote would let a malformed row read as different values.
+    const fields: string[] = []; let field = ''; let quoted = false; let start = true; let closed = false;
+    const stray = () => new ZipRangeError('CSV: virgolette non valide.');
     for (let index = 0; index < line.length; index++) {
       const char = line[index]!;
       if (quoted) {
-        if (char === '"') { if (line[index + 1] === '"') { field += '"'; index++; } else quoted = false; } else field += char;
-      } else if (char === '"') quoted = true;
-      else if (char === ',') { fields.push(field); field = ''; } else field += char;
+        if (char === '"') { if (line[index + 1] === '"') { field += '"'; index++; } else { quoted = false; closed = true; } } else field += char;
+      } else if (char === ',') { fields.push(field); field = ''; start = true; closed = false; continue; }
+      else if (char === '"') { if (!start) throw stray(); quoted = true; }
+      else if (closed && char !== '\r') throw stray();
+      else field += char;
+      start = false;
     }
     fields.push(field);
     return fields;
