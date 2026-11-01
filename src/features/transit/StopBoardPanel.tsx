@@ -111,10 +111,11 @@ function DepartureRow({ row, now }: { row: GttBoardRow; now: number }) {
   const view = rowPresentation(row, now);
   const countdown = view.live ? /^(\d+) min$/.exec(view.timeText)?.[1] : undefined;
   const tone = stateClass(row, view.live);
+  const line = row.line ?? '—';
   const spokenTime = view.timeText === '—' ? '' : countdown != null ? `tra ${countdown} minuti` : /^\d|^~/.test(view.timeText) ? `alle ${view.timeText.replace('~', 'circa ')}` : view.timeText;
-  return <View accessible accessibilityLabel={`Linea ${row.line}, ${row.headsign || 'direzione non indicata'}, ${view.statusText}, ${view.provenance}${spokenTime ? `, ${spokenTime}` : ''}${view.note ? `. ${view.note}` : ''}`}
+  return <View accessible accessibilityLabel={`${row.line ? `Linea ${row.line}` : 'Linea non indicata'}, ${row.headsign || 'direzione non indicata'}, ${view.statusText}, ${view.provenance}${spokenTime ? `, ${spokenTime}` : ''}${view.note ? `. ${view.note}` : ''}`}
     style={hairlines.bottom} className="min-h-16 flex-row items-center gap-3 px-4 py-3">
-    <TransitLineBadge line={row.line} mode={transitModeFromLineName(row.line)} />
+    <TransitLineBadge line={line} mode={row.line ? transitModeFromLineName(row.line) : undefined} />
     <View className="min-w-0 flex-1">
       <Text numberOfLines={2} className="text-base font-medium leading-5 text-primary">{row.headsign || 'Direzione non indicata'}</Text>
       <Text className={`mt-0.5 text-sm ${tone}`}>{view.statusText}</Text>
