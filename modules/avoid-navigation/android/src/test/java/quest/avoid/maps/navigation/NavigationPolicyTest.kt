@@ -152,6 +152,48 @@ class NavigationPolicyTest {
     assertTrue(gate.confident)
   }
 
+  @Test fun aBetterSampleInTheDuplicateWindowReplacesARejectedOneWithoutDoubleCounting() {
+    // Network 100 m, then GPS 10 m 100 ms later, repeating at 1 Hz: the GPS fix must start the session.
+    val gate = FixAdmission<String>(walk, 0)
+    assertEquals(REJECTED, gate.onFix(1_000, 1_000_000_000L, 0, 100.0, true, "network").outcome)
+    assertEquals(ACCEPTED, gate.onFix(1_100, 1_100_000_000L, 0, 10.0, true, "gps").outcome)
+    assertEquals(1, gate.fixesSeen)
+    // An equal or worse copy is still a duplicate, and an accepted sample is never replaced.
+    assertEquals(DUPLICATE, gate.onFix(1_150, 1_150_000_000L, 0, 5.0, true, "fused").outcome)
+    // Guidance: a rejected 80 m then a better but still rejected 60 m count as one rejection.
+    assertEquals(REJECTED, gate.onFix(2_000, 2_000_000_000L, 0, 80.0, true, "network").outcome)
+    assertEquals(REJECTED, gate.onFix(2_050, 2_050_000_000L, 0, 60.0, true, "gps").outcome)
+    assertEquals(1, gate.consecutiveRejected)
+    assertEquals(REJECTED, gate.onFix(3_000, 3_000_000_000L, 0, 80.0, true, "network").outcome)
+    assertEquals(ACCEPTED, gate.onFix(3_100, 3_100_000_000L, 0, 10.0, true, "gps").outcome)
+    assertEquals(0, gate.consecutiveRejected); assertTrue(gate.confident)
+  }
+
+  @Test fun implausibleJumpsDoNotReportAsAWeakSignal() {
+    val gate = FixAdmission<String>(car, 0)
+    gate.at(1_000, 5.0, implausible = true)
+    gate.at(2_000, 80.0)
+    val timeout = gate.onTick(30_000) as FixAdmission.Tick.StartTimeout
+    assertEquals(80.0, timeout.bestRejectedAccuracyMeters!!, 0.0)
+  }
+
+  @Test fun offRouteIsLatchedByTightFixesOnly() {
+    val latch = DeviationLatch()
+    assertFalse(latch.update(judged = true, deviation = true)); assertTrue(latch.offRoute)
+    // Coarse fixes neither clear nor advance the count.
+    assertFalse(latch.update(judged = false, deviation = false)); assertTrue(latch.offRoute)
+    assertFalse(latch.update(judged = true, deviation = true))
+    // Location loss, then a coarse recovery fix: still off route, and the count restarts.
+    latch.pause()
+    assertFalse(latch.update(judged = false, deviation = false)); assertTrue(latch.offRoute)
+    assertFalse(latch.update(judged = true, deviation = true))
+    assertFalse(latch.update(judged = true, deviation = true))
+    assertTrue(latch.update(judged = true, deviation = true))
+    // Only a tight on-route fix (or a new route) clears it.
+    assertFalse(latch.update(judged = true, deviation = false)); assertFalse(latch.offRoute)
+    latch.update(judged = true, deviation = true); latch.reset(); assertFalse(latch.offRoute)
+  }
+
   @Test fun noFreshFixTimesOutAsUnavailableAndStaleSeedsDoNotCount() {
     val gate = FixAdmission<String>(walk, 0)
     assertEquals("location-stale", gate.onFix(100, 0, 811_000, 5.0, true, "cached").problem)

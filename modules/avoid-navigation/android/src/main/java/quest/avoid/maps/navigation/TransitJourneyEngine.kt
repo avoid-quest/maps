@@ -216,8 +216,12 @@ class TransitJourneyEngine(
     return TransitUpdate(fields, announcement, complete)
   }
 
-  fun nextBoardingAt(): Long? = if (phase in setOf("ride", "alight", "complete")) null
-    else segments.drop(segmentIndex).firstOrNull { it.transit }?.first?.departure
+  /** Next boarding still ahead; while aboard, the following connection (so a missed transfer is flagged). */
+  fun nextBoardingAt(): Long? = when (phase) {
+    "complete" -> null
+    "ride", "alight" -> segments.drop(segmentIndex + 1).firstOrNull { it.transit }?.first?.departure
+    else -> segments.drop(segmentIndex).firstOrNull { it.transit }?.first?.departure
+  }
   val journeyArrivalAt: Long get() = segments.last().last.arrival
 
   private fun target(): Point? = if (phase == "complete") null else segments[segmentIndex].let {

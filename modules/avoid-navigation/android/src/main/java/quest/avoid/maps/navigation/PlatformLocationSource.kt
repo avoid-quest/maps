@@ -14,25 +14,25 @@ import androidx.core.content.ContextCompat
 
 /**
  * Platform LocationManager only: GPS, the AOSP platform fused provider (API 31+) and the network
- * provider when the system offers them. No Play services. Last-known fixes are seeded through the
+ * provider when the system offers them; each delivers fixes only while enabled. No Play services. Last-known fixes are seeded through the
  * same session policy, so an old cached position can never pass as a fresh fix.
  */
 internal class PlatformLocationSource(private val context: Context, private val update: (Location) -> Unit,
   private val problem: (String) -> Unit) : LocationListener {
   private val manager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
   private val registered = linkedSetOf<String>()
-
   fun start() {
     if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
       problem("location-permission"); return
     }
     val available = manager.allProviders
+    // Every present provider is registered even while disabled: Android only reports enablement to
+    // registered listeners, and a registration resumes delivering fixes when its provider returns.
     val candidates = buildList {
-      // GPS is registered even while disabled so enabling it resumes the subscription.
-      if (LocationManager.GPS_PROVIDER in available) add(LocationManager.GPS_PROVIDER)
-      if (Build.VERSION.SDK_INT >= 31 && LocationManager.FUSED_PROVIDER in available && enabled(LocationManager.FUSED_PROVIDER)) add(LocationManager.FUSED_PROVIDER)
-      if (LocationManager.NETWORK_PROVIDER in available && enabled(LocationManager.NETWORK_PROVIDER)) add(LocationManager.NETWORK_PROVIDER)
-    }
+      add(LocationManager.GPS_PROVIDER)
+      if (Build.VERSION.SDK_INT >= 31) add(LocationManager.FUSED_PROVIDER)
+      add(LocationManager.NETWORK_PROVIDER)
+    }.filter { it in available }
     try {
       for (provider in candidates) {
         manager.requestLocationUpdates(provider, 1_000L, 0f, this, Looper.getMainLooper())
@@ -43,7 +43,7 @@ internal class PlatformLocationSource(private val context: Context, private val 
     Log.i(TAG, "source providers=${registered.joinToString(",").ifEmpty { "none" }} enabled=${registered.filter(::enabled).joinToString(",").ifEmpty { "none" }}")
     if (registered.none(::enabled)) problem("location-disabled")
     // Seed with cached fixes; the session's age policy rejects anything older than its limit.
-    val seeds = registered.filter { it != LocationManager.NETWORK_PROVIDER }.mapNotNull { provider ->
+    val seeds = registered.mapNotNull { provider ->
       try { manager.getLastKnownLocation(provider) } catch (_: SecurityException) { null }
     }
     seeds.sortedBy { it.elapsedRealtimeNanos }.forEach { update(it) }

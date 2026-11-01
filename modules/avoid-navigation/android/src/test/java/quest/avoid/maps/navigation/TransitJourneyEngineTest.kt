@@ -65,7 +65,11 @@ class TransitJourneyEngineTest {
     assertTrue(approach.announcement!!.contains("Preparati"))
     assertNull(engine.onLocation(45.008, 7.0, 5.0).announcement)
     assertEquals("ride", phase(engine.onLocation(45.0095, 7.0, 35.0)))
-    assertEquals("ride", phase(engine.onLocation(45.0095, 7.0, 50.0)))
+    val coarse = engine.onLocation(45.0095, 7.0, 50.0)
+    assertEquals("ride", phase(coarse))
+    // Accepted at the 50 m bound: proximity is computed (a rejected fix would clear it).
+    assertNotNull(coarse.fields["distanceToManeuverMeters"])
+    assertNull(engine.onLocation(45.0095, 7.0, 50.1).fields["distanceToManeuverMeters"])
     assertEquals("alight", phase(engine.onLocation(45.0095, 7.0, 5.0)))
   }
 
@@ -241,6 +245,16 @@ class TransitJourneyEngineTest {
     assertEquals(now - 6_600_000, timing["nextBoardingAt"])
     expired.confirm("walk-complete"); expired.confirm("board")
     assertNull(transit(expired.snapshot())["nextBoardingAt"])
+  }
+
+  @Test fun ridingExposesTheNextConnectionSoAMissedTransferIsFlagged() {
+    val first = leg(0, true, origin, stop) + mapOf("departureAt" to now - 1_200_000, "arrivalAt" to now - 600_000)
+    val walk = leg(1, false, stop, stop) + mapOf("departureAt" to now - 600_000, "arrivalAt" to now - 300_000, "durationSeconds" to 300.0)
+    val second = leg(2, true, stop, destination) + mapOf("departureAt" to now - 300_000, "arrivalAt" to now + 300_000)
+    val journey = engine(first, walk, second)
+    journey.confirm("board")
+    assertEquals("ride", phase(journey.snapshot()))
+    assertEquals(now - 300_000, transit(journey.snapshot())["nextBoardingAt"])
   }
 
   @Test fun departedServiceIsFollowableButCancelledServiceStillRequiresReplanning() {

@@ -58,7 +58,7 @@ internal class NavigationRuntime private constructor(private val context: Contex
   private var transitEngine: TransitJourneyEngine? = null
   private var transitPlan: Map<String, Any?>? = null
   private var transitOrigin: Point? = null
-  private var offRouteFixes = 0
+  private val deviation = DeviationLatch()
   private var arrivalFixes = 0
   private val reroutes = RerouteBudget()
   private val spoken = linkedSetOf<String>()
@@ -146,6 +146,15 @@ internal class NavigationRuntime private constructor(private val context: Contex
     if (id == null || id != pendingServiceId || scope != null) return false
     pendingServiceId = null
     service = owner
+    return try { initializeSession(); true } catch (error: Exception) {
+      // Never let session setup escape onStartCommand: release everything and report the failure.
+      Log.e(TAG, "service init failed ${error.javaClass.name}")
+      failAndStop("service-unavailable")
+      false
+    }
+  }
+
+  private fun initializeSession() {
     val token = generation
     scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     speech = NavigationSpeech(context) { voice -> if (generation == token) { fields["voice"] = voice; publish() } }
@@ -165,7 +174,6 @@ internal class NavigationRuntime private constructor(private val context: Contex
       }
     }
     lifetime.promote(token)
-    return true
   }
 
   fun serviceDestroyed(owner: NavigationService) {
@@ -360,7 +368,8 @@ internal class NavigationRuntime private constructor(private val context: Contex
         // Only tight fixes judge deviation: coarse fixes neither declare, clear nor count off-route,
         // so a poor signal can never trigger a reroute.
         val judged = fix.hasAccuracy() && fix.accuracy <= fixPolicy.deviationAccuracyMeters.toFloat()
-        val offRoute = if (judged) state.deviation is RouteDeviation.Deviation else fields["status"] == "off-route"
+        val rerouteDue = deviation.update(judged, state.deviation is RouteDeviation.Deviation)
+        val offRoute = deviation.offRoute
         fields["distanceToManeuverMeters"] = state.progress.distanceToNextManeuver
         fields["distanceRemainingMeters"] = state.progress.distanceRemaining
         fields["durationRemainingSeconds"] = state.progress.durationRemaining
@@ -371,14 +380,12 @@ internal class NavigationRuntime private constructor(private val context: Contex
         fields.remove("problem"); fields["canRetry"] = offRoute
         arrivalFixes = 0
         if (offRoute) {
-          if (judged) offRouteFixes++
           speech?.flush()
-          if (judged && offRouteFixes >= 3) {
+          if (rerouteDue) {
             if (reroutes.tryAcquire(SystemClock.elapsedRealtime(), fix.latitude, fix.longitude)) requestRoute(fix, true)
             else fields["problem"] = "reroute-limit"
           }
         } else {
-          if (judged) offRouteFixes = 0
           state.spokenInstruction?.let { instruction ->
             val utterance = instruction.utteranceId.toString()
             if (utterance !in spoken && speech?.speak(instruction.text, utterance) == true) spoken.add(utterance)
@@ -501,7 +508,7 @@ internal class NavigationRuntime private constructor(private val context: Contex
       catch (failure: NavigationFailure) { if (generation == token) routeFailed(failure.reason); return@launch }
       catch (error: Throwable) { if (generation == token) engineFailed("create", error); return@launch }
       if (generation != token) { next.close(); return@launch }
-      engine?.close(); engine = next; spoken.clear(); offRouteFixes = 0
+      engine?.close(); engine = next; spoken.clear(); deviation.reset()
       Log.i(TAG, "route installed fresh=$fresh steps=${next.route.steps.size}")
       fields["routeRevision"] = ++routeSequence
       fields["route"] = mapOf("geometry" to next.route.geometry.map { Point(it.lat, it.lng).bridge() },
@@ -533,7 +540,7 @@ internal class NavigationRuntime private constructor(private val context: Contex
   private fun degraded(problem: String) {
     admission?.lose()
     fields.remove("distanceToManeuverMeters")
-    offRouteFixes = 0; arrivalFixes = 0; speech?.flush()
+    deviation.pause(); arrivalFixes = 0; speech?.flush()
     if (mode == "transit") {
       transitEngine?.positionLost()?.let { fields.putAll(it.fields) }
       if (!recovery.transitReplanRequired) fields["problem"] = problem
@@ -558,7 +565,7 @@ internal class NavigationRuntime private constructor(private val context: Contex
     runCatching { speech?.close() }; speech = null
     runCatching { engine?.close() }; engine = null
     transitEngine = null; transitPlan = null; transitOrigin = null; admission = null; autoRouteRequested = false
-    latestFix = null; target = null; spoken.clear(); offRouteFixes = 0; arrivalFixes = 0; reroutes.reset()
+    latestFix = null; target = null; spoken.clear(); deviation.reset(); arrivalFixes = 0; reroutes.reset()
     val old = service; service = null; old?.finish()
   }
   private fun fixAge(fix: Location) = (SystemClock.elapsedRealtimeNanos() - fix.elapsedRealtimeNanos) / 1_000_000L
