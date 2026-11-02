@@ -36,6 +36,9 @@ export function withDirection(value: TransitTime, direction: TimeDirection, now 
   return build(direction === 'arrive' ? 'arrive-by' : 'depart-at', date, time);
 }
 
+/** What a picker chose: one Rome civil part, unnormalized. */
+export type CivilChoice = { date: string; time?: undefined } | { time: string; date?: undefined };
+
 /** A picked Rome date or time replaces that part; validation rejects nonexistent or ambiguous DST minutes. */
 export function withCivilChange(value: TransitTime, change: { date?: string; time?: string }, direction = timeDirection(value), now = new Date()): TransitTime {
   const current = civil(value, now);
@@ -61,4 +64,10 @@ export function pickerValue(value: TransitTime, now = new Date()): Date {
 export function pickedCivil(picked: Date): { date: string; time: string } {
   const local = romeDateTime(picked);
   return { date: local.date, time: local.time.slice(0, 5) };
+}
+
+/** A browser date/time input value as the one civil part it chose; empty or malformed input is no choice. */
+export function browserCivil(mode: 'date' | 'time', raw: string): CivilChoice | null {
+  if (mode === 'date') return /^\d{4}-\d{2}-\d{2}$/.test(raw) ? { date: raw } : null;
+  return /^\d{2}:\d{2}/.test(raw) ? { time: raw.slice(0, 5) } : null;
 }

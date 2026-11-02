@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { pickedCivil, pickerValue, romeDayLabel, romeInstant, timeChipLabel, withCivilChange, withDirection } from './transit-time-control';
+import { browserCivil, pickedCivil, pickerValue, romeDayLabel, romeInstant, timeChipLabel, withCivilChange, withDirection } from './transit-time-control';
 
 const evening = new Date('2026-10-11T21:58:00Z'); // 23:58 in Rome
 
@@ -36,4 +36,14 @@ test('native pickers open and read in Europe/Rome independent of the device zone
   assert.deepEqual(pickedCivil(new Date('2026-10-11T22:07:00Z')), { date: '2026-10-12', time: '00:07' });
   assert.equal(pickerValue({ kind: 'now' }, evening), evening);
   assert.deepEqual(pickedCivil(pickerValue({ kind: 'depart-at', date: '2026-03-29', time: '03:30' })), { date: '2026-03-29', time: '03:30' });
+});
+
+test('a browser-picked spring-forward minute is validated as chosen, not shifted to a valid instant', () => {
+  const chosen = { kind: 'depart-at', date: '2027-03-28', time: '01:30' } as const;
+  const picked = browserCivil('time', '02:30');
+  assert.deepEqual(picked, { time: '02:30' });
+  assert.throws(() => withCivilChange(chosen, picked!), /inesistente/);
+  assert.deepEqual(browserCivil('date', '2027-03-28'), { date: '2027-03-28' });
+  assert.equal(browserCivil('time', ''), null);
+  assert.equal(browserCivil('date', '28/03/2027'), null);
 });

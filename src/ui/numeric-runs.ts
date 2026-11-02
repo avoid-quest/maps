@@ -11,3 +11,12 @@ export function numericRuns(text: string): { text: string; numeric: boolean }[] 
   }
   return runs;
 }
+
+/**
+ * A number's digit groups and the decimal/thousands separators between them ("4,2" → 4 | , | 2).
+ * The separators stay inside the number, but Geist Mono gives a comma or point a full digit cell, so
+ * "4,2 km" read as "4 , 2 km"; Num draws only the separator glyph in Geist Sans, keeping digits tabular.
+ */
+export function numberParts(number: string): { text: string; separator: boolean }[] {
+  return [...number.matchAll(/(\d+)|([.,])/g)].map(match => ({ text: match[0], separator: match[2] !== undefined }));
+}

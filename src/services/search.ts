@@ -3,6 +3,7 @@ import { distanceMeters, normalize } from "./geo";
 import { checkAbort, fetchJSON, parseServiceData, requestQueue, ServiceError } from "./network";
 import { getPlaceCoverage, LOCAL_SEARCH_RADIUS_METERS } from "./place-coverage";
 import localityData from "../data/localities.json";
+import { isTransitQuery } from "./transit-search";
 import { correctionAttribution, placeCatalog, type CatalogPlace, type PlaceCatalog, type PlaceSearchEntry } from "./place-catalog";
 const request = requestQueue(1000);
 const LOCAL_RESULT_LIMIT = 60;
@@ -423,7 +424,8 @@ function photonPlace(feature: PhotonResponse["features"][number], center: Coordi
   const street = [text(p.street), text(p.housenumber)].filter(Boolean).join(" ");
   const locality = [text(p.postcode), text(p.city)].filter(Boolean).join(" ");
   const kind: PlaceKind = !p.name && (type === "house" || value === "house") && p.housenumber ? "address"
-    : key === "highway" || type === "street" ? "street"
+    // Only Photon's street type is a street: named highway objects include bus stops (type "house").
+    : type === "street" ? "street"
       : key === "place" || key === "boundary" || AREA_TYPES.has(type) ? "area" : "place";
   const name = text(p.name) || (kind === "address" ? street : "") || text(p.street) || text(p.city) || query;
   const address = kind === "address" ? locality : kind === "street" ? [text(p.district), locality].filter(Boolean).join(", ")
@@ -436,7 +438,6 @@ function photonPlace(feature: PhotonResponse["features"][number], center: Coordi
   }];
 }
 
-const TRANSIT_WORDS = new Set(["fermata", "fermate", "linea", "linee"]);
 const PHOTON_CACHE_MS = 5 * 60_000;
 const cache = new Map<string, { at: number; places: Place[] }>();
 /** One rate-limited, cached Photon lookup; the same text and rounded bias reuse the answer for five minutes. */
@@ -486,7 +487,7 @@ export async function searchPlaces(
   const { plan } = matches;
   // Photon geocodes names and addresses; using it as category discovery returns unrelated distant names.
   // Stop codes and line names ("472", "M1", "fermata 472", "linea 4") are answered from the bundled GTT catalog.
-  const transitOnly = TRANSIT_WORDS.has(plan.tokens[0] ?? "") || (plan.tokens.length === 1 && /^(?:\d{1,5}|[a-z]{1,2}\d{1,4}[a-z]?|\d{1,4}[a-z])$/.test(plan.tokens[0]!));
+  const transitOnly = isTransitQuery(q);
   const categoryOnly = plan.categoryTerms.length > 0 || plan.tokens.every((token, i) =>
     !plan.required[i] || !!aliases[token] || (!!plan.locality && i >= plan.locality.start && i < plan.locality.end));
   // Policy is checked before cache access too: opting out must never redisplay cached remote results.

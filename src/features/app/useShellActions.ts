@@ -38,7 +38,9 @@ export function useShellController({ tasks, camera, location, sheet, search }: {
   const closeTopTask = useCallback(() => {
     const state = getState();
     if (!hasTaskAboveRoot(state)) { closeTask(); return; }
-    if (topTask(state).kind === 'planner') location.cancel();
+    const top = topTask(state);
+    // Closing the endpoint editor keeps the planner and any pending origin fix.
+    if (top.kind === 'planner' && !top.editing) location.cancel();
     dispatch({ type: 'closeTopTask' });
   }, [getState, closeTask, location, dispatch]);
   const toggleSettings = useCallback(() => {

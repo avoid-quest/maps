@@ -27,7 +27,8 @@ export function EndpointEditor({ endpoint, current }: { endpoint: PlannerEndpoin
   const [query, setQuery] = useState('');
   const lookup = usePlaceLookup(query, camera.searchCenter, true);
   const origin = endpoint === 'origin';
-  const typed = query.trim().length >= 2;
+  // A one-character stop code or line ("4") already yields stops.
+  const typed = query.trim().length >= 2 || lookup.places.length > 0;
   const choose = (place: Place) => planner.chooseEndpoint(place);
   const suggestions = saved.filter(place => place.id !== current?.id).slice(0, 6);
   return (

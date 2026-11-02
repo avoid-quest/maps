@@ -64,7 +64,7 @@ export function TaskSheet({ snap, resting, heights, now }: { snap: SheetSnap; re
       closeLabel="Chiudi e torna alla mappa"
       actions={
         <IconButton icon={expands ? "chevron-up" : "chevron-down"}
-          label={expands ? "Espandi scheda" : "Riduci scheda"} onPress={() => sheet.request(expandTo)} />
+          label={expands ? "Espandi scheda" : "Riduci scheda"} onPress={() => sheet.request(expandTo, { explicit: true })} />
       }
     />
   );

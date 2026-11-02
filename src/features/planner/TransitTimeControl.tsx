@@ -23,10 +23,9 @@ export function TransitTimeControl({ value, onChange, disabled }: { value: Trans
     catch (failure) { setError(failure instanceof Error ? failure.message : 'Controlla data e orario.'); }
   }
   async function pick(mode: 'date' | 'time') {
-    const picked = await openCivilPicker(mode, pickerValue(value, new Date()));
-    if (!picked) return;
-    const chosen = pickedCivil(picked);
-    apply(() => withCivilChange(value, mode === 'date' ? { date: chosen.date } : { time: chosen.time }, timeDirection(value), new Date()));
+    const chosen = await openCivilPicker(mode, pickerValue(value, new Date()));
+    // Validated as chosen: a nonexistent or ambiguous DST minute shows an error and keeps the current time.
+    if (chosen) apply(() => withCivilChange(value, chosen, timeDirection(value), new Date()));
   }
   return (
     <View className="gap-3">

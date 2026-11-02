@@ -354,18 +354,21 @@ test("category, neighbourhood and stop words alone stay local; online answers ar
         { geometry: { coordinates: [7.6666, 45.0354] }, properties: { osm_type: "N", osm_id: 1, osm_key: "place", osm_value: "house", type: "house", street: "Via Nizza", housenumber: "230", postcode: "10126", city: "Torino" } },
         { geometry: { coordinates: [7.67, 45.04] }, properties: { osm_type: "W", osm_id: 2, osm_key: "highway", osm_value: "secondary", type: "street", name: "Via Nizza", postcode: "10126", city: "Torino" } },
         { geometry: { coordinates: [7.68, 45.055] }, properties: { osm_type: "N", osm_id: 3, osm_key: "place", osm_value: "suburb", type: "district", name: "San Salvario", city: "Torino" } },
+        { geometry: { coordinates: [7.678, 45.062] }, properties: { osm_type: "N", osm_id: 4, osm_key: "highway", osm_value: "bus_stop", type: "house", name: "Porta Nuova", city: "Torino" } },
       ] });
     };
     await searchPlaces("bar san salvario", { center: centre, policy: "local-and-online" });
     await searchPlaces("pizzeria a lingotto", { center: centre, policy: "local-and-online" });
     // Stop codes and line names are answered from the bundled GTT catalog.
-    for (const query of ["472", "fermata 472", "M1", "linea 4", "10N"]) await searchPlaces(query, { center: centre, policy: "local-and-online" });
+    for (const query of ["472", "fermata 472", "stop 472", "fermate castello", "M1", "linea 4", "bus 15", "tram 4", "metro M1", "10N"]) await searchPlaces(query, { center: centre, policy: "local-and-online" });
     assert.equal(requests, 0);
     const result = await searchPlaces("via nizza 230 online fixture", { center: centre, policy: "local-and-online" });
     const byId = new Map(result.places.map((place) => [place.id, place]));
     assert.deepEqual([byId.get("osm:N:1")?.kind, byId.get("osm:N:1")?.name, byId.get("osm:N:1")?.address], ["address", "Via Nizza 230", "10126 Torino"]);
     assert.equal(byId.get("osm:W:2")?.kind, "street");
     assert.equal(byId.get("osm:N:3")?.kind, "area");
+    assert.equal(byId.get("osm:N:4")?.kind, "place", "a named highway object such as a bus stop is not a street");
+    assert.equal(byId.get("osm:N:4")?.name, "Porta Nuova");
     assert.equal(requests, 1);
   } finally { global.fetch = original; }
 });

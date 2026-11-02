@@ -5,7 +5,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import { useTheme, type MapColors } from '../../theme';
 import { diagnostics } from '../../services/diagnostics';
 import type { MapCanvasProps } from './MapCanvas.types';
-import { createOnceFraming, createRouteFraming } from './map-presentation';
+import { createOnceFraming, createRouteFraming, RESULT_MAX_ZOOM } from './map-presentation';
 import { lineLayout, markerLabelLayout, overlayPaint } from './map-overlay-style';
 
 const APP_SOURCES = ['local-coverage', 'journey', 'places', 'position'] as const;
@@ -53,11 +53,11 @@ export default function MapCanvas(props: MapCanvasProps) {
    * GL JS adds fitBounds padding to the map's own padding, which the effect below keeps equal to the
    * camera padding. Apply the current padding first, then fit with a small margin inside it.
    */
-  const fitWithinPadding = useCallback((instance: WebMap | null, bounds: [number, number, number, number]) => {
+  const fitWithinPadding = useCallback((instance: WebMap | null, bounds: [number, number, number, number], maxZoom?: number) => {
     if (!instance) return;
     const padding = latest.current.cameraPadding;
     if (padding) instance.setPadding(padding);
-    instance.fitBounds(bounds, { padding: padding ? 24 : 50, duration: 500 });
+    instance.fitBounds(bounds, { padding: padding ? 24 : 50, duration: 500, ...(maxZoom === undefined ? {} : { maxZoom }) });
   }, []);
   const syncData = useCallback(() => {
     const instance = map.current;
@@ -122,7 +122,7 @@ export default function MapCanvas(props: MapCanvasProps) {
   const frameBounds = props.resultFrame?.ready ? props.resultFrame.bounds : null;
   useEffect(() => {
     if (!loaded || !resultFraming.current.claim(frameKey, !!frameBounds) || !frameBounds) return;
-    fitWithinPadding(map.current, frameBounds);
+    fitWithinPadding(map.current, frameBounds, RESULT_MAX_ZOOM);
   }, [loaded, frameKey, frameBounds, fitWithinPadding]);
   useEffect(() => { if (loaded && followLocation !== false) map.current?.easeTo({ center: [longitude, latitude], zoom, padding: latest.current.cameraPadding, duration: 450 }); }, [loaded, longitude, latitude, zoom, followLocation, cameraRevision]);
   useEffect(() => { if (loaded) syncData(); }, [loaded, syncData, props.coverageBounds, props.markers, props.selectedMarkerId, props.userLocation, props.route]);

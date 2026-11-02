@@ -5,6 +5,7 @@ import { toCoordinate, toMapCoordinate } from "../map/coordinates";
 import MapCanvas from "../map/MapCanvas";
 import { placeMarker, stopMarker, taskMarkers } from "../map/map-layers";
 import { resultFrameBounds } from "../map/map-presentation";
+import { searchMapStops } from "../search/search-rows";
 import { useMapContext } from "../map/useMapModel";
 import { useNavigationContext } from "../navigation/useNavigation";
 import { usePlacesContext } from "../places/usePlaces";
@@ -38,8 +39,9 @@ export function AppMap({ height, padding, attributionLeft, attributionTop }: {
   const shownPlaces = useMemo(() => tab === "saved" ? places.saved : search.hasSearch ? searchPlaces : [], [tab, places.saved, search.hasSearch, searchPlaces]);
   const nearbyStops = transit.nearbyStops;
   // A typed stop code or line leads the results; its stops are pinned and framed.
-  const leadStops = useMemo(() => tab === "explore" && search.hasSearch
-    ? search.transit.code ? [search.transit.code] : search.transit.line?.stops ?? [] : [], [tab, search.hasSearch, search.transit]);
+  const searchStops = useMemo(() => tab === "explore" && search.hasSearch
+    ? searchMapStops(search.transit, searchPlaces.length) : { pinned: [], framed: [] }, [tab, search.hasSearch, search.transit, searchPlaces.length]);
+  const leadStops = searchStops.pinned;
   const markers = useMemo(() => taskMarkers(
     tab === "transit" ? nearbyStops.map(stopMarker) : [...leadStops.map(stopMarker), ...shownPlaces.map(placeMarker)], selected, board,
   ), [tab, nearbyStops, leadStops, shownPlaces, selected, board]);
@@ -47,10 +49,10 @@ export function AppMap({ height, padding, attributionLeft, attributionTop }: {
   const frame = search.frame;
   const resultFrame = useMemo(() => {
     if (tab !== "explore" || !search.hasSearch || !frame) return undefined;
-    const coordinates = leadStops.length ? leadStops.map(stop => stop.coordinate) : searchPlaces.map(place => place.coordinate);
+    const coordinates = searchStops.framed.length ? searchStops.framed.map(stop => stop.coordinate) : searchPlaces.map(place => place.coordinate);
     const ready = frame.settled && !selected && !board && coordinates.length > 0;
     return { key: frame.key, ready, bounds: ready ? resultFrameBounds(coordinates, camera.searchCenter) : null };
-  }, [tab, search.hasSearch, frame, selected, board, searchPlaces, leadStops, camera.searchCenter]);
+  }, [tab, search.hasSearch, frame, selected, board, searchPlaces, searchStops, camera.searchCenter]);
   const route = planner.routes.route;
   const routeGeometry = useMemo<LineString | null>(
     () => route && route.geometry.length > 1 ? { type: "LineString", coordinates: route.geometry.map(toMapCoordinate) } : null,

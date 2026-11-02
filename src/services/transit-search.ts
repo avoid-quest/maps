@@ -21,6 +21,18 @@ const LINE_WORDS = new Set(['linea', 'linee', 'line', 'bus', 'tram', 'metro']);
 export const LINE_STOP_LIMIT = 3;
 const NAMED_LIMIT = 3;
 
+const CODE_OR_LINE = /^(?:\d{1,5}|[a-z]{1,2}\d{1,4}[a-z]?|\d{1,4}[a-z])$/;
+/**
+ * The query asks for transport and is answered only from the bundled catalog: it starts with a stop
+ * or line word ("fermata", "stop", "linea", "bus", "tram", "metro", …) or is one code-or-line-shaped
+ * token ("472", "M1", "10N"). Such text never goes to an online geocoder.
+ */
+export function isTransitQuery(query: string): boolean {
+  const tokens = normalize(query).split(' ').filter(Boolean);
+  if (!tokens.length) return false;
+  return STOP_WORDS.has(tokens[0]!) || LINE_WORDS.has(tokens[0]!) || (tokens.length === 1 && CODE_OR_LINE.test(tokens[0]!));
+}
+
 const nameWords = (stop: Stop) => normalize(stop.name.replace(/^Fermata\s+\d+\s*-\s*/i, '')).split(' ').filter(Boolean);
 const nearest = (stops: readonly Stop[], center: Coordinate, limit: number) => stops
   .map(stop => ({ stop, distance: distanceMeters(center, stop.coordinate) }))
@@ -56,4 +68,10 @@ export function stopAsPlace(stop: Stop): Place {
     address: `Fermata ${stop.code}${stop.lines.length ? ` · linee ${stop.lines.slice(0, 6).join(', ')}` : ''}`,
     source: 'GTT', attributions: ['Dati GTT'],
   };
+}
+
+/** Stops a search offers as route endpoints: the typed code, the line's nearest stops, then name matches. */
+export function endpointStops(transit: TransitSearch): Stop[] {
+  const stops = [...(transit.code ? [transit.code] : []), ...(transit.line?.stops ?? []), ...transit.named];
+  return stops.filter((stop, index) => stops.findIndex(other => other.id === stop.id) === index);
 }

@@ -132,6 +132,9 @@ function sameCoordinate(a: Coordinate, b: Coordinate) {
 }
 function closeTop(state: TaskState): TaskState {
   if (state.settings) return { ...state, settings: false };
+  // An open endpoint editor is the top step: closing it returns to the plan, for Back and the sheet arrow alike.
+  const top = last(state.details);
+  if (top?.kind === 'planner' && top.editing) return updatePlanner(state, withoutEditor);
   if (state.details.length) return { ...state, details: state.details.slice(0, -1) };
   return state.root.kind === 'browse' ? state : { ...state, root: browse };
 }
@@ -258,8 +261,7 @@ export function taskReducer(state: TaskState, action: TaskAction): TaskState {
       return closeTop(state);
     case 'back': {
       const top = topTask(state);
-      if (top.kind === 'planner' && top.editing) return updatePlanner(state, withoutEditor);
-      if (top.kind === 'planner' && top.originStep === 'picking') return updatePlanner(state, cancelPicking);
+      if (top.kind === 'planner' && top.originStep === 'picking' && !top.editing) return updatePlanner(state, cancelPicking);
       return closeTop(state);
     }
   }
