@@ -50,6 +50,8 @@ for (const scheme of schemes) {
       walk(layer.paint, layer.id);
       walk(layer.layout, layer.id);
       for (const property of ['icon-image', 'fill-pattern', 'line-pattern']) {
+        // The one exception is the app's own greyscale one-way chevron (assets/navigation, not the sprite).
+        if (layer.id === 'avoid_oneway' && property === 'icon-image') { assert.equal(layer.layout?.[property], `oneway-${scheme}`); continue; }
         assert.ok(!(property in (layer.layout ?? {})) && !(property in (layer.paint ?? {})), `${layer.id} uses sprite ${property}`);
       }
     }
@@ -124,7 +126,7 @@ for (const scheme of schemes) {
   test(`avoid-${scheme}: labels meet AA on their halos and on the surfaces beneath them`, () => {
     const style = mapStyleFor(scheme);
     const ink = basemapInks[scheme];
-    const labels = (style.layers as StyleLayer[]).filter(layer => layer.type === 'symbol');
+    const labels = (style.layers as StyleLayer[]).filter(layer => layer.type === 'symbol' && layer.layout?.['text-field'] !== undefined);
     for (const layer of labels) {
       const color = String(layer.paint?.['text-color']);
       const halo = String(layer.paint?.['text-halo-color']);

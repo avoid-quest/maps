@@ -13,6 +13,10 @@ export const GUIDANCE_IMAGES: Record<string, number> = {
   'puck-dot-dark': require('../../../assets/navigation/puck-dot-dark.png'),
   'puck-retained-light': require('../../../assets/navigation/puck-retained-light.png'),
   'puck-retained-dark': require('../../../assets/navigation/puck-retained-dark.png'),
+  'arrowhead-light': require('../../../assets/navigation/arrowhead-light.png'),
+  'arrowhead-dark': require('../../../assets/navigation/arrowhead-dark.png'),
+  'oneway-light': require('../../../assets/navigation/oneway-light.png'),
+  'oneway-dark': require('../../../assets/navigation/oneway-dark.png'),
 };
 
 export const puckImage = (kind: PuckKind, scheme: ColorScheme) => `puck-${kind}-${scheme}`;

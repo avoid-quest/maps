@@ -68,7 +68,7 @@ export function AppMap({ height, padding, attributionLeft, attributionTop, guida
   const navCenter = navigation.snapshot.location ?? navigation.snapshot.destination ?? camera.center;
   const navigating = navigation.visible;
   // Road guidance: the app-controlled first-person camera; the map never follows on its own.
-  const guidance = useGuidanceCamera({ snapshot: navigation.snapshot, camera, viewport: guidanceViewport, active: navigating });
+  const guidance = useGuidanceCamera({ snapshot: navigation.snapshot, camera, viewport: guidanceViewport, active: navigating, transitPlan: navigation.transitPlan });
   return (
     <View testID="map-viewport" style={{ position: "absolute", top: 0, left: 0, right: 0, height, backgroundColor: theme.map.background }}>
       <MapCanvas

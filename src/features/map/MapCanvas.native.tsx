@@ -9,6 +9,7 @@ import type { MapCanvasProps } from './MapCanvas.types';
 import { createOnceFraming, createRouteFraming, frameCamera } from './map-presentation';
 import { lineLayout, markerLabelLayout, overlayPaint } from './map-overlay-style';
 import { GUIDANCE_IMAGES, puckImage, puckLayout } from './guidance-puck';
+import { BasemapGuidanceAdjustments, GuidanceRouteLayers } from './GuidanceMapLayers';
 import { useGuidanceCameraDriver } from './useGuidanceCameraDriver';
 
 /**
@@ -40,12 +41,17 @@ export default function MapCanvas({ center, zoom = 14.5, cameraRevision, routeFi
   // (including after a pan) moves into the newly visible area instead of under the sheet.
   const { top = 0, right = 0, bottom = 0, left = 0 } = cameraPadding ?? {};
   const guiding = !!guidance;
+  const leftGuidance = useRef(false);
   useEffect(() => {
-    if (!loaded || followLocation === true || guiding) return;
+    if (guiding) { leftGuidance.current = true; return; }
+    if (!loaded || followLocation === true) return;
+    // Right after guidance the browsing map also returns to north-up and flat.
+    const pose = leftGuidance.current ? { bearing: 0, pitch: 0 } : {};
+    leftGuidance.current = false;
     let current = true;
     const issued = commands.current;
     void map.current?.getCenter().then(center => {
-      if (current && issued === commands.current) camera.current?.easeTo({ center, padding: { top, right, bottom, left }, duration: 250 });
+      if (current && issued === commands.current) camera.current?.easeTo({ center, ...pose, padding: { top, right, bottom, left }, duration: 250 });
     }).catch(() => undefined);
     return () => { current = false; };
   }, [loaded, top, right, bottom, left, followLocation, guiding]);
@@ -72,7 +78,7 @@ export default function MapCanvas({ center, zoom = 14.5, cameraRevision, routeFi
   // Free, overview or a paused fix: a map symbol at the accepted (or retained) position.
   const frame = guidance?.frame ?? null;
   const followPuck = guidance?.intent === 'follow' && frame !== null && frame.puck.kind !== 'retained';
-  const mapPuck = guidance && frame && !followPuck ? frame.puck : null;
+  const mapPuck = guidance && !followPuck ? guidance.puck : null;
   const overlayPuck = followPuck && frame ? {
     source: GUIDANCE_IMAGES[puckImage(frame.puck.kind, theme.scheme)]!, x: frame.anchor.x, y: frame.anchor.y,
     rotation: frame.puck.heading === null ? 0 : frame.puck.heading - frame.bearing, tilt: Math.round(frame.pitch * 0.55),
@@ -94,7 +100,9 @@ export default function MapCanvas({ center, zoom = 14.5, cameraRevision, routeFi
         <Layer id="local-coverage-fill" type="fill" paint={paint.coverageFill} />
         <Layer id="local-coverage-line" type="line" paint={paint.coverageLine} />
       </GeoJSONSource>}
-      {route && <GeoJSONSource id="journey" data={{ type: 'Feature', geometry: route, properties: {} }}>
+      <BasemapGuidanceAdjustments reduceBusinesses={guidance?.mode === 'car' || guidance?.mode === 'bicycle'} oneWayArrows={guidance?.mode === 'car'} />
+      {route && guidance?.route ? <GuidanceRouteLayers route={route} fraction={guidance.route.fraction} arrow={guidance.route.arrow} colors={theme.map} scheme={theme.scheme} /> : null}
+      {route && !guidance?.route && <GeoJSONSource id="journey" data={{ type: 'Feature', geometry: route, properties: {} }}>
         <Layer id="journey-casing" type="line" paint={paint.routeCasing} layout={lineLayout} />
         <Layer id="journey-line" type="line" paint={paint.routeLine} layout={lineLayout} />
       </GeoJSONSource>}

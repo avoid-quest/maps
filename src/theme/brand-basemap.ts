@@ -246,6 +246,18 @@ export function brandRecipe(scheme: ColorScheme): StyleRecipe {
     ],
     keep: [],
     insert: [
+      {
+        // Driving guidance shows one-way chevrons (app image `oneway-<scheme>`); hidden otherwise.
+        before: 'highway-name-path',
+        layer: {
+          id: 'avoid_oneway', type: 'symbol', source: 'openmaptiles', 'source-layer': 'transportation', minzoom: 15,
+          filter: ['all', ['==', ['get', 'oneway'], 1], ['match', ['get', 'class'], ['motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'minor', 'service'], true, false]],
+          layout: {
+            visibility: 'none', 'symbol-placement': 'line', 'symbol-spacing': 90, 'icon-image': `oneway-${scheme}`, 'icon-rotate': 90,
+            'icon-rotation-alignment': 'map', 'icon-allow-overlap': true, 'icon-ignore-placement': true,
+          },
+        },
+      },
       { before: 'poi_r20', layer: dot([1, 7], 15) },
       { before: 'poi_r20', layer: dot([7, 20], 16) },
       { before: 'poi_r20', layer: dot([20], 17) },

@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import { ActivityIndicator, Linking, ScrollView, useWindowDimensions, View } from 'react-native';
 import type { TransitConfirmation } from '../../domain/navigation';
 import { navigationLocationForReplan } from '../../domain/navigation';
@@ -21,8 +22,10 @@ export const FOLLOW_ACTIONS_HEIGHT = 80;
  * Following a transit journey: what to do now, the next boarding with its live provenance, and one
  * large confirmation beside Stop. Nothing here needs a position fix; GPS distance is advisory only.
  */
-export function TransitFollowPanel({ state, following, follow, onRecenter, onStop, onRetry, onConfirm, onReplan, onMute }: {
+export function TransitFollowPanel({ state, following, follow, onRecenter, onStop, onRetry, onConfirm, onReplan, onMute, onChromeLayout }: {
   state: NavigationState; following: boolean;
+  /** Heights of the header and the sheet, so a walking camera anchors the puck between them. */
+  onChromeLayout?: (top: number, bottom: number) => void;
   follow: { leg: RouteLeg | null; stop: Stop | null; board: ReturnType<typeof useStopBoard> };
   onRecenter: () => void; onStop: () => void; onRetry: () => void; onConfirm: (action: TransitConfirmation) => void; onReplan: () => void;
   /** Mutes or restores spoken announcements of the native session. */
@@ -30,6 +33,8 @@ export function TransitFollowPanel({ state, following, follow, onRecenter, onSto
 }) {
   const colors = useThemeColors();
   const hairlines = useHairlines();
+  const header = useRef(0);
+  const sheet = useRef(0);
   const { height, fontScale } = useWindowDimensions();
   // Passed/missed times are re-evaluated at least every 15 s, as the native contract requires.
   const now = useNow(15_000);
@@ -47,7 +52,7 @@ export function TransitFollowPanel({ state, following, follow, onRecenter, onSto
     ? liveBoarding({ leg: follow.leg, rows: follow.board.board?.rows ?? null, boardAvailable: !!follow.stop, loading: follow.board.arrivalsLoading || follow.board.schedules.phase === 'preparing', error: follow.board.arrivalsError, now })
     : null;
   return <View pointerEvents="box-none" className="flex-1">
-    <View testID="transit-follow-instruction" style={{ height: headerHeight, backgroundColor: colors.chrome, ...hairlines.bottom }} className="gap-1 px-4 py-3">
+    <View testID="transit-follow-instruction" onLayout={event => { header.current = event.nativeEvent.layout.height; onChromeLayout?.(header.current, sheet.current); }} style={{ height: headerHeight, backgroundColor: colors.chrome, ...hairlines.bottom }} className="gap-1 px-4 py-3">
       <View className="flex-row items-center gap-2">
         {starting ? <ActivityIndicator color={colors.textPrimary} /> : null}
         <Display accessibilityRole="header" accessibilityLiveRegion="polite" size={26} className="flex-1 text-primary">{model.title}</Display>
@@ -61,7 +66,7 @@ export function TransitFollowPanel({ state, following, follow, onRecenter, onSto
         {voice.visible ? <View className="mt-2"><IconButton floating icon={voice.icon} label={voice.label} active={voice.muted} disabled={!voice.enabled} onPress={onMute} /></View> : null}
       </View>
     </View>
-    <View testID="transit-follow-sheet" style={[{ height: Math.min(height * 0.56, Math.max(300, height - headerHeight - 160)) }, hairlines.top]} className="rounded-t-3xl bg-surface">
+    <View testID="transit-follow-sheet" onLayout={event => { sheet.current = event.nativeEvent.layout.height; onChromeLayout?.(header.current, sheet.current); }} style={[{ height: Math.min(height * 0.56, Math.max(300, height - headerHeight - 160)) }, hairlines.top]} className="rounded-t-3xl bg-surface">
       <ScrollView className="flex-1" contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 14, paddingBottom: 12, gap: 12 }}>
         {model.warning ? <Notice tone="danger" text={model.warning} /> : null}
         {error ? <Notice tone="danger" text={error} /> : null}

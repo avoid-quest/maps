@@ -18,8 +18,10 @@ export function useGuidanceCameraDriver({ guidance, loaded, camera, map, command
   const intent = guidance?.intent;
   const frame = guidance?.frame ?? null;
   const overview = guidance?.overview ?? null;
+  const fit = guidance?.fit ?? null;
   const issued = useRef<string | null>(null);
-  const overviewIssued = useRef<number | null>(null);
+  const overviewIssued = useRef<string | null>(null);
+  const fitIssued = useRef<string | null>(null);
   const gestureActive = useRef(false);
   const latest = useRef(guidance);
   latest.current = guidance;
@@ -32,7 +34,7 @@ export function useGuidanceCameraDriver({ guidance, loaded, camera, map, command
       center: [frame.center.longitude, frame.center.latitude], bearing: frame.bearing, pitch: frame.pitch, zoom: frame.zoom,
       padding: frame.padding, duration: frame.durationMs, easing: frame.easing,
     });
-    if (ASSERT) assertFrame(map, frame, size.current);
+    if (ASSERT) assertFrame(map, frame, size.current, latest);
   }, [loaded, frame, intent, camera, map, commands, size]);
   useEffect(() => {
     if (!loaded || !overview || intent !== 'overview' || overviewIssued.current === overview.key) return;
@@ -40,7 +42,14 @@ export function useGuidanceCameraDriver({ guidance, loaded, camera, map, command
     commands.current += 1;
     camera.current?.fitBounds(overview.bounds, { padding: overview.padding, bearing: 0, pitch: 0, duration: 700 });
   }, [loaded, overview, intent, camera, commands]);
-  useEffect(() => { if (!guidance) { issued.current = null; overviewIssued.current = null; } }, [guidance]);
+  // Transit without a usable fix: frame the current leg and its stop once per leg (flat, north-up).
+  useEffect(() => {
+    if (!loaded || frame || !fit || intent !== 'follow' || gestureActive.current || fitIssued.current === fit.key) return;
+    fitIssued.current = fit.key;
+    commands.current += 1;
+    camera.current?.fitBounds(fit.bounds, { padding: fit.padding, bearing: 0, pitch: 0, duration: 700 });
+  }, [loaded, frame, fit, intent, camera, commands]);
+  useEffect(() => { if (!guidance) { issued.current = null; overviewIssued.current = null; fitIssued.current = null; } }, [guidance]);
   return useCallback(() => {
     const current = latest.current;
     if (!current) return;
@@ -54,11 +63,12 @@ export function useGuidanceCameraDriver({ guidance, loaded, camera, map, command
  * Near the end of the move, compare MapLibre's own projection with the planned anchor and framing:
  * the camera centre must land on the anchor, the junction and outgoing path inside the map.
  */
-function assertFrame(map: RefObject<MapRef | null>, frame: CameraFrame, size: { width: number; height: number }) {
+function assertFrame(map: RefObject<MapRef | null>, frame: CameraFrame, size: { width: number; height: number }, latest: RefObject<GuidanceMapState | null | undefined>) {
   const issuedAt = Date.now();
   setTimeout(() => {
     const ref = map.current;
-    if (!ref) return;
+    // Guidance ended or the camera left follow: nothing to assert.
+    if (!ref || latest.current?.intent !== 'follow') return;
     const puck: [number, number] = [frame.center.longitude, frame.center.latitude];
     const junction = frame.framing?.points[0];
     void Promise.all([

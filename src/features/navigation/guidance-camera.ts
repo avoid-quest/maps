@@ -47,12 +47,12 @@ export const CAMERA_PROFILES: Record<CameraMode, CameraProfile> = {
   bicycle: {
     pitch: 42, cruiseZoom: speed => lerp(18, 17.1, (speed - 3) / 5), minZoom: 16.6, anchor: 0.715, anticipationSeconds: 10,
     outgoingMeters: 45, courseSpeed: 1.6, holdSpeed: 0.8, typicalSpeed: 4.5, extrapolate: true, snapToRoute: true,
-    routeLookAhead: 25, bearingGain: 0.55, bearingDeadBand: 3,
+    routeLookAhead: 25, bearingGain: 0.62, bearingDeadBand: 3,
   },
   car: {
     pitch: 48, cruiseZoom: speed => lerp(17.7, 15.7, (speed - 6) / 19), minZoom: 15.4, anchor: 0.735, anticipationSeconds: 12,
     outgoingMeters: 70, courseSpeed: 2.5, holdSpeed: 1.2, typicalSpeed: 9, extrapolate: true, snapToRoute: true,
-    routeLookAhead: 35, bearingGain: 0.6, bearingDeadBand: 2.5,
+    routeLookAhead: 35, bearingGain: 0.7, bearingDeadBand: 2.5,
   },
 };
 
