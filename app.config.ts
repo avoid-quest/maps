@@ -6,7 +6,7 @@ const config: ExpoConfig = {
   name: isDevelopment ? 'avoid maps dev' : 'avoid maps',
   ...(isDevelopment ? { scheme: 'avoid-maps-dev' } : {}),
   slug: 'avoid-maps',
-  version: '0.2.0-beta.1',
+  version: '0.2.0-beta.2',
   icon: './assets/brand/icon.png',
   orientation: 'portrait',
   // Android night mode follows the system; ThemeProvider applies an in-app Chiaro/Scuro override at runtime.
@@ -17,7 +17,7 @@ const config: ExpoConfig = {
     package: isDevelopment ? 'quest.avoid.maps.dev' : 'quest.avoid.maps',
     // Rendered from assets/brand/mark.svg by scripts/render-brand-assets.mjs; monochrome is the Android 13+ themed icon.
     adaptiveIcon: { foregroundImage: './assets/brand/adaptive-foreground.png', monochromeImage: './assets/brand/adaptive-monochrome.png', backgroundColor: '#000000' },
-    versionCode: 12,
+    versionCode: 13,
     allowBackup: false,
     permissions: ['ACCESS_COARSE_LOCATION', 'ACCESS_FINE_LOCATION'],
     blockedPermissions: ['android.permission.RECORD_AUDIO', 'android.permission.SYSTEM_ALERT_WINDOW', 'android.permission.READ_EXTERNAL_STORAGE', 'android.permission.WRITE_EXTERNAL_STORAGE', 'android.permission.VIBRATE'],

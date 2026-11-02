@@ -1,5 +1,9 @@
 # Android build verification
 
+## Field-test pre-release: 0.2.0-beta.2
+
+Version **0.2.0-beta.2 / Android code 13** is a second GitHub pre-release (not marked latest). It adds first-person guidance: an app-controlled, course-up, pitched follow camera driven only by accepted native fixes, an original directional puck, turn framing ahead of each maneuver, a maneuver banner with glyphs and "Poi …", a compact bottom strip, traveled/remaining route rendering with a junction arrow, and a walking camera for transit access walks. Emulator replays verified anchor placement, framing timing, stationary stability, pan/recenter intent and degraded states; physical GPS course quality, frame pacing, screen-off guidance, voice timing and battery remain field-test checks. The navigation source archive is unchanged (same SHA-256).
+
 ## Field-test pre-release: 0.2.0-beta.1
 
 Version **0.2.0-beta.1 / Android code 12** is a GitHub **pre-release** for a physical-device field test; it is not marked latest, so 0.1.9 remains the normal release for Obtainium's default source. It adds the redesigned black/white interface with dark mode and bottom sheets, greyscale brand basemaps, navigation that starts and keeps guiding at real city GPS accuracy, GTT departures from a bundled timetable with identity joins across trip-ID rotations, transit journey following without GPS, a Transitous fallback and rail station pilot, multi-token search with Turin neighbourhoods and stop/line results, editable planner endpoints with a time chip, and an "open in another app" hand-off. The navigation source archive is unchanged from 0.1.9 (same SHA-256), because the bundled navigation dependencies did not change.
