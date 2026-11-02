@@ -460,3 +460,12 @@ test('a transit Start keeps its plan for the follow screen and a Start while bus
   assert.equal(controller.getSnapshot().busy, null);
   assert.equal(controller.getSnapshot().transitPlan, plan, 'the plan stays with the session');
 });
+
+test('a call the native bridge rejects (ERR_UNEXPECTED) gets its own message and diagnostic', async () => {
+  const recorded: string[] = [];
+  const { controller } = fixture({ startTransitNavigation: async () => { throw Object.assign(new Error('Value is undefined, expected an Object'), { code: 'ERR_UNEXPECTED' }); } }, state => recorded.push(state));
+  await Promise.resolve();
+  await controller.startTransit({ plan: { fetchedAt: 1 } as unknown as RoutePlan, origin: options.destination, destination: options.destination });
+  assert.match(controller.getSnapshot().error ?? '', /^Il viaggio non è stato passato al modulo di navigazione/);
+  assert.deepEqual(recorded, ['start-requested', 'bridge-error']);
+});

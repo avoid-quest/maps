@@ -33,6 +33,7 @@ export interface NavigationState {
 const commandDiagnostics: Partial<Record<string, NavigationDiagnostic>> = {
   'location-permission': 'denied', 'navigation-unavailable': 'service-unavailable', 'service-unavailable': 'service-unavailable',
   'engine-unavailable': 'engine-unavailable', 'foreground-required': 'foreground-required', invalid: 'invalid',
+  ERR_UNEXPECTED: 'bridge-error',
 };
 /** Only short fixed identifiers are ever shown; raw native messages never are. */
 const SAFE_CODE = /^[A-Za-z][A-Za-z0-9_-]{0,39}$/;
@@ -43,6 +44,8 @@ function failureMessage(error: unknown): string {
   if (errorCode(error) === 'navigation-unavailable') return 'La navigazione richiede la versione Android con il modulo di navigazione.';
   if (errorCode(error) === 'engine-unavailable') return 'Il motore di navigazione non è disponibile. Interrompi la sessione e riapri l’app.';
   if (errorCode(error) === 'service-unavailable') return 'Android non ha avviato il servizio di navigazione. Mantieni l’app visibile e riprova.';
+  // Expo Modules rejects a call it cannot convert or an unexpected native failure with this code.
+  if (errorCode(error) === 'ERR_UNEXPECTED') return 'Il viaggio non è stato passato al modulo di navigazione (errore interno dell’app). Riprova; se si ripete, condividi la Diagnostica locale.';
   const code = error && typeof error === 'object' && 'code' in error && typeof error.code === 'string' && SAFE_CODE.test(error.code) ? error.code : null;
   return `Operazione non riuscita${code ? ` (codice ${code})` : ''}. Controlla lo stato della navigazione e riprova.`;
 }

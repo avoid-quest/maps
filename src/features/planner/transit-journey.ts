@@ -1,4 +1,5 @@
-import type { RouteIntermediateStop, RouteLeg, RoutePlan, RouteStop, Stop, TravelMode } from '../../domain/types';
+import type { NavigationStart, RoadMode, TransitNavigationStart } from '../../domain/navigation';
+import type { Coordinate, RouteIntermediateStop, RouteLeg, RoutePlan, RouteStop, Stop, TravelMode } from '../../domain/types';
 import { transitModeFromLeg, type TransitMode } from '../../ui/transit-line';
 import { journeyDate, journeyDistance, journeyDuration, journeyTime, waitBefore } from './journey-presentation';
 
@@ -267,4 +268,15 @@ export function plannerPrimaryAction(input: PrimaryActionInput): PrimaryAction {
     kind: 'start', label: 'Avvia', loading: false,
     enabled: !!roadRoute && input.navigationReady && !input.loading && !input.retained && !input.picking && !input.originPending && !input.navigationBusy,
   };
+}
+
+/**
+ * The Start request for the plan on screen, or null when it does not belong to the selected mode:
+ * Mezzi follows a transit journey and never starts road guidance.
+ */
+export function guidanceStart(mode: TravelMode, route: RoutePlan | null, retained: boolean, endpoints: { origin: Coordinate; destination: Coordinate } | null):
+  | { kind: 'transit'; options: TransitNavigationStart } | { kind: 'road'; options: NavigationStart } | null {
+  if (!route || retained || !endpoints) return null;
+  if (mode === 'transit') return followableJourney(route) ? { kind: 'transit', options: { plan: route, origin: endpoints.origin, destination: endpoints.destination } } : null;
+  return route.mode === mode ? { kind: 'road', options: { destination: endpoints.destination, mode: mode as RoadMode } } : null;
 }

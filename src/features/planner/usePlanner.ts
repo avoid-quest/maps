@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import { Keyboard } from 'react-native';
 import type { Coordinate, Place, TransitTime, TravelMode } from '../../domain/types';
-import { navigationLocationForReplan, type RoadMode } from '../../domain/navigation';
+import { navigationLocationForReplan } from '../../domain/navigation';
 import { diagnostics } from '../../services/diagnostics';
 import { savedTravel, type SavedJourney, type SavedTravelSnapshot } from '../../services/saved-travel';
 import { createFeatureContext } from '../app/feature-context';
@@ -15,7 +15,7 @@ import type { NavigationModel } from '../navigation/useNavigation';
 import type { Places } from '../places/usePlaces';
 import { savedTravelFailureMessage } from '../transit/SavedTravelPanel';
 import { routeQueryKey } from './route-state';
-import { followableJourney } from './transit-journey';
+import { guidanceStart } from './transit-journey';
 import { useRoutePlans } from './useRoutePlans';
 
 export interface Planner {
@@ -192,16 +192,12 @@ export function usePlanner({ tasks, camera, location, places, navigation, sheet,
     restore(journey);
   }, [location, camera, sheet, restore, dispatch]);
   const startGuidance = useCallback(() => {
-    // The plan must belong to the mode on screen: Mezzi follows a transit journey and never starts road guidance.
-    const transit = mode === 'transit';
-    if (!route || routes.retainedSelection || !task || (transit ? !followableJourney(route) : route.mode !== mode)) {
-      diagnostics.record({ type: 'navigation', state: 'start-ignored' });
-      return;
-    }
+    const start = guidanceStart(mode, route, routes.retainedSelection, task ? { origin: task.origin.coordinate, destination: task.destination.coordinate } : null);
+    if (!start) { diagnostics.record({ type: 'navigation', state: 'start-ignored' }); return; }
     // Transit following needs no position: a pending origin fix is simply cancelled, never awaited.
     location.cancel(); suspend(); suspendBoard(); camera.follow();
-    if (transit) void navigation.startTransit({ plan: route, origin: task.origin.coordinate, destination: task.destination.coordinate });
-    else void navigation.start({ destination: task.destination.coordinate, mode: mode as RoadMode });
+    if (start.kind === 'transit') void navigation.startTransit(start.options);
+    else void navigation.start(start.options);
   }, [route, routes.retainedSelection, task, location, suspend, suspendBoard, camera, mode, navigation]);
   const replanFromNavigation = useCallback(async () => {
     const current = navigation.snapshot;
