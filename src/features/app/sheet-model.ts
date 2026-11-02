@@ -34,6 +34,8 @@ export function defaultSnap(tasks: TaskState, hasSearch: boolean): SheetSnap {
     case 'place': return 'peek';
     case 'search': return hasSearch ? 'half' : 'peek';
     case 'browse': return 'peek';
+    // Searching for an endpoint needs room for results above the keyboard.
+    case 'planner': return top.editing ? 'full' : 'half';
     default: return 'half';
   }
 }
@@ -79,4 +81,13 @@ export function sheetBackStep(tasks: TaskState, snap: SheetSnap, resting: SheetS
 export function sheetHeaderNavigation(tasks: TaskState): { back: boolean; close: true } {
   const beneath = taskReducer(tasks, { type: 'closeTopTask' });
   return { back: hasTaskAboveRoot(tasks) && sheetVisible(beneath), close: true };
+}
+
+/**
+ * Expanding to full with the header control dismisses the keyboard so the whole sheet shows. A
+ * height the sheet library reports never does: when the keyboard opens over a sheet it reports its
+ * highest snap, and dismissing then blurred the search field the user had just tapped.
+ */
+export function dismissesKeyboard(current: SheetSnap | null, next: SheetSnap, explicit: boolean): boolean {
+  return explicit && next === 'full' && current !== 'full';
 }

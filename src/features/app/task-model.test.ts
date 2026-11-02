@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { Coordinate, Place, Stop } from '../../domain/types';
+import { sheetHeaderNavigation } from './sheet-model';
 import {
   boardInFront, boardStop, detailKey, hasTaskAboveRoot, initialTaskState, isValidTaskState, journeyStop, ORIGIN_LABELS,
   plannerInFront, plannerTask, selectedPlace, sheetVisible, taskReducer, topTask, type TaskAction, type TaskState,
@@ -230,4 +231,56 @@ test('every reachable action sequence keeps a valid task stack', () => {
   }
   for (let step = 0; step < 6; step++) state = taskReducer(state, { type: 'back' });
   assert.deepEqual(kinds(state), ['browse'], 'Back always reaches the map');
+});
+
+test('planner endpoints: search either field, choose places, swap, and Back closes the editor first', () => {
+  let state = run({ type: 'openPlace', place: cafe }, { type: 'beginRoute', viewport, locating: true }, { type: 'originLocated', coordinate: here }, { type: 'editEndpoint', endpoint: 'destination' });
+  assert.equal(plannerTask(state)!.editing, 'destination');
+  assert.equal(detailKey(state), 'route:cafe:destination', 'The editor is its own sheet content');
+  assert.deepEqual(kinds(taskReducer(state, { type: 'back' })), ['browse', 'place', 'planner'], 'Back closes the editor, not the planner');
+  assert.equal(plannerTask(taskReducer(state, { type: 'back' }))!.editing, undefined);
+  // The sheet header's Back arrow does the same, keeping the planning session.
+  const arrow = taskReducer(state, { type: 'closeTopTask' });
+  assert.deepEqual(kinds(arrow), ['browse', 'place', 'planner']);
+  assert.equal(plannerTask(arrow)!.editing, undefined);
+  assert.equal(plannerTask(arrow)!.session, plannerTask(state)!.session);
+  assert.equal(sheetHeaderNavigation(state).back, true, 'The arrow is shown while editing');
+
+  const session = plannerTask(state)!.session;
+  state = taskReducer(state, { type: 'setDestination', place: museum });
+  assert.equal(plannerTask(state)!.session, session, 'The same planning session continues');
+  assert.equal(plannerTask(state)!.destination.id, 'museum');
+  assert.equal(plannerTask(state)!.editing, undefined);
+  assert.equal(plannerTask(state)!.origin.label, ORIGIN_LABELS.device, 'Changing the destination keeps the origin');
+  assert.equal(selectedPlace(state)?.id, 'museum', 'The map marks the new destination');
+
+  // Swapping a device origin makes that fixed position the destination, labelled as such.
+  const swapped = taskReducer(state, { type: 'swapEndpoints' });
+  assert.equal(plannerTask(swapped)!.origin.label, 'Museo');
+  assert.equal(plannerTask(swapped)!.origin.place?.id, 'museum');
+  assert.equal(plannerTask(swapped)!.destination.name, ORIGIN_LABELS.device);
+  assert.deepEqual(plannerTask(swapped)!.destination.coordinate, here);
+  // Swapping back restores the searched place's identity.
+  const twice = taskReducer(swapped, { type: 'swapEndpoints' });
+  assert.equal(plannerTask(twice)!.destination.id, 'museum');
+  assert.deepEqual(plannerTask(twice)!.origin.coordinate, here);
+
+  state = run({ type: 'openPlace', place: cafe }, { type: 'beginRoute', viewport, locating: true }, { type: 'editEndpoint', endpoint: 'origin' });
+  assert.equal(plannerTask(state)!.originStep, 'idle', 'Searching the origin replaces a pending fix');
+  assert.equal(plannerTask(taskReducer(state, { type: 'originLocated', coordinate: here }))!.origin.ready, false, 'A late fix cannot override the search');
+  assert.equal(taskReducer(state, { type: 'swapEndpoints' }), state, 'No swap without a settled origin');
+  state = taskReducer(state, { type: 'setOriginPlace', place: museum });
+  assert.deepEqual(plannerTask(state)!.origin, { coordinate: museum.coordinate, label: 'Museo', ready: true, place: museum });
+  assert.equal(plannerInFront(state), true);
+  // Map picking and "La tua posizione" remain explicit choices from the origin editor.
+  const picking = run({ type: 'openPlace', place: cafe }, { type: 'beginRoute', viewport, locating: true }, { type: 'editEndpoint', endpoint: 'origin' }, { type: 'pickOrigin' });
+  assert.equal(plannerTask(picking)!.originStep, 'picking');
+  assert.equal(plannerTask(picking)!.editing, undefined);
+  const locating = taskReducer(taskReducer(picking, { type: 'editEndpoint', endpoint: 'origin' }), { type: 'locateOrigin' });
+  assert.equal(plannerTask(locating)!.originStep, 'locating');
+  assert.equal(plannerTask(locating)!.editing, undefined);
+  // Endpoint edits apply only to the planner in front.
+  const behind = run({ type: 'openPlace', place: cafe }, { type: 'beginRoute', viewport, locating: true }, { type: 'originLocated', coordinate: here }, { type: 'openJourneyStop', stop: porta });
+  assert.equal(taskReducer(behind, { type: 'setDestination', place: museum }), behind);
+  assert.equal(taskReducer(behind, { type: 'editEndpoint', endpoint: 'origin' }), behind);
 });

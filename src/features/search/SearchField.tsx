@@ -17,9 +17,9 @@ export function SearchField() {
       <TextInput
         ref={search.inputRef}
         onFocus={search.focus}
-        accessibilityLabel="Cerca luoghi, indirizzi o attività"
+        accessibilityLabel="Cerca luoghi, indirizzi, attività o fermate"
         className="min-h-12 min-w-0 flex-1 px-2 font-sans text-base text-primary"
-        placeholder="Cerca un luogo o indirizzo"
+        placeholder="Luogo, indirizzo o fermata"
         placeholderTextColor={colors.textSecondary}
         selectionColor={colors.action}
         cursorColor={colors.action}

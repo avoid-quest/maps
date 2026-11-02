@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { Place, Stop } from '../../domain/types';
-import { defaultSnap, nextSnapDown, nextSnapUp, peekContentHeight, sheetBackStep, sheetHeaderNavigation, sheetHeights, SHEET_TOP_RESERVE, toggledSnap } from './sheet-model';
+import { defaultSnap, dismissesKeyboard, nextSnapDown, nextSnapUp, peekContentHeight, sheetBackStep, sheetHeaderNavigation, sheetHeights, SHEET_TOP_RESERVE, toggledSnap } from './sheet-model';
 import { initialTaskState, taskReducer, type TaskAction, type TaskState } from './task-model';
 
 const place: Place = { id: 'p', name: 'Mole Antonelliana', coordinate: { latitude: 45.069, longitude: 7.693 }, source: 'Test', attributions: [] };
@@ -73,4 +73,13 @@ test('a short window with shared heights keeps logical snaps, camera padding and
   const tall = { peek: 220, half: 244, full: 244 };
   assert.equal(toggledSnap('full', 'half', tall), 'peek', 'from the top, the control always moves the sheet');
   assert.equal(sheetBackStep(run({ type: 'openTab', tab: 'transit' }, { type: 'openStop', stop }), 'full', 'half', tall), 'task', 'Back does not "collapse" to an identical height');
+});
+
+test('only the explicit expand control dismisses the keyboard; library-reported heights never do', () => {
+  assert.equal(dismissesKeyboard('half', 'full', true), true);
+  assert.equal(dismissesKeyboard(null, 'full', true), true);
+  // The keyboard opening over a results sheet makes the library report its highest snap.
+  assert.equal(dismissesKeyboard('half', 'full', false), false);
+  assert.equal(dismissesKeyboard('full', 'full', true), false);
+  assert.equal(dismissesKeyboard('full', 'half', true), false);
 });

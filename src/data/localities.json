@@ -1,0 +1,644 @@
+{
+ "schemaVersion": 1,
+ "source": "OpenStreetMap place nodes via Overpass API",
+ "license": "ODbL-1.0",
+ "attribution": "© OpenStreetMap contributors · ODbL",
+ "osmBase": "2026-11-01T23:31:51Z",
+ "retrievedAt": "2026-11-02",
+ "query": "[out:json];(node[\"place\"~\"^(suburb|quarter|neighbourhood)$\"](44.98,7.57,45.15,7.78););out body;",
+ "selection": "place=suburb, plus multi-word quarter/neighbourhood names; \"Centro\" excluded; radii are approximate.",
+ "localities": [
+  {
+   "id": "osm:node:6182638641",
+   "name": "Alta Parella",
+   "kind": "neighbourhood",
+   "latitude": 45.0821,
+   "longitude": 7.62059,
+   "radiusMeters": 900
+  },
+  {
+   "id": "osm:node:6196526153",
+   "name": "Altessano",
+   "kind": "suburb",
+   "latitude": 45.12783,
+   "longitude": 7.64035,
+   "radiusMeters": 2000
+  },
+  {
+   "id": "osm:node:2036078189",
+   "name": "Aurora",
+   "kind": "suburb",
+   "latitude": 45.08257,
+   "longitude": 7.68601,
+   "radiusMeters": 2000
+  },
+  {
+   "id": "osm:node:6180793734",
+   "name": "Barca",
+   "kind": "suburb",
+   "latitude": 45.10178,
+   "longitude": 7.72788,
+   "radiusMeters": 2000
+  },
+  {
+   "id": "osm:node:6176880988",
+   "name": "Barriera di Lanzo",
+   "kind": "suburb",
+   "latitude": 45.11354,
+   "longitude": 7.65744,
+   "radiusMeters": 2000
+  },
+  {
+   "id": "osm:node:6180847263",
+   "name": "Barriera di Milano",
+   "kind": "suburb",
+   "latitude": 45.09239,
+   "longitude": 7.69532,
+   "radiusMeters": 2000
+  },
+  {
+   "id": "osm:node:4553870468",
+   "name": "Basse di Mirafiori",
+   "kind": "neighbourhood",
+   "latitude": 45.01269,
+   "longitude": 7.65493,
+   "radiusMeters": 900
+  },
+  {
+   "id": "osm:node:6182638639",
+   "name": "Basso San Donato",
+   "kind": "neighbourhood",
+   "latitude": 45.08457,
+   "longitude": 7.66481,
+   "radiusMeters": 900
+  },
+  {
+   "id": "osm:node:6182638637",
+   "name": "Borgata Ceronda",
+   "kind": "neighbourhood",
+   "latitude": 45.09123,
+   "longitude": 7.65625,
+   "radiusMeters": 900
+  },
+  {
+   "id": "osm:node:6182621428",
+   "name": "Borgata Frassati",
+   "kind": "neighbourhood",
+   "latitude": 45.09552,
+   "longitude": 7.6325,
+   "radiusMeters": 900
+  },
+  {
+   "id": "osm:node:6184439824",
+   "name": "Borgata Lesna",
+   "kind": "neighbourhood",
+   "latitude": 45.0625,
+   "longitude": 7.62005,
+   "radiusMeters": 900
+  },
+  {
+   "id": "osm:node:1223076192",
+   "name": "Borgata Mirafiori",
+   "kind": "neighbourhood",
+   "latitude": 45.01393,
+   "longitude": 7.62855,
+   "radiusMeters": 900
+  },
+  {
+   "id": "osm:node:6184718081",
+   "name": "Borgata Paradiso",
+   "kind": "suburb",
+   "latitude": 45.07446,
+   "longitude": 7.59807,
+   "radiusMeters": 2000
+  },
+  {
+   "id": "osm:node:6221831572",
+   "name": "Borgata Quaglia",
+   "kind": "neighbourhood",
+   "latitude": 45.06361,
+   "longitude": 7.60654,
+   "radiusMeters": 900
+  },
+  {
+   "id": "osm:node:6184536794",
+   "name": "Borgata Rosa",
+   "kind": "neighbourhood",
+   "latitude": 45.08702,
+   "longitude": 7.73303,
+   "radiusMeters": 900
+  },
+  {
+   "id": "osm:node:6182621430",
+   "name": "Borgata Tesso",
+   "kind": "neighbourhood",
+   "latitude": 45.09246,
+   "longitude": 7.67404,
+   "radiusMeters": 900
+  },
+  {
+   "id": "osm:node:1931793949",
+   "name": "Borgo Cina",
+   "kind": "neighbourhood",
+   "latitude": 45.03359,
+   "longitude": 7.6376,
+   "radiusMeters": 900
+  },
+  {
+   "id": "osm:node:6184474135",
+   "name": "Borgo Dora",
+   "kind": "neighbourhood",
+   "latitude": 45.08127,
+   "longitude": 7.68341,
+   "radiusMeters": 900
+  },
+  {
+   "id": "osm:node:13328827517",
+   "name": "Borgo Mercato",
+   "kind": "quarter",
+   "latitude": 45.0008,
+   "longitude": 7.6729,
+   "radiusMeters": 900
+  },
+  {
+   "id": "osm:node:13328827516",
+   "name": "Borgo Navile",
+   "kind": "quarter",
+   "latitude": 44.99933,
+   "longitude": 7.6803,
+   "radiusMeters": 900
+  },
+  {
+   "id": "osm:node:6184474132",
+   "name": "Borgo Nuovo",
+   "kind": "neighbourhood",
+   "latitude": 45.0636,
+   "longitude": 7.68834,
+   "radiusMeters": 900
+  },
+  {
+   "id": "osm:node:6174580830",
+   "name": "Borgo Po",
+   "kind": "suburb",
+   "latitude": 45.06067,
+   "longitude": 7.69913,
+   "radiusMeters": 2000
+  },
+  {
+   "id": "osm:node:6173273410",
+   "name": "Borgo San Paolo",
+   "kind": "suburb",
+   "latitude": 45.06146,
+   "longitude": 7.64584,
+   "radiusMeters": 2000
+  },
+  {
+   "id": "osm:node:13328827518",
+   "name": "Borgo San Pietro",
+   "kind": "quarter",
+   "latitude": 45.01219,
+   "longitude": 7.6634,
+   "radiusMeters": 900
+  },
+  {
+   "id": "osm:node:6176940554",
+   "name": "Borgo Vittoria",
+   "kind": "suburb",
+   "latitude": 45.0973,
+   "longitude": 7.67806,
+   "radiusMeters": 2000
+  },
+  {
+   "id": "osm:node:6172501669",
+   "name": "Campidoglio",
+   "kind": "suburb",
+   "latitude": 45.07935,
+   "longitude": 7.653,
+   "radiusMeters": 2000
+  },
+  {
+   "id": "osm:node:7976096773",
+   "name": "Cascina del Mulino",
+   "kind": "suburb",
+   "latitude": 45.11009,
+   "longitude": 7.76076,
+   "radiusMeters": 2000
+  },
+  {
+   "id": "osm:node:6173226735",
+   "name": "Cenisia",
+   "kind": "suburb",
+   "latitude": 45.06971,
+   "longitude": 7.64988,
+   "radiusMeters": 2000
+  },
+  {
+   "id": "osm:node:6184456731",
+   "name": "Centro Europa",
+   "kind": "neighbourhood",
+   "latitude": 45.03892,
+   "longitude": 7.62069,
+   "radiusMeters": 900
+  },
+  {
+   "id": "osm:node:4553863660",
+   "name": "Cime Bianche",
+   "kind": "neighbourhood",
+   "latitude": 45.01737,
+   "longitude": 7.61788,
+   "radiusMeters": 900
+  },
+  {
+   "id": "osm:node:6173226734",
+   "name": "Cit Turin",
+   "kind": "suburb",
+   "latitude": 45.07343,
+   "longitude": 7.66153,
+   "radiusMeters": 2000
+  },
+  {
+   "id": "osm:node:4553693050",
+   "name": "Città Giardino",
+   "kind": "neighbourhood",
+   "latitude": 45.04988,
+   "longitude": 7.62695,
+   "radiusMeters": 900
+  },
+  {
+   "id": "osm:node:6173628343",
+   "name": "Crocetta",
+   "kind": "suburb",
+   "latitude": 45.05792,
+   "longitude": 7.66497,
+   "radiusMeters": 2000
+  },
+  {
+   "id": "osm:node:6177198087",
+   "name": "Falchera",
+   "kind": "suburb",
+   "latitude": 45.12836,
+   "longitude": 7.70936,
+   "radiusMeters": 2000
+  },
+  {
+   "id": "osm:node:6182601507",
+   "name": "Falchera Nuova",
+   "kind": "neighbourhood",
+   "latitude": 45.13057,
+   "longitude": 7.71094,
+   "radiusMeters": 900
+  },
+  {
+   "id": "osm:node:6182601508",
+   "name": "Falchera Vecchia",
+   "kind": "neighbourhood",
+   "latitude": 45.12578,
+   "longitude": 7.70967,
+   "radiusMeters": 900
+  },
+  {
+   "id": "osm:node:6181637678",
+   "name": "Filadelfia",
+   "kind": "suburb",
+   "latitude": 45.03705,
+   "longitude": 7.65706,
+   "radiusMeters": 2000
+  },
+  {
+   "id": "osm:node:11506831794",
+   "name": "Gallo Praile",
+   "kind": "neighbourhood",
+   "latitude": 45.11597,
+   "longitude": 7.64085,
+   "radiusMeters": 900
+  },
+  {
+   "id": "osm:node:4553863661",
+   "name": "Il Villaggio",
+   "kind": "neighbourhood",
+   "latitude": 45.02004,
+   "longitude": 7.623,
+   "radiusMeters": 900
+  },
+  {
+   "id": "osm:node:6184484978",
+   "name": "Italia '61",
+   "kind": "neighbourhood",
+   "latitude": 45.02089,
+   "longitude": 7.66587,
+   "radiusMeters": 900
+  },
+  {
+   "id": "osm:node:6181683958",
+   "name": "Lingotto",
+   "kind": "suburb",
+   "latitude": 45.02615,
+   "longitude": 7.64989,
+   "radiusMeters": 2000
+  },
+  {
+   "id": "osm:node:1935302960",
+   "name": "Lucento",
+   "kind": "suburb",
+   "latitude": 45.09859,
+   "longitude": 7.648,
+   "radiusMeters": 2000
+  },
+  {
+   "id": "osm:node:6174604885",
+   "name": "Madonna del Pilone",
+   "kind": "suburb",
+   "latitude": 45.06829,
+   "longitude": 7.72019,
+   "radiusMeters": 2000
+  },
+  {
+   "id": "osm:node:6176928212",
+   "name": "Madonna di Campagna",
+   "kind": "suburb",
+   "latitude": 45.10082,
+   "longitude": 7.66845,
+   "radiusMeters": 2000
+  },
+  {
+   "id": "osm:node:6181549636",
+   "name": "Mirafiori Nord",
+   "kind": "suburb",
+   "latitude": 45.04035,
+   "longitude": 7.62842,
+   "radiusMeters": 2000
+  },
+  {
+   "id": "osm:node:2036078230",
+   "name": "Mirafiori Sud",
+   "kind": "suburb",
+   "latitude": 45.01783,
+   "longitude": 7.63285,
+   "radiusMeters": 2000
+  },
+  {
+   "id": "osm:node:6182614496",
+   "name": "Monte Bianco",
+   "kind": "neighbourhood",
+   "latitude": 45.09171,
+   "longitude": 7.68767,
+   "radiusMeters": 900
+  },
+  {
+   "id": "osm:node:7707020146",
+   "name": "Monte Rosa",
+   "kind": "neighbourhood",
+   "latitude": 45.08913,
+   "longitude": 7.69502,
+   "radiusMeters": 900
+  },
+  {
+   "id": "osm:node:6181694730",
+   "name": "Nizza Millefonti",
+   "kind": "suburb",
+   "latitude": 45.03017,
+   "longitude": 7.66785,
+   "radiusMeters": 2000
+  },
+  {
+   "id": "osm:node:7976096770",
+   "name": "Oltrepo",
+   "kind": "suburb",
+   "latitude": 45.10629,
+   "longitude": 7.75488,
+   "radiusMeters": 2000
+  },
+  {
+   "id": "osm:node:6182638640",
+   "name": "Parco Dora",
+   "kind": "neighbourhood",
+   "latitude": 45.08932,
+   "longitude": 7.67071,
+   "radiusMeters": 900
+  },
+  {
+   "id": "osm:node:6171509496",
+   "name": "Parella",
+   "kind": "suburb",
+   "latitude": 45.07968,
+   "longitude": 7.63256,
+   "radiusMeters": 2000
+  },
+  {
+   "id": "osm:node:7976096771",
+   "name": "Pescarito",
+   "kind": "suburb",
+   "latitude": 45.1157,
+   "longitude": 7.74663,
+   "radiusMeters": 2000
+  },
+  {
+   "id": "osm:node:6182601509",
+   "name": "Pietra Alta",
+   "kind": "neighbourhood",
+   "latitude": 45.1157,
+   "longitude": 7.7051,
+   "radiusMeters": 900
+  },
+  {
+   "id": "osm:node:6184439826",
+   "name": "Polo Nord",
+   "kind": "neighbourhood",
+   "latitude": 45.05557,
+   "longitude": 7.64932,
+   "radiusMeters": 900
+  },
+  {
+   "id": "osm:node:6184474134",
+   "name": "Porta Palazzo",
+   "kind": "neighbourhood",
+   "latitude": 45.07713,
+   "longitude": 7.68336,
+   "radiusMeters": 900
+  },
+  {
+   "id": "osm:node:6172500307",
+   "name": "Pozzo Strada",
+   "kind": "suburb",
+   "latitude": 45.06834,
+   "longitude": 7.62639,
+   "radiusMeters": 2000
+  },
+  {
+   "id": "osm:node:2038200594",
+   "name": "Quadrilatero Romano",
+   "kind": "neighbourhood",
+   "latitude": 45.07533,
+   "longitude": 7.67973,
+   "radiusMeters": 900
+  },
+  {
+   "id": "osm:node:6180874733",
+   "name": "Rebaudengo",
+   "kind": "suburb",
+   "latitude": 45.10426,
+   "longitude": 7.6993,
+   "radiusMeters": 2000
+  },
+  {
+   "id": "osm:node:6184718082",
+   "name": "Regina Margherita",
+   "kind": "neighbourhood",
+   "latitude": 45.0735,
+   "longitude": 7.57944,
+   "radiusMeters": 900
+  },
+  {
+   "id": "osm:node:6180987596",
+   "name": "Regio Parco",
+   "kind": "suburb",
+   "latitude": 45.09305,
+   "longitude": 7.71495,
+   "radiusMeters": 2000
+  },
+  {
+   "id": "osm:node:6184439825",
+   "name": "Rione Lancia",
+   "kind": "neighbourhood",
+   "latitude": 45.06033,
+   "longitude": 7.64022,
+   "radiusMeters": 900
+  },
+  {
+   "id": "osm:node:11506831800",
+   "name": "Salvo D'Acquisto",
+   "kind": "neighbourhood",
+   "latitude": 45.12132,
+   "longitude": 7.62811,
+   "radiusMeters": 900
+  },
+  {
+   "id": "osm:node:7976096772",
+   "name": "Sambuy",
+   "kind": "suburb",
+   "latitude": 45.11292,
+   "longitude": 7.7796,
+   "radiusMeters": 2000
+  },
+  {
+   "id": "osm:node:6173288380",
+   "name": "San Donato",
+   "kind": "suburb",
+   "latitude": 45.08236,
+   "longitude": 7.66179,
+   "radiusMeters": 2000
+  },
+  {
+   "id": "osm:node:6173683209",
+   "name": "San Salvario",
+   "kind": "suburb",
+   "latitude": 45.05495,
+   "longitude": 7.68015,
+   "radiusMeters": 2000
+  },
+  {
+   "id": "osm:node:6184474133",
+   "name": "San Secondo",
+   "kind": "neighbourhood",
+   "latitude": 45.05928,
+   "longitude": 7.67284,
+   "radiusMeters": 900
+  },
+  {
+   "id": "osm:node:7976096774",
+   "name": "Sant'Anna",
+   "kind": "suburb",
+   "latitude": 45.09323,
+   "longitude": 7.75027,
+   "radiusMeters": 2000
+  },
+  {
+   "id": "osm:node:6181575722",
+   "name": "Santa Rita",
+   "kind": "suburb",
+   "latitude": 45.04566,
+   "longitude": 7.64553,
+   "radiusMeters": 2000
+  },
+  {
+   "id": "osm:node:6182601512",
+   "name": "Spina 4",
+   "kind": "neighbourhood",
+   "latitude": 45.09305,
+   "longitude": 7.68519,
+   "radiusMeters": 900
+  },
+  {
+   "id": "osm:node:1935302964",
+   "name": "Vallette",
+   "kind": "suburb",
+   "latitude": 45.10438,
+   "longitude": 7.6323,
+   "radiusMeters": 2000
+  },
+  {
+   "id": "osm:node:2036078250",
+   "name": "Vanchiglia",
+   "kind": "suburb",
+   "latitude": 45.07044,
+   "longitude": 7.69847,
+   "radiusMeters": 2000
+  },
+  {
+   "id": "osm:node:6174637817",
+   "name": "Vanchiglietta",
+   "kind": "suburb",
+   "latitude": 45.07278,
+   "longitude": 7.71655,
+   "radiusMeters": 2000
+  },
+  {
+   "id": "osm:node:6184439823",
+   "name": "Venchi Unica",
+   "kind": "neighbourhood",
+   "latitude": 45.07291,
+   "longitude": 7.61685,
+   "radiusMeters": 900
+  },
+  {
+   "id": "osm:node:2566661473",
+   "name": "Vigne - Lavatoio",
+   "kind": "neighbourhood",
+   "latitude": 45.01764,
+   "longitude": 7.75723,
+   "radiusMeters": 900
+  },
+  {
+   "id": "osm:node:6184718080",
+   "name": "Villaggio Dora",
+   "kind": "neighbourhood",
+   "latitude": 45.09008,
+   "longitude": 7.57017,
+   "radiusMeters": 900
+  },
+  {
+   "id": "osm:node:9532904692",
+   "name": "Villaggio Olimpia",
+   "kind": "suburb",
+   "latitude": 45.12446,
+   "longitude": 7.73085,
+   "radiusMeters": 2000
+  },
+  {
+   "id": "osm:node:6182621429",
+   "name": "Villaggio Santa Caterina",
+   "kind": "neighbourhood",
+   "latitude": 45.10197,
+   "longitude": 7.64391,
+   "radiusMeters": 900
+  },
+  {
+   "id": "osm:node:2036078254",
+   "name": "Villaretto",
+   "kind": "suburb",
+   "latitude": 45.13131,
+   "longitude": 7.68506,
+   "radiusMeters": 2000
+  }
+ ]
+}

@@ -1,4 +1,5 @@
 import licenses from '../data/licenses.json';
+import localities from '../data/localities.json';
 import manifest from '../data/manifest.json';
 import { mirrorHosts } from '../transit-data/config';
 import { STOP_LIVE_DISCLOSURE, STOP_LIVE_SETTING } from '../transit-data/stop-live';
@@ -7,7 +8,8 @@ export const DATA_MANIFEST = manifest;
 export const PROVIDER_NOTICES = [
   { name: 'Mappe', text: 'OpenFreeMap · OpenMapTiles · © OpenStreetMap contributors', url: 'https://www.openstreetmap.org/copyright' },
   { name: 'Luoghi', text: `Overture Maps Foundation. Pacchetto di ${manifest.places.count.toLocaleString('it-IT')} record, release ${manifest.places.release}; estensione indicata dal confine tratteggiato sulla mappa. Dati incompleti; fonti e licenze conservate per ogni luogo.`, url: 'https://docs.overturemaps.org/attribution/' },
-  { name: 'Ricerca online', text: 'Photon / OpenStreetMap: se la ricerca online è abilitata, nomi e indirizzi cercati e area vengono inviati al servizio. Le categorie sono cercate nel pacchetto locale. Nessuna disponibilità garantita.', url: 'https://photon.komoot.io' },
+  { name: 'Ricerca online', text: 'Photon / OpenStreetMap: se la ricerca online è abilitata, nomi e indirizzi cercati e il centro della mappa vengono inviati al servizio. Se Photon non trova una ricerca che nomina un quartiere (per esempio «Eataly Lingotto»), una seconda richiesta invia le altre parole con il punto pubblico OpenStreetMap di quel quartiere al posto del centro mappa. Categorie, fermate e linee sono cercate solo sul dispositivo. Nessuna disponibilità garantita.', url: 'https://photon.komoot.io' },
+  { name: 'Quartieri', text: `${localities.localities.length} nomi di quartiere con il loro punto OpenStreetMap (© OpenStreetMap contributors · ODbL), estratti il ${localities.retrievedAt}: servono a leggere ricerche come «bar San Salvario». Aree approssimate, non confini.`, url: 'https://www.openstreetmap.org/copyright' },
   { name: 'Percorsi stradali', text: 'FOSSGIS / OpenStreetMap: partenza e destinazione inviate al servizio e registrate nei log. Massimo una richiesta al secondo; servizio pubblico per uso moderato.', url: 'https://www.openstreetmap.org/fixthemap' },
   { name: 'Fermate e previsioni', text: `Data source: GTT S.p.A. – Gruppo Torinese Trasporti. Dati per uso non commerciale. Orari programmati GTT ${manifest.gtt.version} inclusi nell’app; ${mirrorHosts().length ? `versioni più recenti verificate tramite hash vengono scaricate da ${mirrorHosts().join(', ')} (il server vede indirizzo IP e ora della richiesta, non la fermata né la posizione).` : 'gli aggiornamenti arrivano con le nuove versioni dell’app; quando GTT cambia i codici delle corse l’app legge da gtt.to.it solo l’elenco corse e i calendari (non la fermata né la posizione).'} Il feed tempo reale è scaricato per l’intera città: non contiene la tua posizione né la fermata scelta.`, url: 'https://www.gtt.to.it' },
   { name: STOP_LIVE_SETTING, text: STOP_LIVE_DISCLOSURE, url: 'https://www.gtt.to.it' },

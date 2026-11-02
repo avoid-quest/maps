@@ -47,6 +47,27 @@ export function resultFrameBounds(points: readonly { latitude: number; longitude
   return [west - padLongitude, south - padLatitude, east + padLongitude, north + padLatitude];
 }
 
+/** Closest zoom a result frame may reach: streets and labels stay readable around one or near-identical results. */
+export const RESULT_MAX_ZOOM = 17;
+const MIN_FIT_PIXELS = 96;
+const mercatorY = (latitude: number) => Math.log(Math.tan(Math.PI / 4 + (latitude * Math.PI) / 360));
+const latitudeOf = (y: number) => (360 / Math.PI) * Math.atan(Math.exp(y)) - 90;
+
+/**
+ * The camera that fits `bounds` inside the padded viewport (MapLibre 512 px tiles), capped at
+ * `maxZoom`. The fitted area never shrinks below a minimum, so a sheet or keyboard padding larger
+ * than the map cannot drive the zoom to the maximum.
+ */
+export function frameCamera(bounds: Bounds, size: { width: number; height: number }, padding: { top?: number; right?: number; bottom?: number; left?: number } = {}, maxZoom = RESULT_MAX_ZOOM): { center: [number, number]; zoom: number } {
+  const [west, south, east, north] = bounds;
+  const width = Math.max(MIN_FIT_PIXELS, size.width - (padding.left ?? 0) - (padding.right ?? 0));
+  const height = Math.max(MIN_FIT_PIXELS, size.height - (padding.top ?? 0) - (padding.bottom ?? 0));
+  const spanX = Math.max(1e-9, (east - west) / 360);
+  const spanY = Math.max(1e-9, (mercatorY(north) - mercatorY(south)) / (2 * Math.PI));
+  const zoom = Math.min(maxZoom, Math.log2(Math.min(width / (spanX * 512), height / (spanY * 512))));
+  return { center: [(west + east) / 2, latitudeOf((mercatorY(north) + mercatorY(south)) / 2)], zoom: Math.max(0, zoom) };
+}
+
 /**
  * One-shot framing for keys that only grow (submitted searches). Unlike route framing, an absent key
  * does not reset it: leaving and returning to a search the user already framed (or panned) never
