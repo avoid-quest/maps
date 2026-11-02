@@ -13,12 +13,14 @@ export interface TimetableMirror {
   /** Hosts that also receive the request through redirects (for privacy notices). */
   redirectHosts?: readonly string[];
 }
-export const TIMETABLE_MIRRORS: readonly TimetableMirror[] = [
-  { base: 'https://avoid-quest.github.io/maps/gtt/', layout: 'tree' },
-  // Assets of the rolling `gtt-timetable` prerelease (never marked "latest").
-  // Release downloads redirect to GitHub's asset CDN, which also sees the request.
-  { base: 'https://github.com/avoid-quest/maps/releases/download/gtt-timetable/', layout: 'flat', redirectHosts: ['release-assets.githubusercontent.com', 'objects.githubusercontent.com'] },
-];
+/**
+ * No mirror is configured: GTT's static-export host refuses connections from GitHub-hosted
+ * runners, so the CI pipeline cannot build packages (the workflow is disabled). Phones reach GTT
+ * directly, so boards rely on the bundled package plus the identity remap read from GTT. To
+ * re-enable, publish packages from a host that can reach GTT and list the mirrors here, e.g.
+ * `{ base: 'https://avoid-quest.github.io/maps/gtt/', layout: 'tree' }`.
+ */
+export const TIMETABLE_MIRRORS: readonly TimetableMirror[] = [];
 
 export const manifestUrl = (mirror: TimetableMirror) => `${mirror.base}manifest.json`;
 /** `packagePath` is validated as `packages/gtt-<sha256>.json` before this is called. */
