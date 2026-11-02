@@ -8,6 +8,8 @@ import { resultFrameBounds } from "../map/map-presentation";
 import { searchMapStops } from "../search/search-rows";
 import { useMapContext } from "../map/useMapModel";
 import { useNavigationContext } from "../navigation/useNavigation";
+import { useGuidanceCamera } from "../navigation/useGuidanceCamera";
+import type { GuidanceViewport } from "../navigation/guidance-camera";
 import { usePlacesContext } from "../places/usePlaces";
 import { usePlannerContext } from "../planner/usePlanner";
 import { useSearchContext } from "../search/useSearch";
@@ -17,8 +19,10 @@ import { useTaskState } from "./useTaskModel";
 import { useTheme } from "../../theme";
 
 /** The one mounted map: task pins, planning or guidance route, and camera intent. */
-export function AppMap({ height, padding, attributionLeft, attributionTop }: {
+export function AppMap({ height, padding, attributionLeft, attributionTop, guidanceViewport }: {
   height: number;
+  /** The unobscured map between the guidance banner and the bottom strip. */
+  guidanceViewport: GuidanceViewport;
   padding: { top: number; right: number; bottom: number; left: number };
   attributionLeft: number;
   attributionTop: number;
@@ -63,13 +67,16 @@ export function AppMap({ height, padding, attributionLeft, attributionTop }: {
     ? { type: "LineString", coordinates: navGeometry.map(toMapCoordinate) } : null, [navGeometry]);
   const navCenter = navigation.snapshot.location ?? navigation.snapshot.destination ?? camera.center;
   const navigating = navigation.visible;
+  // Road guidance: the app-controlled first-person camera; the map never follows on its own.
+  const guidance = useGuidanceCamera({ snapshot: navigation.snapshot, camera, viewport: guidanceViewport, active: navigating });
   return (
     <View testID="map-viewport" style={{ position: "absolute", top: 0, left: 0, right: 0, height, backgroundColor: theme.map.background }}>
       <MapCanvas
         center={toMapCoordinate(navigating ? navCenter : camera.center)}
         markers={navigating ? [] : markers}
         selectedMarkerId={journeyStop(tasks)?.id ?? selected?.id ?? selectedStop(tasks)?.id}
-        userLocation={navigating ? navigation.snapshot.location ? toMapCoordinate(navigation.snapshot.location) : null : location.coordinate ? toMapCoordinate(location.coordinate) : null}
+        userLocation={navigating ? !guidance && navigation.snapshot.location ? toMapCoordinate(navigation.snapshot.location) : null : location.coordinate ? toMapCoordinate(location.coordinate) : null}
+        guidance={guidance}
         route={navigating ? navRoute : routeGeometry}
         routeFitKey={navigating ? undefined : planner.fitKey}
         resultFrame={navigating ? undefined : resultFrame}
@@ -78,13 +85,14 @@ export function AppMap({ height, padding, attributionLeft, attributionTop }: {
         cameraPadding={padding}
         attributionLeft={attributionLeft}
         attributionTop={attributionTop}
-        followLocation={navigating ? camera.following : undefined}
+        followLocation={navigating ? guidance ? false : camera.following : undefined}
         coverageBounds={!navigating && tab === "explore" && search.hasSearch && !selected ? search.result.coverage.bounds : undefined}
         zoom={navigating ? 17 : camera.zoom}
         cameraRevision={camera.revision}
         onMapPress={navigating ? undefined : coordinate => planner.chooseOrigin(toCoordinate(coordinate))}
         onRegionChanged={(coordinate, zoom) => {
-          if (navigating) { camera.stopFollowing(); return; }
+          // Guidance enters free at gesture start (see MapCanvas); this settles later.
+          if (navigating) { if (!guidance) camera.stopFollowing(); return; }
           userPanned(toCoordinate(coordinate), zoom);
         }}
         onPressMarker={(id) => {

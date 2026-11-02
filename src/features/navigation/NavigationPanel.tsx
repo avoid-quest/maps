@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Linking, Modal, Pressable, ScrollView, useWindowDimensions, View } from 'react-native';
 import { Text } from '../../ui/Text';
 import { useThemeColors } from '../../theme';
@@ -8,16 +8,22 @@ import { navigationLocationForReplan, navigationPresentation } from '../../domai
 import { Button, Display, Icon, IconButton, Notice, Num, useHairlines } from '../../ui';
 import type { NavigationState } from './navigation-controller';
 import { journeyDuration } from '../planner/journey-presentation';
+import type { CameraIntent } from './guidance-camera';
 
 const distance = (meters: number) => meters < 1000 ? `${Math.round(meters)} m` : `${(meters / 1000).toFixed(1).replace('.', ',')} km`;
-export function NavigationPanel({ snapshot, busy, error, following, onRecenter, onStop, onRetry, onMute, onConfirmTransit, onReplan }: NavigationState & {
-  following: boolean; onRecenter: () => void; onStop: () => void; onRetry: () => void; onMute: () => void;
+export function NavigationPanel({ snapshot, busy, error, following, intent, onRecenter, onOverview, onChromeLayout, onStop, onRetry, onMute, onConfirmTransit, onReplan }: NavigationState & {
+  following: boolean; intent: CameraIntent; onRecenter: () => void; onOverview: () => void;
+  /** Heights of the top banner and bottom chrome, so the camera anchors the puck between them. */
+  onChromeLayout: (top: number, bottom: number) => void;
+  onStop: () => void; onRetry: () => void; onMute: () => void;
   onConfirmTransit: (action: TransitConfirmation) => void; onReplan: () => void;
 }) {
   const colors = useThemeColors();
   const hairlines = useHairlines();
   const { width, height, fontScale } = useWindowDimensions();
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const banner = useRef(120);
+  const strip = useRef(190);
   const [now, setNow] = useState(Date.now());
   const transitMode = snapshot.mode === 'transit';
   const cues = snapshot.locationUsable === true;
@@ -37,7 +43,7 @@ export function NavigationPanel({ snapshot, busy, error, following, onRecenter, 
   const landscape = width >= 650 && height < 500;
   const panelHeight = Math.min(height * 0.46, Math.max(176, 176 * Math.min(fontScale, 1.5)));
   return <View pointerEvents="box-none" className="flex-1">
-    <View testID="navigation-instruction" style={{ height: Math.min(height * 0.3, 104 * Math.min(fontScale, 1.5)), ...(landscape ? { position: "absolute", top: 0, left: 0, right: 320 } as const : {}), backgroundColor: colors.chrome, ...hairlines.bottom }} className="px-4 py-3">
+    <View testID="navigation-instruction" onLayout={event => { banner.current = event.nativeEvent.layout.height; onChromeLayout(banner.current, strip.current); }} style={{ height: Math.min(height * 0.3, 104 * Math.min(fontScale, 1.5)), ...(landscape ? { position: "absolute", top: 0, left: 0, right: 320 } as const : {}), backgroundColor: colors.chrome, ...hairlines.bottom }} className="px-4 py-3">
       <ScrollView>
         <View className="flex-row items-center gap-2">
           <View className="w-6">{waiting ? <ActivityIndicator color={colors.textPrimary} /> : <Icon name={snapshot.status === 'arrived' ? 'flag-outline' : 'navigate-outline'} color={colors.textPrimary} />}</View>
@@ -49,11 +55,17 @@ export function NavigationPanel({ snapshot, busy, error, following, onRecenter, 
       </ScrollView>
     </View>
     <View pointerEvents="box-none" className="flex-1">
-      <View style={{ position: "absolute", right: landscape ? 332 : 12, top: landscape ? Math.min(height * 0.3, 104 * Math.min(fontScale, 1.5)) + 48 : 48 }}>
-        <IconButton floating icon="locate-outline" label="Ricentra sulla mia posizione" active={following} disabled={!snapshot.location} onPress={onRecenter} />
+      <View style={{ position: "absolute", right: landscape ? 332 : 12, top: landscape ? Math.min(height * 0.3, 104 * Math.min(fontScale, 1.5)) + 48 : 48 }} className="gap-2">
+        <IconButton floating icon="map-outline" label="Panoramica del percorso" active={intent === 'overview'} disabled={!snapshot.route} onPress={onOverview} />
       </View>
+      {intent !== 'follow' && snapshot.location ? <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: 0, bottom: 12 }} className="items-center">
+        <Pressable testID="navigation-recenter" accessibilityRole="button" accessibilityLabel="Ricentra sulla mia posizione" onPress={onRecenter}
+          style={[hairlines.floating, { minHeight: 48 }]} className="flex-row items-center gap-2 rounded-full px-5">
+          <Icon name="navigate-outline" color={colors.textPrimary} /><Text className="text-base font-semibold text-primary">Ricentra</Text>
+        </Pressable>
+      </View> : null}
     </View>
-    <View testID="navigation-sheet" style={[landscape ? { position: "absolute", right: 0, top: 0, bottom: 0, width: 320 } : { height: panelHeight }, hairlines.top]} className="rounded-t-3xl bg-surface">
+    <View testID="navigation-sheet" onLayout={event => { strip.current = event.nativeEvent.layout.height; onChromeLayout(banner.current, strip.current); }} style={[landscape ? { position: "absolute", right: 0, top: 0, bottom: 0, width: 320 } : { height: panelHeight }, hairlines.top]} className="rounded-t-3xl bg-surface">
       <View className="flex-row items-center gap-3 px-4 pt-2" style={{ height: 52 }}>
         {searching && text.signal ? <Num testID="navigation-signal" accessibilityLiveRegion="polite" className="flex-1 text-base font-semibold leading-5 text-primary" numberOfLines={2}>{text.signal}</Num>
           : <Num className="flex-1 text-lg font-semibold text-primary" numberOfLines={1}>{!transit && snapshot.distanceRemainingMeters != null ? `${remainingSeconds != null ? journeyDuration(remainingSeconds) + ' · ' : ''}${distance(snapshot.distanceRemainingMeters)}` : transit ? `Tratta ${transit.legIndex + 1} di ${transit.legCount}` : 'Il tuo viaggio'}</Num>}

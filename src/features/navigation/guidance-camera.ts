@@ -1,7 +1,7 @@
 import type { Coordinate } from '../../domain/types';
 import type { FollowingManeuver, GuidanceManeuver, NavigationFix, RouteProgress } from '../../domain/navigation';
 import { inside, paddingForAnchor, project, type CameraPose, type Padding, type ScreenPoint, type VisibleRect } from './map-projection';
-import { angleDelta, distanceMeters, normalizeBearing, offsetCoordinate, offsetOfIndex, pointAt, routeBearingAt, sliceRoute, type RouteMeasure } from './route-measure';
+import { angleDelta, bearingDegrees, distanceMeters, normalizeBearing, offsetCoordinate, offsetOfIndex, pointAt, routeBearingAt, sliceRoute, type RouteMeasure } from './route-measure';
 
 export type CameraMode = 'walk' | 'bicycle' | 'car';
 
@@ -40,19 +40,19 @@ export interface CameraProfile {
 const lerp = (a: number, b: number, t: number) => a + (b - a) * Math.min(1, Math.max(0, t));
 export const CAMERA_PROFILES: Record<CameraMode, CameraProfile> = {
   walk: {
-    pitch: 30, cruiseZoom: () => 18.1, minZoom: 16.9, anchor: 0.67, anticipationSeconds: 8, outgoingMeters: 30,
-    courseSpeed: 0.8, holdSpeed: 0.35, typicalSpeed: 1.3, extrapolate: false, snapToRoute: false, routeLookAhead: 12,
-    bearingGain: 0.45, bearingDeadBand: 4,
+    pitch: 34, cruiseZoom: () => 18.3, minZoom: 16.9, anchor: 0.67, anticipationSeconds: 8, outgoingMeters: 30,
+    courseSpeed: 0.8, holdSpeed: 0.35, typicalSpeed: 1.3, extrapolate: false, snapToRoute: false, routeLookAhead: 20,
+    bearingGain: 0.5, bearingDeadBand: 4,
   },
   bicycle: {
     pitch: 42, cruiseZoom: speed => lerp(18, 17.1, (speed - 3) / 5), minZoom: 16.6, anchor: 0.715, anticipationSeconds: 10,
     outgoingMeters: 45, courseSpeed: 1.6, holdSpeed: 0.8, typicalSpeed: 4.5, extrapolate: true, snapToRoute: true,
-    routeLookAhead: 20, bearingGain: 0.55, bearingDeadBand: 3,
+    routeLookAhead: 25, bearingGain: 0.55, bearingDeadBand: 3,
   },
   car: {
     pitch: 48, cruiseZoom: speed => lerp(17.7, 15.7, (speed - 6) / 19), minZoom: 15.4, anchor: 0.735, anticipationSeconds: 12,
     outgoingMeters: 70, courseSpeed: 2.5, holdSpeed: 1.2, typicalSpeed: 9, extrapolate: true, snapToRoute: true,
-    routeLookAhead: 30, bearingGain: 0.6, bearingDeadBand: 2.5,
+    routeLookAhead: 35, bearingGain: 0.6, bearingDeadBand: 2.5,
   },
 };
 
@@ -134,6 +134,8 @@ export class GuidanceCamera {
   private mode: CameraMode | null = null;
   private viewportKey = '';
   private recenters = 0;
+  private previousFix: { coordinate: Coordinate; ms: number } | null = null;
+  private derived: DerivedKinematics = {};
 
   get current() { return this.frame; }
   get expectedIntervalMs() { return this.intervals.length ? Math.min(2000, Math.max(600, median(this.intervals))) : 1000; }
@@ -146,10 +148,33 @@ export class GuidanceCamera {
     return this.frame;
   }
 
+  /**
+   * Some providers omit speed and course. For presentation only, derive them from the previous
+   * distinct accepted fix (0.5–3 s earlier); a move smaller than the fix noise yields no course.
+   */
+  private withKinematics(fix: NavigationFix): NavigationFix {
+    const ms = fix.elapsedMs ?? fix.timestamp;
+    const coordinate = { latitude: fix.latitude, longitude: fix.longitude };
+    const previous = this.previousFix;
+    if (previous && ms === previous.ms) return { ...fix, ...this.derived };
+    this.previousFix = { coordinate, ms };
+    this.derived = {};
+    if (!previous || (fix.speedMps !== undefined && fix.course !== undefined)) return fix;
+    const seconds = (ms - previous.ms) / 1000;
+    if (seconds < 0.5 || seconds > 3) return fix;
+    const moved = distanceMeters(previous.coordinate, coordinate);
+    if (fix.speedMps === undefined) this.derived.speedMps = moved / seconds;
+    if (fix.course === undefined && moved >= Math.max(1, 0.25 * fix.accuracyMeters)) {
+      this.derived.course = bearingDegrees(previous.coordinate, coordinate);
+      this.derived.courseAccuracyDegrees = 20;
+    }
+    return { ...fix, ...this.derived };
+  }
+
   update(input: CameraInput): CameraFrame | null {
     const profile = CAMERA_PROFILES[input.mode];
-    const fix = input.fix;
-    if (!fix) return this.frame;
+    if (!input.fix) return this.frame;
+    const fix = this.withKinematics(input.fix);
     const fixMs = fix.elapsedMs ?? fix.timestamp;
     const viewportKey = `${input.viewport.width}x${input.viewport.height}:${input.viewport.top}:${input.viewport.bottom}`;
     const modeChanged = this.mode !== input.mode;
@@ -275,6 +300,7 @@ export class GuidanceCamera {
   }
 }
 
+export interface DerivedKinematics { speedMps?: number; course?: number; courseAccuracyDegrees?: number }
 const round = (value: number, digits: number) => Math.round(value * 10 ** digits) / 10 ** digits;
 /** At most `count` evenly spread points (always including both ends). */
 function sample(points: Coordinate[], count: number): Coordinate[] {

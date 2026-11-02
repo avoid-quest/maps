@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
 import { Text } from "../../ui/Text";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -64,6 +64,11 @@ export function AppShell() {
   const mapPadding = mapCameraPadding({ width, height: mapHeight, sheetHeight: currentSheetHeight + 8, panelVisible, navigating: navigation.visible, fontScale });
   const message = location.message || feedback.message;
   const dismissMessage = () => location.message ? location.setMessage("") : feedback.dismiss();
+  // Measured guidance chrome: the camera places the puck inside the map left between them.
+  const [guidanceChrome, setGuidanceChrome] = useState({ top: 120, bottom: 190 });
+  const guidanceViewport = useMemo(() => ({ width, height: mapHeight, top: Math.min(guidanceChrome.top, mapHeight / 2), bottom: Math.max(mapHeight / 2, mapHeight - guidanceChrome.bottom) }),
+    [width, mapHeight, guidanceChrome]);
+  const onGuidanceChrome = (top: number, bottom: number) => setGuidanceChrome(current => Math.abs(current.top - top) < 1 && Math.abs(current.bottom - bottom) < 1 ? current : { top, bottom });
   const overlayPosition = { bottom: !wide && panelVisible ? currentSheetHeight + 24 : 88, left: wide && panelVisible ? SIDE_SHEET_WIDTH + 8 : 16, right: 16 };
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.chrome }} edges={["top", "bottom"]}>
@@ -73,6 +78,7 @@ export function AppShell() {
           padding={mapPadding}
           attributionLeft={wide && panelVisible && !navigation.visible ? SIDE_SHEET_WIDTH - 4 : 8}
           attributionTop={navigation.visible ? Math.min(height * 0.3, 104 * Math.min(fontScale, 1.5)) + 8 : 68}
+          guidanceViewport={guidanceViewport}
         />
         {navigation.visible && (navigation.snapshot.mode === "transit" || (navigation.busy === "start" && navigation.startKind === "transit")) ? (
           <TransitFollowPanel state={navigation} following={camera.following} follow={transit.follow} onRecenter={camera.recenterGuidance}
@@ -80,7 +86,8 @@ export function AppShell() {
             onConfirm={action => { void navigation.confirmTransit(action); }} onReplan={() => { void planner.replanFromNavigation(); }}
             onMute={() => { void navigation.toggleMuted(); }} />
         ) : navigation.visible ? (
-          <NavigationPanel {...navigation} following={camera.following} onRecenter={camera.recenterGuidance}
+          <NavigationPanel {...navigation} following={camera.following} intent={camera.guidanceIntent} onRecenter={camera.recenterGuidance}
+            onOverview={camera.overviewGuidance} onChromeLayout={onGuidanceChrome}
             onStop={() => { void navigation.stop(); }} onRetry={() => { void navigation.retry(); }} onMute={() => { void navigation.toggleMuted(); }}
             onConfirmTransit={action => { void navigation.confirmTransit(action); }} onReplan={() => { void planner.replanFromNavigation(); }} />
         ) : <>

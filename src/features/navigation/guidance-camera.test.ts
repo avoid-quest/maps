@@ -177,3 +177,15 @@ test('"Poi" appears only when the following maneuver is within about ten seconds
   assert.ok(followsClosely({ ...near, afterUpcomingMeters: 400, afterUpcomingSeconds: 8 }, 9), 'by route time');
   assert.ok(!followsClosely(undefined, 9));
 });
+
+test('providers without speed or course: kinematics are derived from consecutive fixes for presentation', () => {
+  const fixture = routeFixture([{ bearing: 300, meters: 600 }]);
+  const inputs = trajectory(fixture, { mode: 'car', speed: 10, seconds: 8, alignment: 'deviating' }).map(input => {
+    const { speedMps: _speed, course: _course, courseAccuracyDegrees: _accuracy, ...fix } = input.fix!;
+    return { ...input, fix };
+  });
+  const frames = run(inputs);
+  assert.equal(frames[0]!.puck.kind, 'dot', 'no direction before a second fix');
+  assert.ok(Math.abs(angleDelta(frames[7]!.bearing, 300)) < 1);
+  assert.ok(frames[7]!.leadMeters > 5, 'derived speed allows the bounded lead');
+});
