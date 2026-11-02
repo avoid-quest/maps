@@ -3,8 +3,12 @@ import { hasTaskAboveRoot, searchRoot, selectedPlace, sheetVisible, taskReducer,
 
 export { SHEET_SNAPS, type SheetHeights, type SheetSnap };
 
-/** Search bar, map controls and a strip of visible map stay above the fully expanded sheet. */
-export const SHEET_TOP_RESERVE = 136;
+/**
+ * Space kept above the fully expanded sheet, in dp from the safe-area top: the search bar row
+ * (8 + 48 + 8 = 64), the sheet's own bottom inset (8, which the library subtracts from the top) and
+ * a 4 dp gap, so "full" sits just under the search bar.
+ */
+export const SHEET_TOP_RESERVE = 76;
 const MIN_HEIGHT = 120;
 
 const rank = (snap: SheetSnap) => SHEET_SNAPS.indexOf(snap);
@@ -20,7 +24,9 @@ export function peekContentHeight(tasks: TaskState, hasSearch: boolean): number 
  * (keyboard, split screen) shrinks the upper snaps first and never inverts their order.
  */
 export function sheetHeights({ availableHeight, fontScale, peekContent }: { availableHeight: number; fontScale: number; peekContent: number }): SheetHeights {
-  const full = Math.max(MIN_HEIGHT, availableHeight - SHEET_TOP_RESERVE);
+  // Whole dp: the library unlocks content scrolling only when the sheet position equals its top
+  // detent exactly (a float comparison); integer snaps keep that comparison exact.
+  const full = Math.max(MIN_HEIGHT, Math.floor(availableHeight - SHEET_TOP_RESERVE));
   const peek = Math.min(full, Math.max(MIN_HEIGHT, Math.round(peekContent * Math.min(Math.max(fontScale, 1), 1.5))));
   const half = Math.min(full, Math.max(peek, Math.round(availableHeight * 0.5)));
   return { peek, half, full };

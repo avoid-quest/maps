@@ -77,7 +77,7 @@ export function AppSheet({ snap, heights, onSnapChange, header, footer, footerHe
       accessibilityLabel=""
       accessibilityRole="none"
     >
-      <View testID={testID} style={{ flex: 1, paddingBottom: footerHeight }}>
+      <View testID={testID} style={[SHRINKING_FILL, { paddingBottom: footerHeight }]}>
         {header}
         <Divider />
         {children}
@@ -119,10 +119,20 @@ function SheetFooter(props: BottomSheetFooterProps) {
   return <BottomSheetFooter {...props}><View style={{ height: footerHeight, backgroundColor: surface }}>{footer}</View></BottomSheetFooter>;
 }
 
-/** Scrolling content that cooperates with sheet dragging. */
+/**
+ * Fills the space left in the sheet and may shrink below its content. The library sizes the sheet's
+ * content box with an animated height that arrives after the first layout pass, while that box is
+ * still sized by its children. React Native's `flex: 1` grows but does not shrink, so a wrapper with
+ * plain `flex: 1` kept its content height: the ScrollView's viewport equalled its content (nothing
+ * to scroll) and the end of the content sat below the visible sheet. Every wrapper between the sheet
+ * and a scroller uses this style.
+ */
+export const SHRINKING_FILL = { flexGrow: 1, flexShrink: 1, flexBasis: 0, minHeight: 0 } as const;
+
+/** Scrolling content that cooperates with sheet dragging; fills and scrolls the space left in the sheet. */
 export function SheetScrollView({ children }: { children: ReactNode }) {
-  return <BottomSheetScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 24 }}>{children}</BottomSheetScrollView>;
+  return <BottomSheetScrollView style={SHRINKING_FILL} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 24 }}>{children}</BottomSheetScrollView>;
 }
 
 /** A virtualized list inside the sheet; use for results, stops and saved items. Taps work with the keyboard open. */
-export const SheetFlatList = ((props: Parameters<typeof BottomSheetFlatList>[0]) => <BottomSheetFlatList keyboardShouldPersistTaps="handled" {...props} />) as typeof BottomSheetFlatList;
+export const SheetFlatList = ((props: Parameters<typeof BottomSheetFlatList>[0]) => <BottomSheetFlatList keyboardShouldPersistTaps="handled" {...props} style={[SHRINKING_FILL, props.style]} />) as typeof BottomSheetFlatList;

@@ -27,9 +27,11 @@ export function PressableSurface({ surfaceStyle, className, contentClassName, ri
   children: ReactNode;
 }) {
   return (
-    <View style={surfaceStyle} className={`overflow-hidden ${className ?? ""}`}>
-      {/* grow: when a row stretches the surface (a taller sibling), the content and its touch area fill it. */}
-      <Pressable android_ripple={{ color: rippleColor, borderless }} className={`grow ${contentClassName ?? ""}`} {...pressable}>
+    // justify-center keeps the content centred when a row stretches the surface (a taller sibling).
+    // The content must not grow: inside a scroll view a growable child absorbs the scroll content's
+    // spare height during the sheet's first layout pass (an outlined button became screen-tall).
+    <View style={surfaceStyle} className={`justify-center overflow-hidden ${className ?? ""}`}>
+      <Pressable android_ripple={{ color: rippleColor, borderless }} className={contentClassName} {...pressable}>
         {children}
       </Pressable>
     </View>

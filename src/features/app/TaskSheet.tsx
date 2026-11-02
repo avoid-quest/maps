@@ -1,5 +1,5 @@
 import { View } from "react-native";
-import { AppSheet, IconButton, SheetHeader, SheetScrollView, type SheetHeights, type SheetSnap } from "../../ui";
+import { AppSheet, IconButton, SheetHeader, SheetScrollView, SHRINKING_FILL, type SheetHeights, type SheetSnap } from "../../ui";
 import { PlaceDetail } from "../places/PlaceDetail";
 import { SavedSheet } from "../places/SavedSheet";
 import { PlannerSheet } from "../planner/PlannerSheet";
@@ -71,7 +71,7 @@ export function TaskSheet({ snap, resting, heights, now }: { snap: SheetSnap; re
   return (
     <AppSheet testID="map-sheet" snap={snap} heights={heights} onSnapChange={sheet.request} header={header}
       footer={top.kind === "planner" && !top.editing ? <RouteActions task={top} /> : undefined} footerHeight={top.kind === "planner" && !top.editing ? ROUTE_ACTIONS_HEIGHT : 0}>
-      <View key={detailKey(tasks)} style={{ flex: 1 }}>
+      <View key={detailKey(tasks)} style={SHRINKING_FILL}>
         <TaskContent task={top} search={search} now={now} />
       </View>
     </AppSheet>
