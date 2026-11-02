@@ -21,6 +21,8 @@ export interface BasemapInk {
   waterLabel: string;
   building: string;
   buildingEdge: string;
+  /** Navigation-only approximate building volumes (see `nonDefaultBuildingHeight`). */
+  buildingExtrusion: string;
   /** Pedestrian squares and areas. */
   plaza: string;
   path: string;
@@ -70,6 +72,7 @@ export const basemapInks: Record<ColorScheme, BasemapInk> = {
     waterLabel: '#92959C',
     building: '#141416',
     buildingEdge: '#1A1A1D',
+    buildingExtrusion: '#1C1C1F',
     plaza: '#1A1A1D',
     path: '#3A3A40',
     pathCasing: '#1A1A1D',
@@ -113,6 +116,7 @@ export const basemapInks: Record<ColorScheme, BasemapInk> = {
     waterLabel: '#52565C',
     building: '#E9E9E8',
     buildingEdge: '#DCDCDB',
+    buildingExtrusion: '#E3E3E2',
     plaza: '#ECECEB',
     path: '#C6C6CB',
     pathCasing: '#FFFFFF',
@@ -182,6 +186,26 @@ const transitClass = ['match', poiClass, ['bus', 'railway'], true, false];
 /** Generic POIs need a name or a key category; unnamed benches, bins and bollards add only noise. */
 const visiblePoi = ['all', ['!', transitClass], ['any', ['has', 'name'], hasCategory]];
 
+/**
+ * Approximate buildings from OSM height tags or mapped floor counts, excluding the tile default.
+ * planetiler-openmaptiles (which builds the OpenFreeMap tiles) writes `render_height = ceil(height ?? building:height ?? building:levels × 3.66 ?? 5)`
+ * and `render_min_height = floor(min_height ?? building:min_level × 3.66 ?? 0)`, with no field naming the
+ * source. A missing height therefore always arrives as exactly 5. Supplied data reaches 5 only through a
+ * mapped height above 4 m up to 5 m or a fractional level count (one level is 4, two are 8). Excluding
+ * 5 drops every default and those few real low buildings, which stay flat footprints. Levels-derived
+ * heights are an approximation from supplied levels, not a default; the schema cannot separate them from
+ * measured heights. `hide_3d` marks outlines whose `building:part`s carry the shape.
+ */
+export const nonDefaultBuildingHeight = ['all',
+  ['!', ['has', 'hide_3d']],
+  ['==', ['typeof', ['get', 'render_height']], 'number'],
+  ['==', ['typeof', ['get', 'render_min_height']], 'number'],
+  ['!=', ['get', 'render_height'], 5],
+  ['>', ['get', 'render_height'], ['get', 'render_min_height']],
+];
+/** Navigation buildings appear only at the close first-person zooms, fading in over half a zoom level. */
+export const BUILDING_EXTRUSION_MINZOOM = 17;
+
 const regular = ['Noto Sans Regular'];
 const bold = ['Noto Sans Bold'];
 const linear = (stops: number[]) => ['interpolate', ['linear'], ['zoom'], ...stops];
@@ -239,13 +263,31 @@ export function brandRecipe(scheme: ColorScheme): StyleRecipe {
       'natural_earth',
       // One-way arrows matter to drivers, not to pedestrians or passengers.
       'road_one_way_arrow', 'road_one_way_arrow_opposite',
-      // Extrusions shade buildings into the foreground; flat footprints stay at every zoom instead.
+      // Upstream extrudes every building, the 5 m default included; `avoid_building_3d` replaces it.
       'building-3d',
       // United States shields never match Italian roads and draw coloured sprite badges.
       'highway-shield-us-interstate', 'road_shield_us',
     ],
     keep: [],
     insert: [
+      {
+        // Navigation only (hidden otherwise): subtle grey extrusions of supplied heights over the flat
+        // footprints. Drawn before road names, so the guidance route, its junction arrow and every app
+        // overlay follow the extrusion. Native disables depth testing for subsequent 2D layers;
+        // verify actual route visibility on Android rather than inferring it from this order alone.
+        before: 'boundary_3',
+        layer: {
+          id: 'avoid_building_3d', type: 'fill-extrusion', source: 'openmaptiles', 'source-layer': 'building',
+          minzoom: BUILDING_EXTRUSION_MINZOOM, filter: nonDefaultBuildingHeight,
+          layout: { visibility: 'none' },
+          paint: {
+            'fill-extrusion-color': ink.buildingExtrusion,
+            'fill-extrusion-height': ['get', 'render_height'],
+            'fill-extrusion-base': ['get', 'render_min_height'],
+            'fill-extrusion-opacity': linear([BUILDING_EXTRUSION_MINZOOM, 0, BUILDING_EXTRUSION_MINZOOM + 0.5, 0.55]),
+          },
+        },
+      },
       {
         // Driving guidance shows one-way chevrons (app image `oneway-<scheme>`); hidden otherwise.
         before: 'highway-name-path',
@@ -374,7 +416,8 @@ export function brandRecipe(scheme: ColorScheme): StyleRecipe {
       bridge_transit_rail: line(ink.transit),
       bridge_transit_rail_hatching: line(ink.transit),
 
-      // Upstream hands footprints over to `building-3d` at z14; flat footprints continue instead.
+      // Upstream hands footprints over to `building-3d` at z14; flat footprints continue at every zoom,
+      // also beneath navigation extrusions, so buildings without a supplied height still show.
       building: { ...fill(ink.building, { 'fill-outline-color': ink.buildingEdge }), maxzoom: null },
       boundary_3: line(ink.boundary),
       boundary_2: line(ink.boundary),

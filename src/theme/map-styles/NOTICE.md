@@ -15,6 +15,7 @@ The file is the unmodified response body. At retrieval, [hyperknot/openfreemap-s
 - replace POI sprite icons with small circle layers and text, and transit icons with stop and station rings and text; key amenities show an Italian category word;
 - remove the place-dot, airport and road-shield sprite icons, keeping their text;
 - remove the shaded-relief raster, one-way arrows, 3D building extrusions and United States shield layers; flat building footprints continue at all zooms;
+- add hidden layers that only active guidance shows: one-way chevrons drawn from an app image, and a greyscale building extrusion from zoom 17 using approximate heights from mapped height tags or floor counts, excluding the 5 m default (and genuine 5 m buildings, which the tiles cannot distinguish);
 - add dedicated stop and station layers for OpenMapTiles' `railway` POI class, which Liberty's transit layer does not match.
 
 Sources, tile URLs, sprite and glyph endpoints are unchanged.

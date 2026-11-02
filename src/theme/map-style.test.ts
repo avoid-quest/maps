@@ -234,3 +234,78 @@ test('one-way chevrons cover both directions: oneway 1 along the line, -1 turned
     assert.equal(rotate.value.evaluate({ zoom: 16 }, feature(-1)), 270);
   }
 });
+
+/** The guidance route, its casing and the junction arrow are inserted directly before this basemap layer. */
+const ROUTE_ANCHOR = 'highway-name-path';
+const EXTRUSION = 'avoid_building_3d';
+
+test('navigation buildings: a hidden, greyscale extrusion from z17 above flat footprints and below the route', () => {
+  for (const scheme of schemes) {
+    const style = mapStyleFor(scheme);
+    const ids = style.layers.map(layer => layer.id);
+    const layer = layerOf(style, EXTRUSION);
+    assert.ok(layer, `${scheme} defines ${EXTRUSION}`);
+    assert.equal(layer.type, 'fill-extrusion');
+    assert.equal(layer.source, 'openmaptiles');
+    assert.equal(layer['source-layer'], 'building');
+    assert.ok((layer.minzoom ?? 0) >= 17, 'extrusions start at z17 or later');
+    assert.equal(layer.layout?.visibility, 'none', 'hidden until navigation shows it: browsing and planning stay flat');
+    assert.ok(!ids.includes('building-3d'), 'the unfiltered upstream extrusion stays removed');
+    // Flat footprints remain at every zoom, so a building without a supplied height still shows.
+    assert.equal(layerOf(style, 'building')?.maxzoom, undefined);
+    assert.ok(ids.indexOf('building') < ids.indexOf(EXTRUSION), 'extrusions stand on the flat footprints');
+    // Native disables depth testing for 2D layers after the first 3D layer. Keep the route and
+    // arrow after the extrusion; actual Android compositing still needs visual verification.
+    assert.ok(ids.indexOf(EXTRUSION) < ids.indexOf(ROUTE_ANCHOR), 'extrusions are drawn before the route anchor');
+    assert.ok(ids.indexOf(EXTRUSION) < ids.indexOf('highway-name-minor') && ids.indexOf(EXTRUSION) < ids.indexOf('poi_r20'), 'labels stay above buildings');
+    // Greyscale and uniform: the OpenMapTiles `colour` field never tints a building.
+    const color = layer.paint?.['fill-extrusion-color'];
+    assert.equal(typeof color, 'string');
+    assert.equal(String(color).toLowerCase(), basemapInks[scheme].buildingExtrusion.toLowerCase());
+    assert.ok(!JSON.stringify(layer.paint).includes('colour'));
+    assert.deepEqual(layer.paint?.['fill-extrusion-height'], ['get', 'render_height']);
+    assert.deepEqual(layer.paint?.['fill-extrusion-base'], ['get', 'render_min_height']);
+    const opacity = createExpression(layer.paint?.['fill-extrusion-opacity'], latest['paint_fill-extrusion']['fill-extrusion-opacity'] as never);
+    assert.equal(opacity.result, 'success');
+    if (opacity.result !== 'success') continue;
+    const at = (zoom: number) => opacity.value.evaluate({ zoom }, undefined as never) as number;
+    assert.ok(at(17) <= 0.05 && at(18) > 0.3 && at(20) <= 0.7, `${scheme} extrusions fade in and stay translucent: ${at(17)}, ${at(18)}, ${at(20)}`);
+  }
+});
+
+test('navigation buildings accept tagged or floor-derived heights but exclude the tile default', () => {
+  // planetiler-openmaptiles Building.java: render_height = ceil(height ?? building:height ?? levels * 3.66 ?? 5),
+  // render_min_height = floor(min_height ?? min_level * 3.66 ?? 0). A missing height therefore arrives as
+  // exactly 5; height tags and levels are integers other than 5 (one level is 4, two are 8).
+  const layer = layerOf(mapStyleFor('light'), EXTRUSION);
+  const filter = createExpression(layer?.filter, { type: 'boolean' } as never);
+  assert.equal(filter.result, 'success');
+  if (filter.result !== 'success') return;
+  const extruded = (properties: Record<string, unknown>) => filter.value.evaluate({ zoom: 18 }, { type: 'Polygon', properties } as never);
+  assert.equal(extruded({ render_height: 5, render_min_height: 0 }), false, 'no height, building:height or levels: the 5 m default');
+  assert.equal(extruded({ render_height: 5, render_min_height: 3 }), false, 'a part with only a minimum height keeps the default top');
+  assert.equal(extruded({ render_height: 19, render_min_height: 0 }), true);
+  assert.equal(extruded({ render_height: 4, render_min_height: 0 }), true, 'one supplied level');
+  assert.equal(extruded({ render_height: 31, render_min_height: 12 }), true, 'a building part above the ground');
+  assert.equal(extruded({ render_height: 19, render_min_height: 0, hide_3d: true }), false, 'an outline whose parts carry the 3D shape');
+  assert.equal(extruded({ render_min_height: 0 }), false, 'no height field');
+  assert.equal(extruded({ render_height: 19 }), false, 'no base field');
+  assert.equal(extruded({ render_height: '19', render_min_height: 0 }), false, 'non-numeric height');
+  assert.equal(extruded({ render_height: 0, render_min_height: 0 }), false, 'zero height');
+  assert.equal(extruded({ render_height: 8, render_min_height: 8 }), false, 'top not above base');
+});
+
+for (const scheme of schemes) {
+  test(`avoid-${scheme}: the route, arrow and position stay readable over navigation buildings`, () => {
+    const ink = basemapInks[scheme];
+    const overlay = mapColorsFor(scheme);
+    // The route line, the arrow outline (route-line colour) and the map puck's dot are drawn over buildings.
+    for (const [label, color] of [['route line', overlay.routeLine], ['location dot', overlay.userLocation]] as const) {
+      const ratio = contrastRatio(color, ink.buildingExtrusion);
+      assert.ok(ratio >= AA_NON_TEXT, `${scheme} ${label} on a building: ${ratio.toFixed(2)}`);
+    }
+    // Subtle: walls separate a little from the flat footprints and the land, never as strongly as roads.
+    const lift = contrastRatio(ink.buildingExtrusion, ink.land);
+    assert.ok(lift >= 1.05 && lift < contrastRatio(ink.minor, ink.land) + 0.2, `${scheme} building lift ${lift.toFixed(2)}`);
+  });
+}

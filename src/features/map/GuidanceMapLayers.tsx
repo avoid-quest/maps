@@ -5,9 +5,8 @@ import type { MapColors } from '../../theme';
 import type { ColorScheme } from '../../theme/palette';
 import type { ManeuverArrow } from '../navigation/guidance-route';
 import { remainingGradient } from '../navigation/guidance-route';
+import { BUILDING_EXTRUSION_LAYER, GUIDANCE_ROUTE_BEFORE as BELOW_LABELS, type GuidanceBasemap } from './guidance-basemap';
 
-/** Route and turn arrow sit under street names, so labels stay readable over the line. */
-const BELOW_LABELS = 'highway-name-path';
 /** Generic business dots and labels: hidden while driving or cycling; street names stay. */
 const POI_LAYERS: { id: string; type: 'circle' | 'symbol' }[] = [
   { id: 'avoid_poi_dot_r1', type: 'circle' }, { id: 'avoid_poi_dot_r7', type: 'circle' }, { id: 'avoid_poi_dot_r20', type: 'circle' },
@@ -16,18 +15,21 @@ const POI_LAYERS: { id: string; type: 'circle' | 'symbol' }[] = [
 
 const EMPTY = { type: 'FeatureCollection' as const, features: [] };
 /**
- * Basemap adjustments during guidance: generic business dots and labels hidden while driving or
- * cycling, one-way chevrons (a hidden brand-basemap layer) shown while driving. The style layers are
- * adopted as children of an empty app source because MapLibre RN re-adds sources, and with them
+ * Basemap adjustments during guidance (see `guidanceBasemap`): generic business dots and labels hidden
+ * while driving or cycling, one-way chevrons shown while driving and supplied-height building extrusions
+ * shown under the first-person camera; the last two are hidden brand-basemap layers. The style layers
+ * are adopted as children of an empty app source because MapLibre RN re-adds sources, and with them
  * their layers, after every style load (a live theme switch); standalone adopted layers would go stale.
+ * This component stays mounted: unmounting an adopted layer removes it from the style.
  */
-export function BasemapGuidanceAdjustments({ reduceBusinesses, oneWayArrows }: { reduceBusinesses: boolean; oneWayArrows: boolean }) {
+export function BasemapGuidanceAdjustments({ reduceBusinesses, oneWayArrows, buildings }: GuidanceBasemap) {
   const visibility = reduceBusinesses ? 'none' : 'visible';
   return <GeoJSONSource id="avoid-basemap-adjustments" data={EMPTY}>
     {POI_LAYERS.map(layer => layer.type === 'circle'
       ? <Layer key={layer.id} id={layer.id} type="circle" layout={{ visibility }} />
       : <Layer key={layer.id} id={layer.id} type="symbol" layout={{ visibility }} />)}
     <Layer id="avoid_oneway" type="symbol" layout={{ visibility: oneWayArrows ? 'visible' : 'none' }} />
+    <Layer id={BUILDING_EXTRUSION_LAYER} type="fill-extrusion" layout={{ visibility: buildings ? 'visible' : 'none' }} />
   </GeoJSONSource>;
 }
 
