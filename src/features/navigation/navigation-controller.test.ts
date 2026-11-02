@@ -469,3 +469,15 @@ test('a call the native bridge rejects (ERR_UNEXPECTED) gets its own message and
   assert.match(controller.getSnapshot().error ?? '', /^Il viaggio non è stato passato al modulo di navigazione/);
   assert.deepEqual(recorded, ['start-requested', 'bridge-error']);
 });
+
+test('mute applies to a transit session as to road guidance', async () => {
+  const muted: [string, boolean][] = [];
+  const { controller, emit } = fixture({ setMuted: async (sessionId, value) => { muted.push([sessionId, value]); return { ...snapshot(6), mode: 'transit', voice: value ? 'muted' : 'ready' }; } });
+  await Promise.resolve();
+  emit({ ...snapshot(5), mode: 'transit', voice: 'ready' });
+  await controller.toggleMuted();
+  assert.deepEqual(muted, [['session', true]]);
+  assert.equal(controller.getSnapshot().snapshot.voice, 'muted');
+  await controller.toggleMuted();
+  assert.deepEqual(muted, [['session', true], ['session', false]]);
+});

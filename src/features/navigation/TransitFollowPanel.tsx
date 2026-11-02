@@ -9,7 +9,7 @@ import { journeyTime } from '../planner/journey-presentation';
 import { JourneyTimeline } from '../planner/TransitJourney';
 import type { useStopBoard } from '../transit/useStopBoard';
 import type { NavigationState } from './navigation-controller';
-import { currentStepKey, liveBoarding, sessionPlan, transitFollowModel, type LiveBoarding } from './transit-follow';
+import { currentStepKey, liveBoarding, sessionPlan, transitFollowModel, voiceControl, type LiveBoarding } from './transit-follow';
 import type { RouteLeg, Stop } from '../../domain/types';
 
 const LIVE_TONE: Record<LiveBoarding['tone'], string> = {
@@ -21,10 +21,12 @@ export const FOLLOW_ACTIONS_HEIGHT = 80;
  * Following a transit journey: what to do now, the next boarding with its live provenance, and one
  * large confirmation beside Stop. Nothing here needs a position fix; GPS distance is advisory only.
  */
-export function TransitFollowPanel({ state, following, follow, onRecenter, onStop, onRetry, onConfirm, onReplan }: {
+export function TransitFollowPanel({ state, following, follow, onRecenter, onStop, onRetry, onConfirm, onReplan, onMute }: {
   state: NavigationState; following: boolean;
   follow: { leg: RouteLeg | null; stop: Stop | null; board: ReturnType<typeof useStopBoard> };
   onRecenter: () => void; onStop: () => void; onRetry: () => void; onConfirm: (action: TransitConfirmation) => void; onReplan: () => void;
+  /** Mutes or restores spoken announcements of the native session. */
+  onMute: () => void;
 }) {
   const colors = useThemeColors();
   const hairlines = useHairlines();
@@ -40,6 +42,7 @@ export function TransitFollowPanel({ state, following, follow, onRecenter, onSto
   const showReplan = !terminal && !starting && (model.stale || !!model.warning || snapshot.problem === 'transit-replan-needed');
   // Same geometry as road guidance, so the map attribution below it stays in place.
   const headerHeight = Math.min(height * 0.3, 104 * Math.min(fontScale, 1.5));
+  const voice = voiceControl(snapshot, !!busy);
   const live = follow.leg && model.boarding?.leg === follow.leg
     ? liveBoarding({ leg: follow.leg, rows: follow.board.board?.rows ?? null, boardAvailable: !!follow.stop, loading: follow.board.arrivalsLoading || follow.board.schedules.phase === 'preparing', error: follow.board.arrivalsError, now })
     : null;
@@ -55,6 +58,7 @@ export function TransitFollowPanel({ state, following, follow, onRecenter, onSto
     <View pointerEvents="box-none" className="flex-1">
       <View style={{ position: 'absolute', right: 12, top: 48 }}>
         <IconButton floating icon="locate-outline" label="Ricentra sulla mia posizione" active={following} disabled={!snapshot.location} onPress={onRecenter} />
+        {voice.visible ? <View className="mt-2"><IconButton floating icon={voice.icon} label={voice.label} active={voice.muted} disabled={!voice.enabled} onPress={onMute} /></View> : null}
       </View>
     </View>
     <View testID="transit-follow-sheet" style={[{ height: Math.min(height * 0.56, Math.max(300, height - headerHeight - 160)) }, hairlines.top]} className="rounded-t-3xl bg-surface">

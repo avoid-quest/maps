@@ -407,6 +407,12 @@ test('supplied intermediate stops and realtime delays are kept; malformed stops 
   scheduled.departureDelay = 0;
   const plain = parseTransitRoute(response({ duration: 600, legs: [scheduled] }), fetchedAt).legs[0]!;
   assert.equal(plain.scheduledDepartureAt, undefined, 'a timetable leg has no separate scheduled time');
+  const onTime = gttStopLinkLeg();
+  onTime.realTime = true; onTime.realtimeState = 'UPDATED'; onTime.departureDelay = 0;
+  assert.equal(parseTransitRoute(response({ duration: 600, legs: [onTime] }), fetchedAt).legs[0]!.scheduledDepartureAt, onTime.startTime, 'a zero delay states the timetable time');
+  const unknownDelay = gttStopLinkLeg();
+  unknownDelay.realTime = true; unknownDelay.realtimeState = 'UPDATED'; unknownDelay.departureDelay = null;
+  assert.equal(parseTransitRoute(response({ duration: 600, legs: [unknownDelay] }), fetchedAt).legs[0]!.scheduledDepartureAt, undefined, 'no delay: timetable time unknown');
   assert.equal(plain.intermediateStops, undefined, 'not requested is not "none"');
   const storage = new Map<string, string>();
   const store = createSavedTravel({ now: () => fetchedAt + 1000 });

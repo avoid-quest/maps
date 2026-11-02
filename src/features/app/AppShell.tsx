@@ -77,7 +77,8 @@ export function AppShell() {
         {navigation.visible && (navigation.snapshot.mode === "transit" || (navigation.busy === "start" && navigation.startKind === "transit")) ? (
           <TransitFollowPanel state={navigation} following={camera.following} follow={transit.follow} onRecenter={camera.recenterGuidance}
             onStop={() => { void navigation.stop(); }} onRetry={() => { void navigation.retry(); }}
-            onConfirm={action => { void navigation.confirmTransit(action); }} onReplan={() => { void planner.replanFromNavigation(); }} />
+            onConfirm={action => { void navigation.confirmTransit(action); }} onReplan={() => { void planner.replanFromNavigation(); }}
+            onMute={() => { void navigation.toggleMuted(); }} />
         ) : navigation.visible ? (
           <NavigationPanel {...navigation} following={camera.following} onRecenter={camera.recenterGuidance}
             onStop={() => { void navigation.stop(); }} onRetry={() => { void navigation.retry(); }} onMute={() => { void navigation.toggleMuted(); }}

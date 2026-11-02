@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { idleNavigation, type NavigationSnapshot } from '../../domain/navigation';
 import type { RouteLeg, RoutePlan } from '../../domain/types';
 import type { GttBoardRow } from '../../transit-data/board-model';
-import { currentStepKey, followBoarding, liveBoarding, matchBoardingRow, sessionPlan, transitFollowModel } from './transit-follow';
+import { readFileSync } from 'node:fs';
+import { currentStepKey, followBoarding, liveBoarding, matchBoardingRow, sessionPlan, transitFollowModel, voiceControl } from './transit-follow';
 
 const T = Date.parse('2026-11-02T11:00:00Z');
 const min = (value: number) => T + value * 60_000;
@@ -151,4 +152,38 @@ test('one timeline step is current, and an unconfirmed service lists the line’
   const result = liveBoarding({ leg, boardAvailable: true, loading: false, now: T, rows: [row({ id: 'x', scheduledAt: min(9) }), row({ id: 'y', line: '15' })] });
   assert.equal(result.state, 'unconfirmed');
   assert.deepEqual(result.sameLine?.map(item => [item.id, item.time]), [['x', '12:09']]);
+});
+
+test('a prediction without a known timetable time is never joined by its predicted time', () => {
+  // The selected service is scheduled at 12:00 and predicted at 12:10; MATO supplied no usable delay.
+  const delayed = { ...journey.legs[1]!, timingStatus: 'prediction' as const, realTime: true, departureAt: min(10), scheduledDepartureAt: undefined, tripId: 'mato:gtt:not-on-board' };
+  // Another service of the same line is scheduled at 12:10 at this stop.
+  const other = row({ id: 'other', scheduledAt: min(10), gtt: { tripId: '999U' } });
+  assert.equal(matchBoardingRow([other], delayed), null);
+  const live = liveBoarding({ leg: delayed, rows: [other], boardAvailable: true, loading: false, now: T });
+  assert.equal(live.state, 'unconfirmed');
+  assert.equal(live.status, 'Corsa non confermata');
+  // With its timetable time supplied, the same prediction joins the 12:00 service, not the 12:10 one.
+  const own = row({ id: 'own', scheduledAt: min(0), gtt: { tripId: '998U' } });
+  assert.equal(matchBoardingRow([other, own], { ...delayed, scheduledDepartureAt: min(0) })?.row.id, 'own');
+  // A trip-ID join still works for a prediction without a delay.
+  assert.equal(matchBoardingRow([row({ id: 'trip', scheduledAt: min(0), gtt: { tripId: 'not-on-board' } }), other], delayed)?.method, 'trip');
+});
+
+test('the follow screen has the road panel’s mute control, unavailable in words without an offline voice', () => {
+  const live = { sessionId: 's', status: 'navigating' as const };
+  assert.deepEqual(voiceControl({ ...live, voice: 'ready' }, false), { visible: true, enabled: true, muted: false, label: 'Disattiva voce', icon: 'volume-high-outline' });
+  assert.deepEqual(voiceControl({ ...live, voice: 'muted' }, false), { visible: true, enabled: true, muted: true, label: 'Attiva voce', icon: 'volume-mute-outline' });
+  assert.deepEqual(voiceControl({ ...live, voice: 'unavailable' }, false), { visible: true, enabled: false, muted: false, label: 'Voce non disponibile', icon: 'volume-high-outline' });
+  assert.equal(voiceControl({ ...live, voice: 'initializing' }, false).label, 'Preparazione voce');
+  assert.equal(voiceControl({ ...live, voice: 'initializing' }, false).enabled, false);
+  assert.equal(voiceControl({ ...live, voice: 'ready' }, true).enabled, false, 'no toggle while a command runs');
+  assert.equal(voiceControl({ ...live, status: 'arrived', voice: 'ready' }, false).visible, false);
+  assert.equal(voiceControl({ sessionId: null, status: 'waiting-for-fix', voice: 'ready' }, false).visible, false, 'a Start in flight has no session to mute');
+  // Wiring: the shell passes the controller's toggle and the panel renders the control from this model.
+  const shell = readFileSync(new URL('../app/AppShell.tsx', import.meta.url), 'utf8');
+  assert.match(shell, /<TransitFollowPanel[\s\S]*?onMute=\{\(\) => \{ void navigation\.toggleMuted\(\); \}\}[\s\S]*?\/>/);
+  const panel = readFileSync(new URL('./TransitFollowPanel.tsx', import.meta.url), 'utf8');
+  assert.match(panel, /const voice = voiceControl\(snapshot, !!busy\)/);
+  assert.match(panel, /<IconButton floating icon=\{voice\.icon\} label=\{voice\.label\} active=\{voice\.muted\} disabled=\{!voice\.enabled\} onPress=\{onMute\} \/>/);
 });

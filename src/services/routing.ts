@@ -208,9 +208,12 @@ function intermediateStops(leg: MatoLeg): RouteLeg['intermediateStops'] {
     return [{ id: stop.id, name: stop.name, ...(stop.code ? { code: stop.code } : {}), ...(stop.coordinate ? { coordinate: stop.coordinate } : {}), ...(arrivalAt ? { arrivalAt } : {}) }];
   });
 }
-/** Timetable time behind a realtime leg time: only a supplied, plausible delay moves it. */
+/**
+ * Timetable time behind a predicted leg time, only when MATO supplies a plausible delay (zero
+ * included: the prediction then equals the timetable). Without one the timetable time is unknown.
+ */
 function scheduledTime(time: number, delaySeconds: unknown, status: RouteLeg['timingStatus']): number | undefined {
-  if (status !== 'prediction' || typeof delaySeconds !== 'number' || !Number.isFinite(delaySeconds) || Math.abs(delaySeconds) > 3 * 3600 || delaySeconds === 0) return undefined;
+  if (status !== 'prediction' || typeof delaySeconds !== 'number' || !Number.isFinite(delaySeconds) || Math.abs(delaySeconds) > 3 * 3600) return undefined;
   return time - delaySeconds * 1000;
 }
 function timingStatus(leg: MatoLeg, transitLeg: boolean): RouteLeg['timingStatus'] {

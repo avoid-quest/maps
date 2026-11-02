@@ -160,7 +160,9 @@ export function matchBoardingRow(rows: readonly GttBoardRow[], leg: RouteLeg): B
     const exact = rows.filter(row => row.gtt.tripId === trip && (!leg.serviceDate || !row.gtt.serviceDate || row.gtt.serviceDate === leg.serviceDate));
     if (exact.length === 1) return { row: exact[0]!, method: 'trip' };
   }
-  const scheduled = leg.scheduledDepartureAt ?? (leg.timingStatus === 'scheduled' || leg.timingStatus === 'prediction' ? leg.departureAt : undefined);
+  // Only a known timetable time can identify a service: a scheduled leg's own time, or a prediction's
+  // supplied timetable time. A predicted time without one would match whatever is scheduled then.
+  const scheduled = leg.scheduledDepartureAt ?? (leg.timingStatus === 'scheduled' ? leg.departureAt : undefined);
   const line = leg.line?.trim().toUpperCase();
   if (scheduled == null || !line) return null;
   const candidates = rows.filter(row => row.line?.trim().toUpperCase() === line && row.scheduledAt != null && Math.abs(row.scheduledAt - scheduled) < 60_000);
@@ -213,5 +215,28 @@ export function liveBoarding(input: { leg: RouteLeg | null; rows: readonly GttBo
     state: 'matched', timeText: view.timeText, live: view.live, status: view.statusText, provenance: view.provenance,
     note: match.method === 'schedule' ? 'Corsa abbinata per linea e orario programmato' : undefined,
     tone: cancelled ? 'disruption' : view.live ? 'live' : view.row.gtt.realtime === 'stale' ? 'caution' : 'scheduled',
+  };
+}
+
+export interface VoiceControl {
+  visible: boolean;
+  enabled: boolean;
+  /** Accessible name: the action when available, otherwise why it is not. */
+  label: string;
+  icon: 'volume-high-outline' | 'volume-mute-outline';
+  muted: boolean;
+}
+/**
+ * Mute for spoken transit announcements, as in road guidance: shown for a live session, disabled
+ * while the offline Italian voice is being prepared or when none is installed.
+ */
+export function voiceControl(snapshot: Pick<NavigationSnapshot, 'sessionId' | 'status' | 'voice'>, busy: boolean): VoiceControl {
+  const terminal = snapshot.status === 'arrived' || snapshot.status === 'interrupted' || snapshot.status === 'error' || snapshot.status === 'stopped' || snapshot.status === 'idle';
+  const muted = snapshot.voice === 'muted';
+  const available = snapshot.voice === 'ready' || muted;
+  return {
+    visible: !!snapshot.sessionId && !terminal, enabled: available && !busy, muted,
+    label: muted ? 'Attiva voce' : snapshot.voice === 'ready' ? 'Disattiva voce' : snapshot.voice === 'initializing' ? 'Preparazione voce' : 'Voce non disponibile',
+    icon: muted ? 'volume-mute-outline' : 'volume-high-outline',
   };
 }
