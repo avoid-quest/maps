@@ -50,6 +50,8 @@ for (const scheme of schemes) {
       walk(layer.paint, layer.id);
       walk(layer.layout, layer.id);
       for (const property of ['icon-image', 'fill-pattern', 'line-pattern']) {
+        // The one exception is the app's own greyscale one-way chevron (assets/navigation, not the sprite).
+        if (layer.id === 'avoid_oneway' && property === 'icon-image') { assert.equal(layer.layout?.[property], `oneway-${scheme}`); continue; }
         assert.ok(!(property in (layer.layout ?? {})) && !(property in (layer.paint ?? {})), `${layer.id} uses sprite ${property}`);
       }
     }
@@ -124,7 +126,7 @@ for (const scheme of schemes) {
   test(`avoid-${scheme}: labels meet AA on their halos and on the surfaces beneath them`, () => {
     const style = mapStyleFor(scheme);
     const ink = basemapInks[scheme];
-    const labels = (style.layers as StyleLayer[]).filter(layer => layer.type === 'symbol');
+    const labels = (style.layers as StyleLayer[]).filter(layer => layer.type === 'symbol' && layer.layout?.['text-field'] !== undefined);
     for (const layer of labels) {
       const color = String(layer.paint?.['text-color']);
       const halo = String(layer.paint?.['text-halo-color']);
@@ -214,4 +216,21 @@ test('POI labels name key amenities by OSM subclass, not by the broader class', 
   assert.equal(shown({ class: 'drinking_water', subclass: 'drinking_water', rank: 1 }), true, 'unnamed fountains stay visible');
   assert.equal(shown({ class: 'waste_basket', subclass: 'waste_basket', rank: 1 }), false, 'unnamed bins stay hidden');
   assert.equal(shown({ class: 'railway', subclass: 'tram_stop', rank: 1, name: 'Castello' }), false, 'stops use the transit rings');
+});
+
+test('one-way chevrons cover both directions: oneway 1 along the line, -1 turned round', () => {
+  for (const scheme of ['light', 'dark'] as const) {
+    const layer = layerOf(mapStyleFor(scheme), 'avoid_oneway');
+    assert.equal(layer?.layout?.visibility, 'none', 'hidden until driving guidance shows it');
+    const filter = createExpression(layer?.filter, { type: 'boolean' } as never);
+    const rotate = createExpression(layer?.layout?.['icon-rotate'], latest.layout_symbol['icon-rotate'] as never);
+    assert.equal(filter.result, 'success'); assert.equal(rotate.result, 'success');
+    if (filter.result !== 'success' || rotate.result !== 'success') return;
+    const feature = (oneway: number) => ({ type: 'LineString', properties: { oneway, class: 'minor' } }) as never;
+    assert.equal(filter.value.evaluate({ zoom: 16 }, feature(1)), true);
+    assert.equal(filter.value.evaluate({ zoom: 16 }, feature(-1)), true);
+    assert.equal(filter.value.evaluate({ zoom: 16 }, feature(0)), false);
+    assert.equal(rotate.value.evaluate({ zoom: 16 }, feature(1)), 90);
+    assert.equal(rotate.value.evaluate({ zoom: 16 }, feature(-1)), 270);
+  }
 });

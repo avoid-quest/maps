@@ -1,4 +1,5 @@
 import type { LineString } from 'geojson';
+import type { GuidanceMapState } from '../navigation/useGuidanceCamera';
 export type MapCoordinate = [number, number];
 export interface MapMarker {
   id: string;
@@ -34,4 +35,9 @@ export interface MapCanvasProps {
   onViewChanged?: (center: MapCoordinate, zoom: number) => void;
   /** A user-driven camera change: the new centre and zoom. */
   onRegionChanged?: (center: MapCoordinate, zoom: number) => void;
+  /**
+   * Active road guidance: the app-controlled first-person camera and puck. While present, the map
+   * never runs its own following, padding re-centre or route fit, and a gesture enters free at once.
+   */
+  guidance?: GuidanceMapState | null;
 }

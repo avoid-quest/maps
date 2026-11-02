@@ -6,6 +6,10 @@ Version **0.2.0-beta.1 / Android code 12** is a GitHub **pre-release** for a phy
 
 Emulator evidence (Android 16 AOSP, no Google services) covers launch, theme switching, sheets, search, stop boards, road navigation start at 30–45 m accuracy, replayed walking with reroute, transit following by confirmations with device location off, the date/time dialogs and the Organic Maps hand-off. Physical GPS, screen-off guidance, real boarding/transfers, audible voice and battery remain field-test checks; the release notes carry the checklist.
 
+## Unreleased: first-person guidance
+
+Development-client evidence on the Android 16 AOSP emulator (no Google services, software ANGLE rendering) with 1 Hz test-provider replays of FOSSGIS walking, cycling and driving routes in Turin: the puck stays on its anchor (median error 0.08–0.19% of the screen height, p95 ≤ 0.66% during steady segments), the planner's projection matches MapLibre's own `project()` within about 1–2 px median, turn framing begins within one fix of the 8/10/12 s window, a 30 s stop holds bearing and zoom, a pan enters free at gesture start (about 60–75 ms to the free intent) and reroutes leave a free camera untouched, Ricentra issues one 500 ms move, degraded fixes stop the lead and keep the labelled last instruction, a live light/dark switch keeps the route, puck and basemap adjustments, and a transit access walk uses the walking camera. Emulator frame times (median 57 ms under screen recording) qualify the emulator only; physical-device smoothness, GPS course and speed quality, screen-off guidance and battery use remain field checks.
+
 ## Current release line: 0.1.9
 
 Version **0.1.9 / Android code 11** combines compact map-first UI, stable task/navigation geometry, foreground location acquisition and read-only provider diagnostics. Navigation still uses its existing GPS source and 20 m / 10 s acceptance policy. The production launcher exclusion keeps Google barcode-scanner dependencies out of the runtime graph while the separate development client remains available.

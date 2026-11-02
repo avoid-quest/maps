@@ -1,17 +1,34 @@
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, Linking, Modal, Pressable, ScrollView, useWindowDimensions, View } from 'react-native';
-import { Text } from '../../ui/Text';
-import { useThemeColors } from '../../theme';
+import { useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Linking, Modal, ScrollView, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useThemeColors } from '../../theme';
 import type { TransitConfirmation } from '../../domain/navigation';
 import { navigationLocationForReplan, navigationPresentation } from '../../domain/navigation';
-import { Button, Display, Icon, IconButton, Notice, Num, useHairlines } from '../../ui';
-import type { NavigationState } from './navigation-controller';
+import { Button, Display, Icon, IconButton, Notice, Num, Text, useHairlines } from '../../ui';
+import { PressableSurface } from '../../ui/PressableSurface';
 import { journeyDuration } from '../planner/journey-presentation';
+import type { CameraIntent } from './guidance-camera';
+import { bannerDistance, maneuverGlyph, maneuverLines, thenManeuver } from './maneuver-presentation';
+import { ManeuverGlyphImage } from './ManeuverGlyphImage';
+import { bannerMetrics, MAX_FONT_SCALE, stripLayout, type BannerMetrics } from './guidance-layout';
+import { BannerReserveProbe } from './BannerReserveProbe';
+import type { NavigationState } from './navigation-controller';
 
 const distance = (meters: number) => meters < 1000 ? `${Math.round(meters)} m` : `${(meters / 1000).toFixed(1).replace('.', ',')} km`;
-export function NavigationPanel({ snapshot, busy, error, following, onRecenter, onStop, onRetry, onMute, onConfirmTransit, onReplan }: NavigationState & {
-  following: boolean; onRecenter: () => void; onStop: () => void; onRetry: () => void; onMute: () => void;
+/** Landscape side panel width (dp): the strip and details move beside the map. */
+const SIDE_PANEL = 320;
+const clock = (value: number) => new Date(value).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+
+/**
+ * Road guidance: a flush maneuver banner on top, the map, and a compact bottom strip (arrival,
+ * remaining time/distance, voice, overview, Interrompi). Status lives in a reserved row, so position
+ * quality, rerouting and pauses never move the banner, the strip or the camera's anchor.
+ */
+export function NavigationPanel({ snapshot, busy, error, intent, onRecenter, onOverview, onChromeLayout, onStop, onRetry, onMute, onConfirmTransit, onReplan }: NavigationState & {
+  following: boolean; intent: CameraIntent; onRecenter: () => void; onOverview: () => void;
+  /** Heights of the banner and the bottom strip, so the camera anchors the puck between them. */
+  onChromeLayout: (top: number, bottom: number, right?: number) => void;
+  onStop: () => void; onRetry: () => void; onMute: () => void;
   onConfirmTransit: (action: TransitConfirmation) => void; onReplan: () => void;
 }) {
   const colors = useThemeColors();
@@ -19,94 +36,182 @@ export function NavigationPanel({ snapshot, busy, error, following, onRecenter, 
   const { width, height, fontScale } = useWindowDimensions();
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [now, setNow] = useState(Date.now());
+  const banner = useRef(0);
+  const strip = useRef(0);
+  const [stripHeight, setStripHeight] = useState(0);
+  const [bannerHeight, setBannerHeight] = useState(0);
   const transitMode = snapshot.mode === 'transit';
-  const cues = snapshot.locationUsable === true;
   const waiting = busy === 'start' || snapshot.status === 'waiting-for-fix' || snapshot.status === 'routing' || snapshot.status === 'rerouting';
-  const remainingSeconds = snapshot.mode !== 'transit' ? snapshot.durationRemainingSeconds : undefined;
-  const arrival = remainingSeconds != null && snapshot.location ? new Date(snapshot.location.timestamp + remainingSeconds * 1000).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }) : null;
+  const remainingSeconds = !transitMode ? snapshot.durationRemainingSeconds : undefined;
+  const text0 = navigationPresentation(snapshot, now, null, busy === 'start');
+  // Only a current fix advances the estimate; a paused position never shows an apparently current ETA.
+  const arrival = remainingSeconds != null && snapshot.location && text0.guiding ? clock(snapshot.location.timestamp + remainingSeconds * 1000) : null;
   const text = navigationPresentation(snapshot, now, arrival, busy === 'start');
   const { terminal, guiding, paused, searching } = text;
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), searching ? 1_000 : 15_000); return () => clearInterval(timer); }, [searching]);
   const transit = snapshot.transit;
-  const time = (value: number) => new Date(value).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
   const transitAge = transit ? Math.max(0, Math.floor((now - transit.fetchedAt) / 60_000)) : 0;
   const replanLocation = navigationLocationForReplan(snapshot);
   const confirmation: TransitConfirmation | undefined = transit?.canConfirmWalking ? 'walk-complete' : transit?.canConfirmBoarding ? 'board' : transit?.canConfirmAlighting ? 'alight' : undefined;
-  const voiceLabel = snapshot.voice === 'ready' ? 'Voce attiva' : snapshot.voice === 'muted' ? 'Voce disattivata' : snapshot.voice === 'initializing' ? 'Preparazione voce' : 'Voce non disponibile';
-  const source = snapshot.route?.source ?? (snapshot.mode === 'transit' ? 'MATO / 5T' : 'FOSSGIS / OpenStreetMap');
+  const source = snapshot.route?.source ?? (transitMode ? 'MATO / 5T' : 'FOSSGIS / OpenStreetMap');
   const landscape = width >= 650 && height < 500;
-  const panelHeight = Math.min(height * 0.46, Math.max(176, 176 * Math.min(fontScale, 1.5)));
+  // Landscape: the strip is a side panel on the right, not a bottom occlusion.
+  const report = () => landscape ? onChromeLayout(banner.current, 0, SIDE_PANEL) : onChromeLayout(banner.current, strip.current, 0);
+
+  // Banner content: the upcoming maneuver while there is one (kept, labelled, while paused).
+  const maneuver = snapshot.upcomingManeuver;
+  const showManeuver = !terminal && !searching && (snapshot.status === 'navigating' || snapshot.status === 'off-route' || paused) && !!(maneuver ?? snapshot.instruction);
+  const glyph = maneuverGlyph(maneuver);
+  const lines = maneuverLines(maneuver, snapshot.instruction);
+  const meters = guiding && snapshot.distanceToManeuverMeters != null ? bannerDistance(snapshot.distanceToManeuverMeters) : null;
+  const then = showManeuver && !paused ? thenManeuver(snapshot) : null;
+  const status = snapshot.status === 'rerouting' ? 'Ricalcolo del percorso…' : snapshot.status === 'off-route' ? 'Fuori percorso · ricalcolo se prosegui'
+    : paused ? 'Guida in pausa · Ultima indicazione' : searching ? text.signal : text.precision;
+  const statusTone = paused || snapshot.status === 'off-route' || (!searching && text.precision) ? 'text-caution' : 'text-secondary';
+  const problem = snapshot.problem && !(paused && snapshot.problem.startsWith('location-') && !snapshot.canRetry) ? text.quality : null;
+  const showRetry = snapshot.canRetry && !confirmation && (!!snapshot.problem || snapshot.status === 'interrupted' || snapshot.status === 'off-route' || text.searching);
+  const thenText = then ? maneuverLines(then, then.instruction).secondary ?? then.instruction : null;
+  const bannerLabel = (showManeuver ? `${meters ? `Tra ${meters.label}, ` : ''}${maneuver?.instruction ?? snapshot.instruction ?? ''}` : `${text.header}. ${text.instruction}`)
+    + (thenText ? `. Poi ${thenText}` : '') + (status ? `. ${status}` : '');
+  const voice = snapshot.voice === 'ready' ? { icon: 'volume-high-outline' as const, label: 'Voce attiva. Disattiva la voce' }
+    : snapshot.voice === 'muted' ? { icon: 'volume-mute-outline' as const, label: 'Voce disattivata. Attiva la voce' }
+      : snapshot.voice === 'initializing' ? { icon: 'volume-low-outline' as const, label: 'Preparazione della voce' }
+        : { icon: 'volume-off-outline' as const, label: 'Voce non disponibile: nessuna voce italiana offline' };
+  // Formula reserves until the probe measures the real (non-linearly scaled) text heights.
+  const [measured, setMeasured] = useState<{ scale: number; rows: Omit<BannerMetrics, 'glyph'> } | null>(null);
+  const metrics = measured && measured.scale === fontScale ? { ...bannerMetrics(fontScale), ...measured.rows } : bannerMetrics(fontScale);
+  const glyphSize = metrics.glyph;
+  const firstRow = metrics.firstRow;
+  const stacked = stripLayout(width, fontScale) === 'stacked' && !landscape;
+
+  const summary = (
+  <PressableSurface surfaceStyle={stacked ? { borderRadius: 16 } : { flex: 1, borderRadius: 16 }} rippleColor={`${colors.textPrimary}1F`} contentClassName="min-h-12 justify-center px-2 py-1"
+    accessibilityRole="button" accessibilityHint="Apre i dettagli della navigazione"
+    accessibilityLabel={`${arrival ? `Arrivo stimato alle ${arrival}, senza traffico` : remainingSeconds != null && paused ? 'Stima sospesa senza una posizione aggiornata; ultima stima' : 'Il tuo viaggio'}${snapshot.distanceRemainingMeters != null ? `, mancano ${remainingSeconds != null ? journeyDuration(remainingSeconds) + ' e ' : ''}${distance(snapshot.distanceRemainingMeters)}` : ''}`}
+    onPress={() => setDetailsOpen(true)}>
+    {arrival ? <View className="flex-row items-center gap-2">
+      <Num testID="navigation-arrival" className="text-xl font-semibold text-primary">{arrival}</Num>
+      <View className="shrink">
+        {stacked ? <Text className="text-sm text-secondary">arrivo stimato · senza traffico</Text> : <>
+          <Text numberOfLines={1} className="text-xs leading-4 text-secondary">arrivo stimato</Text>
+          <Text numberOfLines={1} className="text-xs leading-4 text-secondary">senza traffico</Text>
+        </>}
+      </View>
+    </View> : <Text numberOfLines={stacked ? undefined : 1} className="text-base font-semibold leading-7 text-primary">{remainingSeconds != null && paused ? 'Stima sospesa' : terminal ? text.header : 'Il tuo viaggio'}</Text>}
+    {!transit && snapshot.distanceRemainingMeters != null && !terminal
+      ? <Num numberOfLines={stacked ? undefined : 1} adjustsFontSizeToFit={!stacked} minimumFontScale={0.85} className={`text-sm ${paused ? 'text-caution' : 'text-secondary'}`}>{remainingSeconds != null ? `${journeyDuration(remainingSeconds)} · ` : ''}{distance(snapshot.distanceRemainingMeters)}</Num>
+      : transit ? <Num className="text-sm text-secondary">{`Tratta ${transit.legIndex + 1} di ${transit.legCount}`}</Num> : null}
+  </PressableSurface>
+  );
+  const controls = <>
+  {!terminal && snapshot.sessionId ? <IconButton icon={voice.icon} label={voice.label} active={snapshot.voice === 'muted'}
+    disabled={!!busy || (snapshot.voice !== 'ready' && snapshot.voice !== 'muted')} onPress={onMute} /> : null}
+  {!terminal ? <IconButton icon="map-outline" label="Panoramica del percorso" active={intent === 'overview'} disabled={!snapshot.route} onPress={onOverview} /> : null}
+  <View><Button loading={busy === 'stop'} onPress={onStop}>{terminal ? 'Chiudi' : 'Interrompi'}</Button></View>
+  </>;
+
   return <View pointerEvents="box-none" className="flex-1">
-    <View testID="navigation-instruction" style={{ height: Math.min(height * 0.3, 104 * Math.min(fontScale, 1.5)), ...(landscape ? { position: "absolute", top: 0, left: 0, right: 320 } as const : {}), backgroundColor: colors.chrome, ...hairlines.bottom }} className="px-4 py-3">
-      <ScrollView>
-        <View className="flex-row items-center gap-2">
-          <View className="w-6">{waiting ? <ActivityIndicator color={colors.textPrimary} /> : <Icon name={snapshot.status === 'arrived' ? 'flag-outline' : 'navigate-outline'} color={colors.textPrimary} />}</View>
-          {guiding && !transitMode && snapshot.distanceToManeuverMeters != null
-            ? <Display accessibilityRole="header" accessibilityLiveRegion="polite" accessibilityLabel={text.header} size={34} className="flex-1 text-primary">{distance(snapshot.distanceToManeuverMeters)}</Display>
-            : <Text accessibilityRole="header" accessibilityLiveRegion="polite" className="flex-1 text-sm font-semibold text-primary">{text.header}</Text>}
+    <View testID="navigation-instruction" accessible accessibilityRole="header" accessibilityLabel={bannerLabel}
+      onLayout={event => { banner.current = event.nativeEvent.layout.height; setBannerHeight(banner.current); report(); }}
+      style={{ backgroundColor: colors.chrome, ...hairlines.bottom, ...(landscape ? { position: 'absolute', top: 0, left: 0, right: SIDE_PANEL } : {}) }} className="px-4 pb-2 pt-3">
+      <BannerReserveProbe key={fontScale} onMeasure={rows => setMeasured(current => current && current.scale === fontScale
+        && current.rows.firstRow === rows.firstRow && current.rows.lines === rows.lines && current.rows.thenRow === rows.thenRow ? current : { scale: fontScale, rows })} />
+      {/* Every row has a fixed height for the font scale (guidance-layout.ts): no instruction,
+          status or pause changes the banner height, so the camera anchor never moves. */}
+      <View className="flex-row items-start gap-3">
+        <View style={{ minWidth: glyphSize, minHeight: glyphSize }} className="items-center justify-center pt-1">
+          {showManeuver ? <ManeuverGlyphImage glyph={glyph} size={glyphSize} color={colors.textPrimary} />
+            : waiting ? <ActivityIndicator color={colors.textPrimary} />
+              : <Icon name={snapshot.status === 'arrived' ? 'flag-outline' : 'navigate-outline'} size={30} color={colors.textPrimary} />}
         </View>
-        <Text className="mt-1 text-xl font-semibold leading-7 text-primary">{text.instruction}</Text>
-      </ScrollView>
-    </View>
-    <View pointerEvents="box-none" className="flex-1">
-      <View style={{ position: "absolute", right: landscape ? 332 : 12, top: landscape ? Math.min(height * 0.3, 104 * Math.min(fontScale, 1.5)) + 48 : 48 }}>
-        <IconButton floating icon="locate-outline" label="Ricentra sulla mia posizione" active={following} disabled={!snapshot.location} onPress={onRecenter} />
-      </View>
-    </View>
-    <View testID="navigation-sheet" style={[landscape ? { position: "absolute", right: 0, top: 0, bottom: 0, width: 320 } : { height: panelHeight }, hairlines.top]} className="rounded-t-3xl bg-surface">
-      <View className="flex-row items-center gap-3 px-4 pt-2" style={{ height: 52 }}>
-        {searching && text.signal ? <Num testID="navigation-signal" accessibilityLiveRegion="polite" className="flex-1 text-base font-semibold leading-5 text-primary" numberOfLines={2}>{text.signal}</Num>
-          : <Num className="flex-1 text-lg font-semibold text-primary" numberOfLines={1}>{!transit && snapshot.distanceRemainingMeters != null ? `${remainingSeconds != null ? journeyDuration(remainingSeconds) + ' · ' : ''}${distance(snapshot.distanceRemainingMeters)}` : transit ? `Tratta ${transit.legIndex + 1} di ${transit.legCount}` : 'Il tuo viaggio'}</Num>}
-        <Pressable accessibilityRole="button" accessibilityLabel={`Dettagli navigazione, ${voiceLabel}`} onPress={() => setDetailsOpen(true)} className="min-h-12 min-w-12 items-center justify-center px-2"><Text className="text-sm font-semibold text-primary underline">Dettagli</Text></Pressable>
-      </View>
-      <ScrollView className="flex-1" contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 8, gap: 8 }}>
-        {/* Only about two lines are visible above the actions: precision and warnings come first. */}
-        {text.precision ? <Num testID="navigation-reduced-precision" className="text-sm font-semibold leading-5 text-caution">{text.precision}</Num> : null}
-        {!searching && text.signal ? <Num testID="navigation-signal" className="text-sm font-semibold leading-5 text-primary">{text.signal}</Num> : null}
-        {text.transitWarning ? <Notice tone="danger" text={text.transitWarning} /> : null}
-        <Text testID="navigation-quality" accessibilityLiveRegion="polite" className="text-sm leading-5 text-secondary">{text.quality}</Text>
-        {paused && snapshot.location && !transitMode ? <Text className="text-sm leading-5 text-secondary">Ultima posizione accettata: <Num className="text-sm text-secondary">{time(snapshot.location.timestamp)} · ±{distance(snapshot.location.accuracyMeters)}</Num></Text> : null}
-        {!terminal && snapshot.sessionId && !snapshot.notificationGranted ? <Notice text="Notifiche disattivate: nessun controllo nella barra delle notifiche. Interrompi la guida da qui." action="Apri impostazioni" onAction={() => { void Linking.openSettings(); }} /> : null}
-        {!terminal && snapshot.sessionId && snapshot.voice === 'unavailable' ? <Text testID="navigation-voice" className="text-sm leading-5 text-secondary">Solo indicazioni visive: nessuna voce italiana offline installata.</Text> : null}
-        {snapshot.problem === 'location-permission' ? <Button variant="secondary" onPress={() => { void Linking.openSettings(); }}>Apri impostazioni</Button> : null}
-        {error ? <Notice tone="danger" text={error} /> : null}
-      {transit ? <Text className="text-sm leading-5 text-secondary">{transit.line ? `${transit.line} · ` : ''}{transit.timingStatus === 'prediction' ? 'Previsioni' : transit.timingStatus === 'scheduled' ? 'Da orario' : transit.timingStatus === 'cancelled' ? 'Corsa cancellata' : 'Orari non disponibili'} · consultato {time(transit.fetchedAt)}{transitAge >= 2 ? ` · consultato ${transitAge} min fa, da aggiornare` : ''}</Text> : null}
-      {snapshot.mode === 'transit' && (snapshot.problem === 'transit-replan-needed' || transitAge >= 2 || text.transitWarning) ? <Button variant="secondary" icon="refresh-outline" disabled={!!busy} onPress={onReplan}>{replanLocation ? 'Ricalcola dalla mia posizione' : 'Scegli la partenza'}</Button> : null}
-      {snapshot.status === 'arrived' ? <Text className="text-base leading-6 text-primary">Guida terminata. Verifica l’ingresso sul posto.</Text> : null}
-      {snapshot.status === 'arrived' && snapshot.destinationDistanceMeters != null && snapshot.destinationDistanceMeters > 30 ? <Text className="text-sm leading-5 text-secondary">La destinazione dista ancora {distance(snapshot.destinationDistanceMeters)} in linea d’aria.</Text> : null}
-      </ScrollView>
-      <View style={hairlines.top} className="px-4 pb-3 pt-2">
-        <View className="flex-row gap-2">
-          <View className="min-w-0 flex-1">{!terminal && confirmation ? <Button variant="secondary" disabled={!!busy} onPress={() => onConfirmTransit(confirmation)}>{confirmation === 'board' ? 'Sono a bordo' : confirmation === 'alight' ? 'Sono sceso' : 'Sono arrivato'}</Button> : <Button variant="secondary" icon="refresh-outline" loading={busy === 'retry'} disabled={!!busy || !snapshot.canRetry} onPress={onRetry}>{snapshot.status === 'interrupted' ? 'Riprendi' : 'Riprova'}</Button>}</View>
-          <View className="min-w-0 flex-1"><Button icon={terminal ? 'close-outline' : 'stop-circle-outline'} loading={busy === 'stop'} onPress={onStop}>{terminal ? 'Chiudi' : 'Interrompi'}</Button></View>
+        <View className="min-w-0 flex-1">
+          {showManeuver ? <>
+            <View style={{ height: firstRow }} className="flex-row items-baseline gap-1 overflow-hidden">
+              {meters ? <><Display maxFontSizeMultiplier={MAX_FONT_SCALE} size={42} className="text-primary">{meters.value}</Display>
+                <Text maxFontSizeMultiplier={MAX_FONT_SCALE} className="text-xl font-semibold text-secondary">{meters.unit}</Text></> : null}
+            </View>
+            {/* Street on two lines, or one street line and the action. */}
+            <View style={{ height: metrics.lines }} className="overflow-hidden">
+              <Text maxFontSizeMultiplier={MAX_FONT_SCALE} accessibilityLiveRegion="polite" numberOfLines={lines.secondary ? 1 : 2} className="text-xl font-semibold leading-7 text-primary">{lines.primary}</Text>
+              {lines.secondary ? <Text maxFontSizeMultiplier={MAX_FONT_SCALE} numberOfLines={1} className="text-base leading-6 text-secondary">{lines.secondary}</Text> : null}
+            </View>
+          </> : <>
+            <View style={{ height: firstRow }} className="justify-end overflow-hidden"><Display maxFontSizeMultiplier={MAX_FONT_SCALE} size={26} accessibilityLiveRegion="polite" numberOfLines={1} className="text-primary">{text.header}</Display></View>
+            <View style={{ height: metrics.lines }} className="overflow-hidden">
+              <Text maxFontSizeMultiplier={MAX_FONT_SCALE} numberOfLines={2} className="text-lg font-semibold leading-6 text-primary">{text.instruction}</Text>
+            </View>
+          </>}
         </View>
       </View>
+      {/* "Poi …" only; status has its own space below the banner, so neither hides the other. */}
+      <View style={{ height: metrics.thenRow }} className="flex-row items-center gap-2 overflow-hidden">
+        {then ? <>
+          <Text maxFontSizeMultiplier={MAX_FONT_SCALE} className="text-sm font-semibold text-secondary">Poi</Text>
+          <ManeuverGlyphImage glyph={maneuverGlyph(then)} size={22} color={colors.textSecondary} />
+          <Text maxFontSizeMultiplier={MAX_FONT_SCALE} numberOfLines={1} className="min-w-0 flex-1 text-sm text-secondary">{thenText}</Text>
+        </> : null}
+      </View>
+    </View>
+
+    {/* Status (reduced precision, rerouting, off route, paused, search signal) floats just below the
+        banner, clear of the attribution control, so it never competes with "Poi" for space and never
+        changes the layout. */}
+    {status ? <View pointerEvents="none" style={{ position: 'absolute', top: bannerHeight + 8, left: 60, right: landscape ? SIDE_PANEL + 12 : 12 }} className="items-start">
+      <View style={[hairlines.floating, { borderRadius: 16 }]} className="px-3 py-1.5">
+        <Num testID="navigation-status" accessibilityLiveRegion="polite" maxFontSizeMultiplier={MAX_FONT_SCALE} numberOfLines={2} className={`text-sm font-semibold ${statusTone}`}>{status}</Num>
+      </View>
+    </View> : null}
+
+    <View pointerEvents="box-none" className="flex-1" />
+
+    <View testID="navigation-sheet" onLayout={event => { strip.current = event.nativeEvent.layout.height; setStripHeight(strip.current); report(); }}
+      style={[hairlines.top, landscape ? { position: 'absolute', right: 0, top: 0, bottom: 0, width: SIDE_PANEL } : null]} className="bg-surface px-3 pb-2 pt-2">
+      {/* One row when the summary has room; otherwise the summary takes its own row above the
+          controls (guidance-layout.ts), so labels and numbers are never truncated. */}
+      {stacked ? <>{summary}<View className="flex-row items-center justify-end gap-1">{controls}</View></>
+        : <View className="flex-row items-center gap-1">{summary}{controls}</View>}
+    </View>
+
+    {/* Above the strip, over the map: a problem or Ricentra never changes the strip height, so the
+        camera's anchor (and the puck) never jump. It lives in the screen container: Android delivers
+        no touches to children drawn outside their parent's bounds. */}
+    <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: landscape ? SIDE_PANEL : 0, bottom: landscape ? 0 : stripHeight }} className="gap-2 pb-2">
+      {intent !== 'follow' && snapshot.location ? <View pointerEvents="box-none" className="items-center">
+        <PressableSurface testID="navigation-recenter" surfaceStyle={[hairlines.floating, { borderRadius: 24 }]} rippleColor={`${colors.textPrimary}1F`}
+          contentClassName="min-h-12 flex-row items-center gap-2 px-5" accessibilityRole="button" accessibilityLabel="Ricentra sulla mia posizione" onPress={onRecenter}>
+          <Icon name="navigate-outline" color={colors.textPrimary} /><Text className="text-base font-semibold text-primary">Ricentra</Text>
+        </PressableSurface>
+      </View> : null}
+      {problem || error || showRetry ? <View style={[hairlines.floating, { borderRadius: 16 }]} className="mx-3 flex-row items-center gap-3 px-3 py-2">
+        <Text testID="navigation-quality" accessibilityLiveRegion="polite" numberOfLines={3} className="min-w-0 flex-1 text-sm leading-5 text-primary">{error ?? problem ?? text.quality}</Text>
+        {showRetry ? <Button variant="secondary" icon="refresh-outline" loading={busy === 'retry'} disabled={!!busy} onPress={onRetry}>{snapshot.status === 'interrupted' ? 'Riprendi' : 'Riprova'}</Button> : null}
+      </View> : null}
+      {!terminal && confirmation ? <View className="mx-3"><Button variant="secondary" disabled={!!busy} onPress={() => onConfirmTransit(confirmation)}>{confirmation === 'board' ? 'Sono a bordo' : confirmation === 'alight' ? 'Sono sceso' : 'Sono arrivato'}</Button></View> : null}
     </View>
     <Modal visible={detailsOpen} transparent animationType="slide" onRequestClose={() => setDetailsOpen(false)}>
-      <View style={{ backgroundColor: "rgba(0,0,0,0.45)" }} className="flex-1 justify-end">
+      <View style={{ backgroundColor: 'rgba(0,0,0,0.45)' }} className="flex-1 justify-end">
         <SafeAreaView edges={['bottom']} accessibilityViewIsModal className="max-h-[80%] rounded-t-3xl bg-surface">
           <View style={hairlines.bottom} className="flex-row items-center justify-between px-4 py-2">
             <Text accessibilityRole="header" className="mr-2 flex-1 text-lg font-semibold text-primary">Dettagli navigazione</Text>
             <IconButton icon="close-outline" label="Chiudi dettagli" onPress={() => setDetailsOpen(false)} />
           </View>
           <ScrollView contentContainerStyle={{ padding: 20, gap: 14 }}>
-      {transit ? <View className="gap-2">
-        <Text className="text-base font-semibold text-primary">{transit.line ?? ((transit.phase === 'walk' || transit.phase === 'transfer') ? 'A piedi' : 'Mezzo pubblico')}{transit.headsign ? ` verso ${transit.headsign}` : ''}</Text>
-        {transit.from || transit.to ? <Text className="text-sm leading-5 text-secondary">{transit.from ?? 'Partenza'} → {transit.to ?? 'Destinazione'}</Text> : null}
-        <Text className="text-sm leading-5 text-secondary">{transit.timingStatus === 'scheduled' ? 'Orari programmati' : transit.timingStatus === 'prediction' ? 'Previsioni consultate' : transit.timingStatus === 'cancelled' ? 'Corsa cancellata' : 'Stato della corsa non disponibile'}{transit.departureAt ? ` · partenza ${time(transit.departureAt)}` : ''}{transit.arrivalAt ? ` · arrivo ${time(transit.arrivalAt)}` : ''}. Dati consultati {transitAge < 1 ? 'meno di un minuto fa' : `${transitAge} min fa`}.</Text>
-        {transitAge >= 2 ? <Notice text="Dati da aggiornare. Corse non monitorate durante la guida." /> : null}
-        {guiding && cues && snapshot.distanceToManeuverMeters != null ? <Text className="text-sm text-secondary">Distanza dal punto da raggiungere in linea d’aria: {distance(snapshot.distanceToManeuverMeters)}.</Text> : null}
-        {transit.proximityAvailable === false ? <Notice text="Vicinanza non disponibile. Conferma la fermata manualmente." /> : null}
-        {(transit.phase === 'walk' || transit.phase === 'transfer') ? <Text className="text-sm leading-5 text-secondary">Tratta a piedi senza indicazioni di svolta.</Text> : null}
-        {!terminal && !cues ? <Notice text="Avvisi di vicinanza sospesi senza una posizione precisa. Conferma salita e discesa manualmente." /> : null}
-      </View> : null}
+            {text.precision ? <Num testID="navigation-reduced-precision" className="text-sm font-semibold leading-5 text-caution">{text.precision}</Num> : null}
+            {text.signal ? <Num testID="navigation-signal" className="text-sm font-semibold leading-5 text-primary">{text.signal}</Num> : null}
+            {text.transitWarning ? <Notice tone="danger" text={text.transitWarning} /> : null}
+            {transit ? <Text className="text-sm leading-5 text-secondary">{transit.line ? `${transit.line} · ` : ''}{transit.timingStatus === 'prediction' ? 'Previsioni' : transit.timingStatus === 'scheduled' ? 'Da orario' : transit.timingStatus === 'cancelled' ? 'Corsa cancellata' : 'Orari non disponibili'} · consultato {clock(transit.fetchedAt)}{transitAge >= 2 ? ` · ${transitAge} min fa, da aggiornare` : ''}</Text> : null}
+            {transitMode && (snapshot.problem === 'transit-replan-needed' || transitAge >= 2 || text.transitWarning) ? <Button variant="secondary" icon="refresh-outline" disabled={!!busy} onPress={onReplan}>{replanLocation ? 'Ricalcola dalla mia posizione' : 'Scegli la partenza'}</Button> : null}
             {snapshot.nextInstruction ? <Text className="text-sm leading-5 text-secondary">Poi: {snapshot.nextInstruction}</Text> : null}
-            {snapshot.location ? <Text className="text-sm leading-5 text-secondary">Ultima posizione accettata: {time(snapshot.location.timestamp)} · ±{distance(snapshot.location.accuracyMeters)}</Text> : null}
+            {snapshot.location ? <Text className="text-sm leading-5 text-secondary">Ultima posizione accettata: <Num className="text-sm text-secondary">{clock(snapshot.location.timestamp)} · ±{distance(snapshot.location.accuracyMeters)}</Num></Text> : null}
+            {snapshot.status === 'arrived' ? <Text className="text-base leading-6 text-primary">Guida terminata. Verifica l’ingresso sul posto.</Text> : null}
+            {snapshot.status === 'arrived' && snapshot.destinationDistanceMeters != null && snapshot.destinationDistanceMeters > 30 ? <Text className="text-sm leading-5 text-secondary">La destinazione dista ancora {distance(snapshot.destinationDistanceMeters)} in linea d’aria.</Text> : null}
+            {!terminal && snapshot.sessionId && !snapshot.notificationGranted ? <Notice text="Notifiche disattivate: nessun controllo nella barra delle notifiche. Interrompi la guida da qui." action="Apri impostazioni" onAction={() => { void Linking.openSettings(); }} /> : null}
+            {snapshot.problem === 'location-permission' ? <Button variant="secondary" onPress={() => { void Linking.openSettings(); }}>Apri impostazioni</Button> : null}
             {!terminal && snapshot.sessionId ? <>
-              <Text className="text-sm leading-5 text-secondary">{snapshot.voice === 'ready' ? 'Voce italiana disponibile sul dispositivo.' : snapshot.voice === 'muted' ? 'Voce disattivata.' : snapshot.voice === 'initializing' ? 'Preparazione della voce…' : 'Installa una voce italiana offline per la guida vocale.'}</Text>
+              <Text testID="navigation-voice" className="text-sm leading-5 text-secondary">{snapshot.voice === 'ready' ? 'Voce italiana disponibile sul dispositivo.' : snapshot.voice === 'muted' ? 'Voce disattivata.' : snapshot.voice === 'initializing' ? 'Preparazione della voce…' : 'Solo indicazioni visive: installa una voce italiana offline per la guida vocale.'}</Text>
               {(snapshot.voice === 'ready' || snapshot.voice === 'muted') ? <Button variant="secondary" icon={snapshot.voice === 'muted' ? 'volume-high-outline' : 'volume-mute-outline'} disabled={!!busy} onPress={onMute}>{snapshot.voice === 'muted' ? 'Attiva voce' : 'Disattiva voce'}</Button> : null}
             </> : null}
-            <Text className="text-sm leading-5 text-secondary">{source}. {snapshot.mode === 'transit' ? 'La posizione non conferma la presenza a bordo: conferma salita e discesa.' : 'Stime senza traffico in tempo reale.'} {snapshot.route ? `Percorso consultato alle ${time(snapshot.route.fetchedAt)}.` : ''}</Text>
+            <Text className="text-sm leading-5 text-secondary">{source}. {transitMode ? 'La posizione non conferma la presenza a bordo: conferma salita e discesa.' : 'Orario di arrivo stimato senza traffico in tempo reale.'} {snapshot.route ? `Percorso consultato alle ${clock(snapshot.route.fetchedAt)}.` : ''}</Text>
             <Text className="text-sm leading-5 text-secondary">La guida può continuare con lo schermo spento finché Android mantiene la sessione attiva.</Text>
           </ScrollView>
           <View className="px-4 pb-3 pt-2"><Button variant="secondary" icon={terminal ? 'close-outline' : 'stop-circle-outline'} loading={busy === 'stop'} onPress={onStop}>{terminal ? 'Chiudi navigazione' : 'Interrompi navigazione'}</Button></View>

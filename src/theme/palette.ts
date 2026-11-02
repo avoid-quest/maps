@@ -51,6 +51,8 @@ export interface MapColors {
   background: string;
   routeLine: string;
   routeCasing: string;
+  /** The part of a guidance route already travelled: thinner and muted beneath the active line. */
+  routeTraveled: string;
   placeMarker: string;
   stopMarker: string;
   markerStroke: string;
@@ -132,6 +134,7 @@ export const palettes: Record<ColorScheme, Palette> = {
       background: basemapInks.light.land,
       routeLine: '#09090B',
       routeCasing: '#FFFFFF',
+      routeTraveled: '#A1A1AA',
       placeMarker: '#09090B',
       stopMarker: '#71717A',
       markerStroke: '#FFFFFF',
@@ -152,6 +155,7 @@ export const palettes: Record<ColorScheme, Palette> = {
       background: basemapInks.dark.land,
       routeLine: '#FFFFFF',
       routeCasing: '#000000',
+      routeTraveled: '#52525B',
       placeMarker: '#FFFFFF',
       stopMarker: '#A1A1AA',
       markerStroke: '#000000',

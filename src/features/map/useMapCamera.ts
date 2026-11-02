@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Coordinate } from '../../domain/types';
+import { nextIntent, type CameraIntent, type CameraIntentEvent } from '../navigation/guidance-camera';
 import { TURIN_OVERVIEW } from './coordinates';
 import { createViewportStore, mayPersistSettledView } from './viewport-store';
 
@@ -18,6 +19,12 @@ export interface MapCamera {
   areaChanged: boolean;
   /** Guidance follows accepted positions until the user pans. */
   following: boolean;
+  /** Guidance camera intent: follow, free (after a gesture) or overview. */
+  guidanceIntent: CameraIntent;
+  /** Changes on every explicit Ricentra, so the camera issues exactly one transition. */
+  guidanceRecenter: number;
+  /** Changes on every explicit overview request; the remaining route is framed once per value. */
+  guidanceOverview: number;
   /** Changes when the user asks to frame the planning route again. */
   frameRevision: number;
   /** The launch overview, a restored view, a fix, or a view the user chose. */
@@ -38,9 +45,12 @@ export interface MapCamera {
   userMoved(coordinate: Coordinate, zoom?: number): void;
   /** Any settled camera move reported by the map outside guidance, including fits and animations. */
   viewSettled(coordinate: Coordinate, zoom?: number): void;
+  /** A guidance-map gesture began: enter free immediately and keep it until Ricentra. */
   stopFollowing(): void;
   follow(): void;
   recenterGuidance(): void;
+  /** Frame the remaining route north-up and flat, once. */
+  overviewGuidance(): void;
   frameRoute(): void;
   /** Forgets the stored last view; the next launch without a fix opens on the overview. */
   forgetLastView(): Promise<boolean>;
@@ -66,7 +76,10 @@ export function useMapCamera(): MapCamera {
   const [searchCenter, setSearchCenterState] = useState<Coordinate>(TURIN_OVERVIEW.center);
   const searchCenterRef = useRef<Coordinate>(TURIN_OVERVIEW.center);
   const [areaChanged, setAreaChanged] = useState(false);
-  const [following, setFollowing] = useState(true);
+  const [guidanceIntent, setGuidanceIntent] = useState<CameraIntent>('follow');
+  const [guidanceRecenter, setGuidanceRecenter] = useState(0);
+  const [guidanceOverview, setGuidanceOverview] = useState(0);
+  const intentEvent = useCallback((event: CameraIntentEvent) => setGuidanceIntent(current => nextIntent(current, event)), []);
   const [frameRevision, setFrameRevision] = useState(0);
   const [view, setView] = useState<CameraView>('overview');
   const [viewCenter, setViewCenter] = useState<Coordinate>(TURIN_OVERVIEW.center);
@@ -137,11 +150,13 @@ export function useMapCamera(): MapCamera {
       // Programmatic fits are what the user last saw too; persist them once the user has engaged.
       if (mayPersistSettledView({ engaged: touched.current || located.current, forgotten: forgotten.current })) scheduleSave();
     },
-    stopFollowing: () => setFollowing(false),
-    follow: () => setFollowing(true),
-    recenterGuidance: () => { setFollowing(true); setRevision(value => value + 1); },
+    stopFollowing: () => intentEvent('gesture'),
+    follow: () => intentEvent('reset'),
+    recenterGuidance: () => { intentEvent('recenter'); setGuidanceRecenter(value => value + 1); setRevision(value => value + 1); },
+    overviewGuidance: () => { intentEvent('overview'); setGuidanceOverview(value => value + 1); },
     frameRoute: () => setFrameRevision(value => value + 1),
     forgetLastView: () => { forgotten.current = true; clearTimeout(saveTimer.current); return viewportStore.clear(); },
-  }), [setCenter, setCameraZoom, setSearchCenter, scheduleSave]);
-  return { center, zoom, revision, searchCenter, areaChanged, following, frameRevision, view, viewCenter, ...actions };
+  }), [setCenter, setCameraZoom, setSearchCenter, scheduleSave, intentEvent]);
+  const following = guidanceIntent === 'follow';
+  return { center, zoom, revision, searchCenter, areaChanged, following, guidanceIntent, guidanceRecenter, guidanceOverview, frameRevision, view, viewCenter, ...actions };
 }

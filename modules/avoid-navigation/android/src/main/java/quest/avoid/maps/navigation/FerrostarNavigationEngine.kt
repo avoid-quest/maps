@@ -15,11 +15,17 @@ import uniffi.ferrostar.createNavigationSession
 /** Pure navigation core; Android owns lifecycle, fixes, network and speech. No SDK auto-rerouting. */
 internal class FerrostarNavigationEngine(responseJson: String, mode: String, firstFix: Location) : AutoCloseable {
   val route: Route
+  /** Raw OSRM maneuver facts aligned with [route] steps (Ferrostar's public steps drop them). */
+  val facts: List<ManeuverFacts>
+  val index: RouteGuideIndex
   private val config: NavigationControllerConfig
   private val session: NavigationSession
   private var state: NavState
   init {
     route = FerrostarRouteParser.parse(responseJson, mode)
+    facts = try { ManeuverFacts.parse(responseJson) } catch (_: org.json.JSONException) { throw NavigationFailure("invalid") }
+    if (facts.size != route.steps.size) throw NavigationFailure("invalid")
+    index = RouteGuideIndex(route.geometry, route.steps, facts)
     config = RoadGuidancePolicy.controllerConfig(mode)
     try {
       session = createNavigationSession(route, config, emptyList())

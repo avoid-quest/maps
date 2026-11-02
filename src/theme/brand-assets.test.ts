@@ -39,3 +39,9 @@ test('icon, adaptive, themed, splash and favicon PNGs match a fresh render of as
   const result = spawnSync(process.execPath.endsWith('bun') ? 'node' : process.execPath, ['scripts/render-brand-assets.mjs', '--check'], { cwd: fileURLToPath(root), encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr || result.stdout);
 });
+
+test('navigation puck, maneuver glyph and map symbol PNGs match a fresh render', async () => {
+  const { spawnSync } = await import('node:child_process');
+  const result = spawnSync(process.execPath.endsWith('bun') ? 'node' : process.execPath, ['scripts/render-navigation-assets.mjs', '--check'], { cwd: fileURLToPath(root), encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+});
