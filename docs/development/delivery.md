@@ -1,5 +1,11 @@
 # Android build verification
 
+## Field-test pre-release: 0.2.0-beta.1
+
+Version **0.2.0-beta.1 / Android code 12** is a GitHub **pre-release** for a physical-device field test; it is not marked latest, so 0.1.9 remains the normal release for Obtainium's default source. It adds the redesigned black/white interface with dark mode and bottom sheets, greyscale brand basemaps, navigation that starts and keeps guiding at real city GPS accuracy, GTT departures from a bundled timetable with identity joins across trip-ID rotations, transit journey following without GPS, a Transitous fallback and rail station pilot, multi-token search with Turin neighbourhoods and stop/line results, editable planner endpoints with a time chip, and an "open in another app" hand-off. The navigation source archive is unchanged from 0.1.9 (same SHA-256), because the bundled navigation dependencies did not change.
+
+Emulator evidence (Android 16 AOSP, no Google services) covers launch, theme switching, sheets, search, stop boards, road navigation start at 30–45 m accuracy, replayed walking with reroute, transit following by confirmations with device location off, the date/time dialogs and the Organic Maps hand-off. Physical GPS, screen-off guidance, real boarding/transfers, audible voice and battery remain field-test checks; the release notes carry the checklist.
+
 ## Current release line: 0.1.9
 
 Version **0.1.9 / Android code 11** combines compact map-first UI, stable task/navigation geometry, foreground location acquisition and read-only provider diagnostics. Navigation still uses its existing GPS source and 20 m / 10 s acceptance policy. The production launcher exclusion keeps Google barcode-scanner dependencies out of the runtime graph while the separate development client remains available.
