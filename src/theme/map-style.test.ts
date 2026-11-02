@@ -273,7 +273,7 @@ test('navigation buildings: a hidden, greyscale extrusion from z17 above flat fo
   }
 });
 
-test('navigation buildings extrude only supplied heights, never the OpenMapTiles 5 m default', () => {
+test('navigation buildings accept tagged or floor-derived heights but exclude the tile default', () => {
   // planetiler-openmaptiles Building.java: render_height = ceil(height ?? building:height ?? levels * 3.66 ?? 5),
   // render_min_height = floor(min_height ?? min_level * 3.66 ?? 0). A missing height therefore arrives as
   // exactly 5; height tags and levels are integers other than 5 (one level is 4, two are 8).

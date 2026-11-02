@@ -2,7 +2,7 @@ import type { GuidanceMapState } from '../navigation/useGuidanceCamera';
 
 /** Guidance route, casing and turn arrow sit directly before street names, so labels stay readable over the line. */
 export const GUIDANCE_ROUTE_BEFORE = 'highway-name-path';
-/** The brand basemap's hidden navigation-only extrusion of supplied building heights. */
+/** The brand basemap's hidden navigation-only approximate building extrusion. */
 export const BUILDING_EXTRUSION_LAYER = 'avoid_building_3d';
 
 export interface GuidanceBasemap {

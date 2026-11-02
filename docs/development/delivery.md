@@ -1,5 +1,13 @@
 # Android build verification
 
+## Unreleased: navigation buildings
+
+Navigation now shows restrained grey building volumes from zoom 17, using the existing OpenFreeMap tiles. Heights can come from mapped height tags or estimates from floor counts; they are approximate map context, not surveyed measurements. The 5 m tile default is excluded conservatively, also hiding genuine 5 m buildings. Browsing, planning, transit rides and route overview at every zoom keep flat footprints. No provider, dependency, permission or native code changed.
+
+Android 16 AOSP development-client evidence with 1 Hz synthetic walking fixes covers building rendering beside a central Turin route, visible route/casing, junction arrow and puck, live light/dark changes, panning, overview/recenter and Stop returning to flat planning. Screenshots and a recording are retained outside Git. Unit regressions cover guidance modes and the close-zoom overview bug (red before the fix, green after). Physical-device readability, GPS, frame pacing and battery remain field checks; cycling/driving and transit walking rendering have not been separately replayed for this increment. The emulator's sparse Android UI frame sample does not establish map-renderer performance or physical smoothness.
+
+Next beta field checklist: compare buildings and route visibility in both themes; check a short-route overview stays flat; pan/recenter and stop guidance; check street recognition, outdoor readability and sustained performance.
+
 ## Field-test pre-release: 0.2.0-beta.2
 
 Version **0.2.0-beta.2 / Android code 13** is a second GitHub pre-release (not marked latest). It adds first-person guidance: an app-controlled, course-up, pitched follow camera driven only by accepted native fixes, an original directional puck, turn framing ahead of each maneuver, a maneuver banner with glyphs and "Poi …", a compact bottom strip, traveled/remaining route rendering with a junction arrow, and a walking camera for transit access walks. Emulator replays verified anchor placement, framing timing, stationary stability, pan/recenter intent and degraded states; physical GPS course quality, frame pacing, screen-off guidance, voice timing and battery remain field-test checks. The navigation source archive is unchanged (same SHA-256).

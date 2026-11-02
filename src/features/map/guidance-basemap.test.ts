@@ -9,7 +9,7 @@ test('browsing and planning keep the basemap flat and complete', () => {
   }
 });
 
-test('first-person guidance shows supplied-height buildings in every camera mode', () => {
+test('first-person guidance shows approximate buildings in every camera mode', () => {
   assert.deepEqual(guidanceBasemap({ mode: 'walk', intent: 'follow' }), { reduceBusinesses: false, oneWayArrows: false, buildings: true });
   assert.deepEqual(guidanceBasemap({ mode: 'bicycle', intent: 'follow' }), { reduceBusinesses: true, oneWayArrows: false, buildings: true });
   assert.deepEqual(guidanceBasemap({ mode: 'car', intent: 'follow' }), { reduceBusinesses: true, oneWayArrows: true, buildings: true });

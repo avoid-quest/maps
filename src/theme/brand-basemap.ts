@@ -21,7 +21,7 @@ export interface BasemapInk {
   waterLabel: string;
   building: string;
   buildingEdge: string;
-  /** Navigation-only extrusions of supplied building heights (see `suppliedHeight`). */
+  /** Navigation-only approximate building volumes (see `nonDefaultBuildingHeight`). */
   buildingExtrusion: string;
   /** Pedestrian squares and areas. */
   plaza: string;
@@ -187,8 +187,8 @@ const transitClass = ['match', poiClass, ['bus', 'railway'], true, false];
 const visiblePoi = ['all', ['!', transitClass], ['any', ['has', 'name'], hasCategory]];
 
 /**
- * Buildings whose OpenMapTiles height comes from supplied OSM data. planetiler-openmaptiles (which builds
- * the OpenFreeMap tiles) writes `render_height = ceil(height ?? building:height ?? building:levels × 3.66 ?? 5)`
+ * Approximate buildings from OSM height tags or mapped floor counts, excluding the tile default.
+ * planetiler-openmaptiles (which builds the OpenFreeMap tiles) writes `render_height = ceil(height ?? building:height ?? building:levels × 3.66 ?? 5)`
  * and `render_min_height = floor(min_height ?? building:min_level × 3.66 ?? 0)`, with no field naming the
  * source. A missing height therefore always arrives as exactly 5. Supplied data reaches 5 only through a
  * mapped height above 4 m up to 5 m or a fractional level count (one level is 4, two are 8). Excluding
@@ -196,7 +196,7 @@ const visiblePoi = ['all', ['!', transitClass], ['any', ['has', 'name'], hasCate
  * heights are an approximation from supplied levels, not a default; the schema cannot separate them from
  * measured heights. `hide_3d` marks outlines whose `building:part`s carry the shape.
  */
-export const suppliedHeight = ['all',
+export const nonDefaultBuildingHeight = ['all',
   ['!', ['has', 'hide_3d']],
   ['==', ['typeof', ['get', 'render_height']], 'number'],
   ['==', ['typeof', ['get', 'render_min_height']], 'number'],
@@ -278,7 +278,7 @@ export function brandRecipe(scheme: ColorScheme): StyleRecipe {
         before: 'boundary_3',
         layer: {
           id: 'avoid_building_3d', type: 'fill-extrusion', source: 'openmaptiles', 'source-layer': 'building',
-          minzoom: BUILDING_EXTRUSION_MINZOOM, filter: suppliedHeight,
+          minzoom: BUILDING_EXTRUSION_MINZOOM, filter: nonDefaultBuildingHeight,
           layout: { visibility: 'none' },
           paint: {
             'fill-extrusion-color': ink.buildingExtrusion,
