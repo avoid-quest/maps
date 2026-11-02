@@ -1,12 +1,12 @@
 # Android build verification
 
-## Unreleased: navigation buildings
+## Field-test pre-release: 0.2.0-beta.3
 
-Navigation now shows restrained grey building volumes from zoom 17, using the existing OpenFreeMap tiles. Heights can come from mapped height tags or estimates from floor counts; they are approximate map context, not surveyed measurements. The 5 m tile default is excluded conservatively, also hiding genuine 5 m buildings. Browsing, planning, transit rides and route overview at every zoom keep flat footprints. No provider, dependency, permission or native code changed.
+Version **0.2.0-beta.3 / Android code 14** is prepared as a GitHub pre-release (not marked latest). It adds restrained grey building volumes from zoom 17, using the existing OpenFreeMap tiles. Heights can come from mapped height tags or estimates from floor counts; they are approximate map context, not surveyed measurements. The 5 m tile default is excluded conservatively, also hiding genuine 5 m buildings. Browsing, planning, transit rides and route overview at every zoom keep flat footprints. No provider, dependency, permission or native code changed.
 
 Android 16 AOSP development-client evidence with 1 Hz synthetic walking fixes covers building rendering beside a central Turin route, visible route/casing, junction arrow and puck, live light/dark changes, panning, overview/recenter and Stop returning to flat planning. Screenshots and a recording are retained outside Git. Unit regressions cover guidance modes and the close-zoom overview bug (red before the fix, green after). Physical-device readability, GPS, frame pacing and battery remain field checks; cycling/driving and transit walking rendering have not been separately replayed for this increment. The emulator's sparse Android UI frame sample does not establish map-renderer performance or physical smoothness.
 
-Next beta field checklist: compare buildings and route visibility in both themes; check a short-route overview stays flat; pan/recenter and stop guidance; check street recognition, outdoor readability and sustained performance.
+Beta.3 field checklist: compare buildings and route visibility in both themes; check a short-route overview stays flat; pan/recenter and stop guidance; check street recognition, outdoor readability and sustained performance.
 
 ## Field-test pre-release: 0.2.0-beta.2
 
