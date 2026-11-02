@@ -7,7 +7,7 @@ import {
   type CheckReason, type RefreshState,
 } from './refresh-policy';
 
-export type CheckOutcome = 'current' | 'installed' | 'not-modified' | 'outdated-manifest' | 'rejected' | 'failed' | 'skipped-network' | 'throttled';
+export type CheckOutcome = 'unsupported' | 'current' | 'installed' | 'not-modified' | 'outdated-manifest' | 'rejected' | 'failed' | 'skipped-network' | 'throttled';
 export interface ScheduleStatus {
   phase: 'preparing' | 'ready' | 'failed';
   meta?: DatasetMeta;
@@ -128,6 +128,8 @@ export function createTimetableService(deps: {
   async function run(reason: CheckReason): Promise<CheckOutcome> {
     const dataset = await ready();
     let state = bindActive(status.refresh, activeMeta(dataset.meta).packageHash);
+    // No mirror configured: nothing to check, and no failure, backoff or error to report.
+    if (!mirrors.length) { update({ lastOutcome: 'unsupported' }); return 'unsupported'; }
     if (!shouldCheck(state, reason, now())) { update({ lastOutcome: 'throttled' }); return 'throttled'; }
     if (deps.networkAllowed) {
       const allowed = await deps.networkAllowed(state.wifiOnly).catch(() => !state.wifiOnly);
