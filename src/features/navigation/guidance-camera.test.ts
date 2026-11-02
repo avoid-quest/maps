@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { CAMERA_PROFILES, followsClosely, framesManeuver, GuidanceCamera, nextIntent, overviewBounds, type CameraFrame, type CameraInput } from './guidance-camera';
-import { maneuverPoint, PHONE, routeFixture, trajectory, TURIN } from './guidance-fixtures';
+import { LANDSCAPE, maneuverPoint, PHONE, routeFixture, trajectory, TURIN } from './guidance-fixtures';
 import { inside, paddingForAnchor, principalPoint, project } from './map-projection';
 import { angleDelta, distanceMeters, offsetCoordinate, offsetOfIndex } from './route-measure';
 
@@ -188,4 +188,34 @@ test('providers without speed or course: kinematics are derived from consecutive
   assert.equal(frames[0]!.puck.kind, 'dot', 'no direction before a second fix');
   assert.ok(Math.abs(angleDelta(frames[7]!.bearing, 300)) < 1);
   assert.ok(frames[7]!.leadMeters > 5, 'derived speed allows the bounded lead');
+});
+
+test('stationary replay without platform kinematics: no bearing swings, no lead, no fabricated course (bike and car)', () => {
+  const fixture = routeFixture([{ bearing: 0, meters: 400 }, { bearing: 90, meters: 200, modifier: 'right' }]);
+  for (const mode of ['bicycle', 'car'] as const) {
+    const inputs = trajectory(fixture, { mode, speed: 0, seconds: 30, startOffset: 120, alignment: 'deviating' }).map((input, t) => {
+      const { speedMps: _speed, course: _course, courseAccuracyDegrees: _accuracy, ...fix } = input.fix!;
+      return { ...input, fix: { ...fix, ...offsetCoordinate(input.fix!, t % 2 ? 90 : 270, 2) } };
+    });
+    const frames = run(inputs);
+    assert.ok(frames.every(frame => frame.bearing === frames[0]!.bearing), `${mode} bearing held`);
+    assert.ok(frames.every(frame => frame.leadMeters === 0), `${mode} no lead`);
+    assert.ok(frames.every(frame => frame.puck.kind === 'dot'), `${mode} direction stays unknown`);
+  }
+});
+
+test('landscape side panel: the puck is centred in the map left of the panel and turns are framed there', () => {
+  const fixture = routeFixture([{ bearing: 0, meters: 400 }, { bearing: 90, meters: 300, modifier: 'right' }]);
+  const view = { width: LANDSCAPE.width, height: LANDSCAPE.height };
+  const rectangle = { left: LANDSCAPE.left + 16, right: LANDSCAPE.right - 16, top: LANDSCAPE.top + 12, bottom: LANDSCAPE.bottom - 12 };
+  const frames = run(trajectory(fixture, { mode: 'car', speed: 10, seconds: 40, viewport: LANDSCAPE }));
+  for (const frame of frames.slice(3)) {
+    const puck = project(frame, view, frame.center)!;
+    assert.ok(Math.abs(puck.x - (LANDSCAPE.left + LANDSCAPE.right) / 2) < 0.01, `x ${puck.x}`);
+    assert.ok(puck.x < LANDSCAPE.right, 'never under the side panel');
+    assert.equal(frame.anchor.x, (LANDSCAPE.left + LANDSCAPE.right) / 2);
+  }
+  const framed = frames.filter(frame => frame.framing).slice(2);
+  assert.ok(framed.length > 0);
+  for (const frame of framed) for (const point of frame.framing!.points) assert.ok(inside(project(frame, view, point), rectangle), 'junction inside the map left of the panel');
 });

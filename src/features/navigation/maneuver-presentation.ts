@@ -74,7 +74,7 @@ export function bannerDistance(meters: number): { value: string; unit: string; l
     return { value: String(value), unit: 'm', label: `${value} metri` };
   }
   const km = (Math.round(meters / 100) / 10).toFixed(1).replace('.', ',').replace(/,0$/, '');
-  return { value: km, unit: 'km', label: `${km} chilometri` };
+  return { value: km, unit: 'km', label: km === '1' ? '1 chilometro' : `${km} chilometri` };
 }
 
 /**

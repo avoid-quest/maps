@@ -251,9 +251,10 @@ export function brandRecipe(scheme: ColorScheme): StyleRecipe {
         before: 'highway-name-path',
         layer: {
           id: 'avoid_oneway', type: 'symbol', source: 'openmaptiles', 'source-layer': 'transportation', minzoom: 15,
-          filter: ['all', ['==', ['get', 'oneway'], 1], ['match', ['get', 'class'], ['motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'minor', 'service'], true, false]],
+          // `oneway` 1 runs with the line geometry, -1 against it: the chevron turns round.
+          filter: ['all', ['match', ['get', 'oneway'], [1, -1], true, false], ['match', ['get', 'class'], ['motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'minor', 'service'], true, false]],
           layout: {
-            visibility: 'none', 'symbol-placement': 'line', 'symbol-spacing': 90, 'icon-image': `oneway-${scheme}`, 'icon-rotate': 90,
+            visibility: 'none', 'symbol-placement': 'line', 'symbol-spacing': 90, 'icon-image': `oneway-${scheme}`, 'icon-rotate': ['match', ['get', 'oneway'], -1, 270, 90],
             'icon-rotation-alignment': 'map', 'icon-allow-overlap': true, 'icon-ignore-placement': true,
           },
         },

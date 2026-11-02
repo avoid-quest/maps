@@ -3,13 +3,15 @@ import type { CameraRef, MapRef } from '@maplibre/maplibre-react-native';
 import type { GuidanceMapState } from '../navigation/useGuidanceCamera';
 import type { CameraFrame } from '../navigation/guidance-camera';
 import { project } from '../navigation/map-projection';
+import { pendingGuidanceCommand, type IssuedCommands } from '../navigation/guidance-commands';
 
 /** Development-only screen assertions, read from the device log (`[nav-cam]`). */
 const ASSERT = typeof __DEV__ !== 'undefined' && __DEV__;
 
 /**
- * Issues the guidance camera: one native ease per frame in follow, one fit per overview request,
- * nothing in free. A gesture is reported at its start and blocks every pending move at once.
+ * Issues the guidance camera (see `pendingGuidanceCommand`): one native ease per frame in follow, a
+ * fit per transit leg or overview request, nothing in free. A gesture is reported at its start and
+ * blocks every pending move at once.
  */
 export function useGuidanceCameraDriver({ guidance, loaded, camera, map, commands, size }: {
   guidance: GuidanceMapState | null; loaded: boolean; camera: RefObject<CameraRef | null>; map: RefObject<MapRef | null>;
@@ -19,37 +21,30 @@ export function useGuidanceCameraDriver({ guidance, loaded, camera, map, command
   const frame = guidance?.frame ?? null;
   const overview = guidance?.overview ?? null;
   const fit = guidance?.fit ?? null;
-  const issued = useRef<string | null>(null);
-  const overviewIssued = useRef<string | null>(null);
-  const fitIssued = useRef<string | null>(null);
+  const issued = useRef<IssuedCommands>({ frame: null, overview: null, fit: null });
   const gestureActive = useRef(false);
   const latest = useRef(guidance);
   latest.current = guidance;
   useEffect(() => { if (intent !== 'free') gestureActive.current = false; }, [intent]);
   useEffect(() => {
-    if (!loaded || !frame || intent !== 'follow' || gestureActive.current || issued.current === frame.key) return;
-    issued.current = frame.key;
+    if (!loaded || !intent) return;
+    const command = pendingGuidanceCommand({ intent, frame, overview, fit, gesture: gestureActive.current }, issued.current);
+    if (!command) return;
+    issued.current = { ...issued.current, [command.kind]: command.key };
     commands.current += 1;
-    camera.current?.easeTo({
-      center: [frame.center.longitude, frame.center.latitude], bearing: frame.bearing, pitch: frame.pitch, zoom: frame.zoom,
-      padding: frame.padding, duration: frame.durationMs, easing: frame.easing,
-    });
-    if (ASSERT) assertFrame(map, frame, size.current, latest);
-  }, [loaded, frame, intent, camera, map, commands, size]);
-  useEffect(() => {
-    if (!loaded || !overview || intent !== 'overview' || overviewIssued.current === overview.key) return;
-    overviewIssued.current = overview.key;
-    commands.current += 1;
-    camera.current?.fitBounds(overview.bounds, { padding: overview.padding, bearing: 0, pitch: 0, duration: 700 });
-  }, [loaded, overview, intent, camera, commands]);
-  // Transit without a usable fix: frame the current leg and its stop once per leg (flat, north-up).
-  useEffect(() => {
-    if (!loaded || frame || !fit || intent !== 'follow' || gestureActive.current || fitIssued.current === fit.key) return;
-    fitIssued.current = fit.key;
-    commands.current += 1;
-    camera.current?.fitBounds(fit.bounds, { padding: fit.padding, bearing: 0, pitch: 0, duration: 700 });
-  }, [loaded, frame, fit, intent, camera, commands]);
-  useEffect(() => { if (!guidance) { issued.current = null; overviewIssued.current = null; fitIssued.current = null; } }, [guidance]);
+    if (command.kind === 'frame') {
+      const next = command.frame;
+      camera.current?.easeTo({
+        center: [next.center.longitude, next.center.latitude], bearing: next.bearing, pitch: next.pitch, zoom: next.zoom,
+        padding: next.padding, duration: next.durationMs, easing: next.easing,
+      });
+      if (ASSERT) assertFrame(map, next, size.current, latest);
+    } else {
+      // Overview and transit leg fits are flat and north-up.
+      camera.current?.fitBounds(command.fit.bounds, { padding: command.fit.padding, bearing: 0, pitch: 0, duration: 700 });
+    }
+  }, [loaded, intent, frame, overview, fit, camera, map, commands, size]);
+  useEffect(() => { if (!guidance) issued.current = { frame: null, overview: null, fit: null }; }, [guidance]);
   return useCallback(() => {
     const current = latest.current;
     if (!current) return;

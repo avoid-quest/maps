@@ -11,6 +11,7 @@ import { lineLayout, markerLabelLayout, overlayPaint } from './map-overlay-style
 import { GUIDANCE_IMAGES, puckImage, puckLayout } from './guidance-puck';
 import { BasemapGuidanceAdjustments, GuidanceRouteLayers } from './GuidanceMapLayers';
 import { useGuidanceCameraDriver } from './useGuidanceCameraDriver';
+import { createOrientationReset } from './orientation-reset';
 
 /**
  * The one native map. An appearance change swaps `mapStyle` and layer paint in place: Map and Camera
@@ -41,17 +42,16 @@ export default function MapCanvas({ center, zoom = 14.5, cameraRevision, routeFi
   // (including after a pan) moves into the newly visible area instead of under the sheet.
   const { top = 0, right = 0, bottom = 0, left = 0 } = cameraPadding ?? {};
   const guiding = !!guidance;
-  const leftGuidance = useRef(false);
+  // After guidance the browsing map returns to north-up and flat, carried by whichever browse
+  // command is actually issued next (see orientation-reset.ts).
+  const orientation = useRef(createOrientationReset());
   useEffect(() => {
-    if (guiding) { leftGuidance.current = true; return; }
+    if (guiding) { orientation.current.arm(); return; }
     if (!loaded || followLocation === true) return;
-    // Right after guidance the browsing map also returns to north-up and flat.
-    const pose = leftGuidance.current ? { bearing: 0, pitch: 0 } : {};
-    leftGuidance.current = false;
     let current = true;
     const issued = commands.current;
     void map.current?.getCenter().then(center => {
-      if (current && issued === commands.current) camera.current?.easeTo({ center, ...pose, padding: { top, right, bottom, left }, duration: 250 });
+      if (current && issued === commands.current) camera.current?.easeTo(orientation.current.apply({ center, padding: { top, right, bottom, left }, duration: 250 }));
     }).catch(() => undefined);
     return () => { current = false; };
   }, [loaded, top, right, bottom, left, followLocation, guiding]);
@@ -64,15 +64,15 @@ export default function MapCanvas({ center, zoom = 14.5, cameraRevision, routeFi
     // fitBounds has no zoom cap here, and padding taller than the map zoomed to the maximum (a blank
     // building interior for two results 30 m apart): ease to a computed, capped camera instead.
     const inset = padding.current ?? { top: 50, right: 50, bottom: 50, left: 50 };
-    camera.current?.easeTo({ ...frameCamera(frameBounds, size.current, inset), padding: inset, duration: 500 });
+    camera.current?.easeTo(orientation.current.apply({ ...frameCamera(frameBounds, size.current, inset), padding: inset, duration: 500 }));
   }, [loaded, frameKey, frameBounds]);
   const gesture = useGuidanceCameraDriver({ guidance: guidance ?? null, loaded, camera, map, commands, size });
-  useEffect(() => { if (followLocation !== false && !guiding) { commands.current += 1; camera.current?.easeTo({ center: [longitude, latitude], zoom, padding: padding.current, duration: 450 }); } }, [longitude, latitude, zoom, followLocation, cameraRevision, guiding]);
+  useEffect(() => { if (followLocation !== false && !guiding) { commands.current += 1; camera.current?.easeTo(orientation.current.apply({ center: [longitude, latitude] as [number, number], zoom, padding: padding.current, duration: 450 })); } }, [longitude, latitude, zoom, followLocation, cameraRevision, guiding]);
   useEffect(() => {
     if (followLocation !== undefined || !framing.current.claim(routeFitKey, !!route?.coordinates.length) || !route) return;
     const xs = route.coordinates.map(p => p[0]!); const ys = route.coordinates.map(p => p[1]!);
     commands.current += 1;
-    camera.current?.fitBounds([Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)], { padding: padding.current ?? { top: 50, right: 50, bottom: 50, left: 50 }, duration: 500 });
+    camera.current?.fitBounds([Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)], orientation.current.apply({ padding: padding.current ?? { top: 50, right: 50, bottom: 50, left: 50 }, duration: 500 }));
   }, [route, routeFitKey, followLocation]);
   // Follow: the puck is drawn at the camera's anchor, so it and the map share one animation clock.
   // Free, overview or a paused fix: a map symbol at the accepted (or retained) position.
@@ -87,7 +87,7 @@ export default function MapCanvas({ center, zoom = 14.5, cameraRevision, routeFi
     <Map ref={map} style={styles.container} mapStyle={theme.mapStyleJson} logo={false} attribution attributionPosition={{ top: attributionTop, left: attributionLeft }}
       onPress={event => onMapPress?.(event.nativeEvent.lngLat)}
       // A user gesture outranks a pending padding re-centre (see `commands`).
-      onRegionWillChange={event => { if (event.nativeEvent.userInteraction) { commands.current += 1; gesture(); } }}
+      onRegionWillChange={event => { if (event.nativeEvent.userInteraction) { commands.current += 1; if (!guiding) orientation.current.userMoved(); gesture(); } }}
       onRegionDidChange={event => {
         const { center: shown, zoom: shownZoom, userInteraction } = event.nativeEvent;
         onViewChanged?.(shown, shownZoom);

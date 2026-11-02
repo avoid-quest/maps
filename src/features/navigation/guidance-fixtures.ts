@@ -8,7 +8,9 @@ import type { CameraInput, CameraMode, GuidanceViewport } from './guidance-camer
  * legs in 5 m points, with one maneuver at each leg start, and a 1 Hz trajectory generator.
  */
 export const TURIN: Coordinate = { latitude: 45.0703, longitude: 7.6869 };
-export const PHONE: GuidanceViewport = { width: 412, height: 860, top: 150, bottom: 780 };
+export const PHONE: GuidanceViewport = { width: 412, height: 860, top: 150, bottom: 780, left: 0, right: 412 };
+/** Landscape: banner over the left part, a 320 dp side panel on the right, no bottom strip. */
+export const LANDSCAPE: GuidanceViewport = { width: 915, height: 380, top: 120, bottom: 380, left: 0, right: 595 };
 
 /** A fixture maneuver's point (fixtures always carry coordinates). */
 export const maneuverPoint = (m: GuidanceManeuver): Coordinate => ({ latitude: m.latitude!, longitude: m.longitude! });

@@ -10,9 +10,13 @@ import { journeyDuration } from '../planner/journey-presentation';
 import type { CameraIntent } from './guidance-camera';
 import { bannerDistance, maneuverGlyph, maneuverLines, thenManeuver } from './maneuver-presentation';
 import { ManeuverGlyphImage } from './ManeuverGlyphImage';
+import { bannerMetrics, MAX_FONT_SCALE, stripLayout, type BannerMetrics } from './guidance-layout';
+import { BannerReserveProbe } from './BannerReserveProbe';
 import type { NavigationState } from './navigation-controller';
 
 const distance = (meters: number) => meters < 1000 ? `${Math.round(meters)} m` : `${(meters / 1000).toFixed(1).replace('.', ',')} km`;
+/** Landscape side panel width (dp): the strip and details move beside the map. */
+const SIDE_PANEL = 320;
 const clock = (value: number) => new Date(value).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
 
 /**
@@ -23,7 +27,7 @@ const clock = (value: number) => new Date(value).toLocaleTimeString('it-IT', { h
 export function NavigationPanel({ snapshot, busy, error, intent, onRecenter, onOverview, onChromeLayout, onStop, onRetry, onMute, onConfirmTransit, onReplan }: NavigationState & {
   following: boolean; intent: CameraIntent; onRecenter: () => void; onOverview: () => void;
   /** Heights of the banner and the bottom strip, so the camera anchors the puck between them. */
-  onChromeLayout: (top: number, bottom: number) => void;
+  onChromeLayout: (top: number, bottom: number, right?: number) => void;
   onStop: () => void; onRetry: () => void; onMute: () => void;
   onConfirmTransit: (action: TransitConfirmation) => void; onReplan: () => void;
 }) {
@@ -35,6 +39,7 @@ export function NavigationPanel({ snapshot, busy, error, intent, onRecenter, onO
   const banner = useRef(0);
   const strip = useRef(0);
   const [stripHeight, setStripHeight] = useState(0);
+  const [bannerHeight, setBannerHeight] = useState(0);
   const transitMode = snapshot.mode === 'transit';
   const waiting = busy === 'start' || snapshot.status === 'waiting-for-fix' || snapshot.status === 'routing' || snapshot.status === 'rerouting';
   const remainingSeconds = !transitMode ? snapshot.durationRemainingSeconds : undefined;
@@ -50,7 +55,8 @@ export function NavigationPanel({ snapshot, busy, error, intent, onRecenter, onO
   const confirmation: TransitConfirmation | undefined = transit?.canConfirmWalking ? 'walk-complete' : transit?.canConfirmBoarding ? 'board' : transit?.canConfirmAlighting ? 'alight' : undefined;
   const source = snapshot.route?.source ?? (transitMode ? 'MATO / 5T' : 'FOSSGIS / OpenStreetMap');
   const landscape = width >= 650 && height < 500;
-  const report = () => onChromeLayout(banner.current, strip.current);
+  // Landscape: the strip is a side panel on the right, not a bottom occlusion.
+  const report = () => landscape ? onChromeLayout(banner.current, 0, SIDE_PANEL) : onChromeLayout(banner.current, strip.current, 0);
 
   // Banner content: the upcoming maneuver while there is one (kept, labelled, while paused).
   const maneuver = snapshot.upcomingManeuver;
@@ -64,86 +70,112 @@ export function NavigationPanel({ snapshot, busy, error, intent, onRecenter, onO
   const statusTone = paused || snapshot.status === 'off-route' || (!searching && text.precision) ? 'text-caution' : 'text-secondary';
   const problem = snapshot.problem && !(paused && snapshot.problem.startsWith('location-') && !snapshot.canRetry) ? text.quality : null;
   const showRetry = snapshot.canRetry && !confirmation && (!!snapshot.problem || snapshot.status === 'interrupted' || snapshot.status === 'off-route' || text.searching);
-  const bannerLabel = showManeuver ? `${meters ? `Tra ${meters.label}, ` : ''}${maneuver?.instruction ?? snapshot.instruction ?? ''}` : `${text.header}. ${text.instruction}`;
+  const thenText = then ? maneuverLines(then, then.instruction).secondary ?? then.instruction : null;
+  const bannerLabel = (showManeuver ? `${meters ? `Tra ${meters.label}, ` : ''}${maneuver?.instruction ?? snapshot.instruction ?? ''}` : `${text.header}. ${text.instruction}`)
+    + (thenText ? `. Poi ${thenText}` : '') + (status ? `. ${status}` : '');
   const voice = snapshot.voice === 'ready' ? { icon: 'volume-high-outline' as const, label: 'Voce attiva. Disattiva la voce' }
     : snapshot.voice === 'muted' ? { icon: 'volume-mute-outline' as const, label: 'Voce disattivata. Attiva la voce' }
       : snapshot.voice === 'initializing' ? { icon: 'volume-low-outline' as const, label: 'Preparazione della voce' }
         : { icon: 'volume-off-outline' as const, label: 'Voce non disponibile: nessuna voce italiana offline' };
-  const glyphSize = Math.round(44 * Math.min(fontScale, 1.3));
-  // Height of the 42 sp distance line; every banner state reserves it.
-  const firstRow = Math.round(48 * Math.min(fontScale, 1.5));
+  // Formula reserves until the probe measures the real (non-linearly scaled) text heights.
+  const [measured, setMeasured] = useState<{ scale: number; rows: Omit<BannerMetrics, 'glyph'> } | null>(null);
+  const metrics = measured && measured.scale === fontScale ? { ...bannerMetrics(fontScale), ...measured.rows } : bannerMetrics(fontScale);
+  const glyphSize = metrics.glyph;
+  const firstRow = metrics.firstRow;
+  const stacked = stripLayout(width, fontScale) === 'stacked' && !landscape;
+
+  const summary = (
+  <PressableSurface surfaceStyle={stacked ? { borderRadius: 16 } : { flex: 1, borderRadius: 16 }} rippleColor={`${colors.textPrimary}1F`} contentClassName="min-h-12 justify-center px-2 py-1"
+    accessibilityRole="button" accessibilityHint="Apre i dettagli della navigazione"
+    accessibilityLabel={`${arrival ? `Arrivo stimato alle ${arrival}, senza traffico` : remainingSeconds != null && paused ? 'Stima sospesa senza una posizione aggiornata; ultima stima' : 'Il tuo viaggio'}${snapshot.distanceRemainingMeters != null ? `, mancano ${remainingSeconds != null ? journeyDuration(remainingSeconds) + ' e ' : ''}${distance(snapshot.distanceRemainingMeters)}` : ''}`}
+    onPress={() => setDetailsOpen(true)}>
+    {arrival ? <View className="flex-row items-center gap-2">
+      <Num testID="navigation-arrival" className="text-xl font-semibold text-primary">{arrival}</Num>
+      <View className="shrink">
+        {stacked ? <Text className="text-sm text-secondary">arrivo stimato · senza traffico</Text> : <>
+          <Text numberOfLines={1} className="text-xs leading-4 text-secondary">arrivo stimato</Text>
+          <Text numberOfLines={1} className="text-xs leading-4 text-secondary">senza traffico</Text>
+        </>}
+      </View>
+    </View> : <Text numberOfLines={stacked ? undefined : 1} className="text-base font-semibold leading-7 text-primary">{remainingSeconds != null && paused ? 'Stima sospesa' : terminal ? text.header : 'Il tuo viaggio'}</Text>}
+    {!transit && snapshot.distanceRemainingMeters != null && !terminal
+      ? <Num numberOfLines={stacked ? undefined : 1} adjustsFontSizeToFit={!stacked} minimumFontScale={0.85} className={`text-sm ${paused ? 'text-caution' : 'text-secondary'}`}>{remainingSeconds != null ? `${journeyDuration(remainingSeconds)} · ` : ''}{distance(snapshot.distanceRemainingMeters)}</Num>
+      : transit ? <Num className="text-sm text-secondary">{`Tratta ${transit.legIndex + 1} di ${transit.legCount}`}</Num> : null}
+  </PressableSurface>
+  );
+  const controls = <>
+  {!terminal && snapshot.sessionId ? <IconButton icon={voice.icon} label={voice.label} active={snapshot.voice === 'muted'}
+    disabled={!!busy || (snapshot.voice !== 'ready' && snapshot.voice !== 'muted')} onPress={onMute} /> : null}
+  {!terminal ? <IconButton icon="map-outline" label="Panoramica del percorso" active={intent === 'overview'} disabled={!snapshot.route} onPress={onOverview} /> : null}
+  <View><Button loading={busy === 'stop'} onPress={onStop}>{terminal ? 'Chiudi' : 'Interrompi'}</Button></View>
+  </>;
 
   return <View pointerEvents="box-none" className="flex-1">
     <View testID="navigation-instruction" accessible accessibilityRole="header" accessibilityLabel={bannerLabel}
-      onLayout={event => { banner.current = event.nativeEvent.layout.height; report(); }}
-      style={{ backgroundColor: colors.chrome, ...hairlines.bottom, ...(landscape ? { position: 'absolute', top: 0, left: 0, right: 320 } : {}) }} className="px-4 pb-2 pt-3">
+      onLayout={event => { banner.current = event.nativeEvent.layout.height; setBannerHeight(banner.current); report(); }}
+      style={{ backgroundColor: colors.chrome, ...hairlines.bottom, ...(landscape ? { position: 'absolute', top: 0, left: 0, right: SIDE_PANEL } : {}) }} className="px-4 pb-2 pt-3">
+      <BannerReserveProbe key={fontScale} onMeasure={rows => setMeasured(current => current && current.scale === fontScale
+        && current.rows.firstRow === rows.firstRow && current.rows.lines === rows.lines && current.rows.thenRow === rows.thenRow ? current : { scale: fontScale, rows })} />
+      {/* Every row has a fixed height for the font scale (guidance-layout.ts): no instruction,
+          status or pause changes the banner height, so the camera anchor never moves. */}
       <View className="flex-row items-start gap-3">
-        <View style={{ width: glyphSize, minHeight: glyphSize }} className="items-center justify-center pt-1">
+        <View style={{ minWidth: glyphSize, minHeight: glyphSize }} className="items-center justify-center pt-1">
           {showManeuver ? <ManeuverGlyphImage glyph={glyph} size={glyphSize} color={colors.textPrimary} />
             : waiting ? <ActivityIndicator color={colors.textPrimary} />
               : <Icon name={snapshot.status === 'arrived' ? 'flag-outline' : 'navigate-outline'} size={30} color={colors.textPrimary} />}
         </View>
         <View className="min-w-0 flex-1">
           {showManeuver ? <>
-            {/* Reserved even when the distance is withheld (paused), so the banner never changes height. */}
-            <View style={{ minHeight: firstRow }} className="flex-row items-baseline gap-1">
-              {meters ? <><Display size={42} className="text-primary">{meters.value}</Display>
-                <Text className="text-xl font-semibold text-secondary">{meters.unit}</Text></> : null}
+            <View style={{ height: firstRow }} className="flex-row items-baseline gap-1 overflow-hidden">
+              {meters ? <><Display maxFontSizeMultiplier={MAX_FONT_SCALE} size={42} className="text-primary">{meters.value}</Display>
+                <Text maxFontSizeMultiplier={MAX_FONT_SCALE} className="text-xl font-semibold text-secondary">{meters.unit}</Text></> : null}
             </View>
-            {/* Two lines reserved: street (or the whole instruction), then the action. */}
-            <View style={{ minHeight: Math.round(52 * Math.min(fontScale, 1.5)) }}>
-              <Text accessibilityLiveRegion="polite" numberOfLines={2} className="text-xl font-semibold leading-7 text-primary">{lines.primary}</Text>
-              {lines.secondary ? <Text numberOfLines={1} className="text-base leading-6 text-secondary">{lines.secondary}</Text> : null}
+            {/* Street on two lines, or one street line and the action. */}
+            <View style={{ height: metrics.lines }} className="overflow-hidden">
+              <Text maxFontSizeMultiplier={MAX_FONT_SCALE} accessibilityLiveRegion="polite" numberOfLines={lines.secondary ? 1 : 2} className="text-xl font-semibold leading-7 text-primary">{lines.primary}</Text>
+              {lines.secondary ? <Text maxFontSizeMultiplier={MAX_FONT_SCALE} numberOfLines={1} className="text-base leading-6 text-secondary">{lines.secondary}</Text> : null}
             </View>
           </> : <>
-            <View style={{ minHeight: firstRow }} className="justify-end"><Display size={26} accessibilityLiveRegion="polite" className="text-primary">{text.header}</Display></View>
-            <View style={{ minHeight: Math.round(52 * Math.min(fontScale, 1.5)) }}>
-              <Text numberOfLines={2} className="text-lg font-semibold leading-6 text-primary">{text.instruction}</Text>
+            <View style={{ height: firstRow }} className="justify-end overflow-hidden"><Display maxFontSizeMultiplier={MAX_FONT_SCALE} size={26} accessibilityLiveRegion="polite" numberOfLines={1} className="text-primary">{text.header}</Display></View>
+            <View style={{ height: metrics.lines }} className="overflow-hidden">
+              <Text maxFontSizeMultiplier={MAX_FONT_SCALE} numberOfLines={2} className="text-lg font-semibold leading-6 text-primary">{text.instruction}</Text>
             </View>
           </>}
         </View>
       </View>
-      {/* Reserved rows: "Poi …" and status never change the banner height. */}
-      <View style={{ minHeight: Math.round(26 * Math.min(fontScale, 1.5)) }} className="flex-row items-center gap-2">
+      {/* "Poi …" only; status has its own space below the banner, so neither hides the other. */}
+      <View style={{ height: metrics.thenRow }} className="flex-row items-center gap-2 overflow-hidden">
         {then ? <>
-          <Text className="text-sm font-semibold text-secondary">Poi</Text>
+          <Text maxFontSizeMultiplier={MAX_FONT_SCALE} className="text-sm font-semibold text-secondary">Poi</Text>
           <ManeuverGlyphImage glyph={maneuverGlyph(then)} size={22} color={colors.textSecondary} />
-          <Text numberOfLines={1} className="min-w-0 flex-1 text-sm text-secondary">{maneuverLines(then, then.instruction).secondary ?? then.instruction}</Text>
-        </> : status ? <Num testID="navigation-status" accessibilityLiveRegion="polite" numberOfLines={1} className={`min-w-0 flex-1 text-sm font-semibold ${statusTone}`}>{status}</Num> : null}
+          <Text maxFontSizeMultiplier={MAX_FONT_SCALE} numberOfLines={1} className="min-w-0 flex-1 text-sm text-secondary">{thenText}</Text>
+        </> : null}
       </View>
     </View>
+
+    {/* Status (reduced precision, rerouting, off route, paused, search signal) floats just below the
+        banner, clear of the attribution control, so it never competes with "Poi" for space and never
+        changes the layout. */}
+    {status ? <View pointerEvents="none" style={{ position: 'absolute', top: bannerHeight + 8, left: 60, right: landscape ? SIDE_PANEL + 12 : 12 }} className="items-start">
+      <View style={[hairlines.floating, { borderRadius: 16 }]} className="px-3 py-1.5">
+        <Num testID="navigation-status" accessibilityLiveRegion="polite" maxFontSizeMultiplier={MAX_FONT_SCALE} numberOfLines={2} className={`text-sm font-semibold ${statusTone}`}>{status}</Num>
+      </View>
+    </View> : null}
 
     <View pointerEvents="box-none" className="flex-1" />
 
     <View testID="navigation-sheet" onLayout={event => { strip.current = event.nativeEvent.layout.height; setStripHeight(strip.current); report(); }}
-      style={[hairlines.top, landscape ? { position: 'absolute', right: 0, top: 0, bottom: 0, width: 320 } : null]} className="bg-surface px-3 pb-2 pt-2">
-      <View className="flex-row items-center gap-1">
-        <PressableSurface surfaceStyle={{ flex: 1, borderRadius: 16 }} rippleColor={`${colors.textPrimary}1F`} contentClassName="min-h-12 justify-center px-2 py-1"
-          accessibilityRole="button" accessibilityHint="Apre i dettagli della navigazione"
-          accessibilityLabel={`${arrival ? `Arrivo stimato alle ${arrival}, senza traffico` : remainingSeconds != null && paused ? 'Stima sospesa senza una posizione aggiornata; ultima stima' : 'Il tuo viaggio'}${snapshot.distanceRemainingMeters != null ? `, mancano ${remainingSeconds != null ? journeyDuration(remainingSeconds) + ' e ' : ''}${distance(snapshot.distanceRemainingMeters)}` : ''}`}
-          onPress={() => setDetailsOpen(true)}>
-          {arrival ? <View className="flex-row items-center gap-2">
-            <Num testID="navigation-arrival" className="text-xl font-semibold text-primary">{arrival}</Num>
-            <View className="shrink">
-              <Text numberOfLines={1} className="text-xs leading-4 text-secondary">arrivo stimato</Text>
-              <Text numberOfLines={1} className="text-xs leading-4 text-secondary">senza traffico</Text>
-            </View>
-          </View> : <Text numberOfLines={1} className="text-base font-semibold leading-7 text-primary">{remainingSeconds != null && paused ? 'Stima sospesa' : terminal ? text.header : 'Il tuo viaggio'}</Text>}
-          {!transit && snapshot.distanceRemainingMeters != null && !terminal
-            ? <Num numberOfLines={1} className={`text-sm ${paused ? 'text-caution' : 'text-secondary'}`}>{remainingSeconds != null ? `${journeyDuration(remainingSeconds)} · ` : ''}{distance(snapshot.distanceRemainingMeters)}</Num>
-            : transit ? <Num className="text-sm text-secondary">{`Tratta ${transit.legIndex + 1} di ${transit.legCount}`}</Num> : null}
-        </PressableSurface>
-        {!terminal && snapshot.sessionId ? <IconButton icon={voice.icon} label={voice.label} active={snapshot.voice === 'muted'}
-          disabled={!!busy || (snapshot.voice !== 'ready' && snapshot.voice !== 'muted')} onPress={onMute} /> : null}
-        {!terminal ? <IconButton icon="map-outline" label="Panoramica del percorso" active={intent === 'overview'} disabled={!snapshot.route} onPress={onOverview} /> : null}
-        <View><Button loading={busy === 'stop'} onPress={onStop}>{terminal ? 'Chiudi' : 'Interrompi'}</Button></View>
-      </View>
+      style={[hairlines.top, landscape ? { position: 'absolute', right: 0, top: 0, bottom: 0, width: SIDE_PANEL } : null]} className="bg-surface px-3 pb-2 pt-2">
+      {/* One row when the summary has room; otherwise the summary takes its own row above the
+          controls (guidance-layout.ts), so labels and numbers are never truncated. */}
+      {stacked ? <>{summary}<View className="flex-row items-center justify-end gap-1">{controls}</View></>
+        : <View className="flex-row items-center gap-1">{summary}{controls}</View>}
     </View>
 
     {/* Above the strip, over the map: a problem or Ricentra never changes the strip height, so the
         camera's anchor (and the puck) never jump. It lives in the screen container: Android delivers
         no touches to children drawn outside their parent's bounds. */}
-    <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: landscape ? 320 : 0, bottom: landscape ? 0 : stripHeight }} className="gap-2 pb-2">
+    <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: landscape ? SIDE_PANEL : 0, bottom: landscape ? 0 : stripHeight }} className="gap-2 pb-2">
       {intent !== 'follow' && snapshot.location ? <View pointerEvents="box-none" className="items-center">
         <PressableSurface testID="navigation-recenter" surfaceStyle={[hairlines.floating, { borderRadius: 24 }]} rippleColor={`${colors.textPrimary}1F`}
           contentClassName="min-h-12 flex-row items-center gap-2 px-5" accessibilityRole="button" accessibilityLabel="Ricentra sulla mia posizione" onPress={onRecenter}>

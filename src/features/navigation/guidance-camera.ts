@@ -1,7 +1,8 @@
 import type { Coordinate } from '../../domain/types';
 import type { FollowingManeuver, GuidanceManeuver, NavigationFix, RouteProgress } from '../../domain/navigation';
 import { inside, paddingForAnchor, project, type CameraPose, type Padding, type ScreenPoint, type VisibleRect } from './map-projection';
-import { angleDelta, bearingDegrees, distanceMeters, normalizeBearing, offsetCoordinate, offsetOfIndex, pointAt, routeBearingAt, sliceRoute, type RouteMeasure } from './route-measure';
+import { MotionEstimator } from './motion-estimator';
+import { angleDelta, distanceMeters, normalizeBearing, offsetCoordinate, offsetOfIndex, pointAt, routeBearingAt, sliceRoute, type RouteMeasure } from './route-measure';
 
 export type CameraMode = 'walk' | 'bicycle' | 'car';
 
@@ -56,8 +57,11 @@ export const CAMERA_PROFILES: Record<CameraMode, CameraProfile> = {
   },
 };
 
-/** The unobscured map: between the bottom of the maneuver banner and the top of the bottom strip. */
-export interface GuidanceViewport { width: number; height: number; top: number; bottom: number }
+/**
+ * The unobscured map inside the map view (screen points): below the maneuver banner, above the
+ * bottom strip and, in landscape, left of the side panel (`right` < `width`).
+ */
+export interface GuidanceViewport { width: number; height: number; top: number; bottom: number; left: number; right: number }
 
 export interface CameraInput {
   mode: CameraMode;
@@ -134,8 +138,7 @@ export class GuidanceCamera {
   private mode: CameraMode | null = null;
   private viewportKey = '';
   private recenters = 0;
-  private previousFix: { coordinate: Coordinate; ms: number } | null = null;
-  private derived: DerivedKinematics = {};
+  private motion = new MotionEstimator();
 
   get current() { return this.frame; }
   get expectedIntervalMs() { return this.intervals.length ? Math.min(2000, Math.max(600, median(this.intervals))) : 1000; }
@@ -149,26 +152,17 @@ export class GuidanceCamera {
   }
 
   /**
-   * Some providers omit speed and course. For presentation only, derive them from the previous
-   * distinct accepted fix (0.5–3 s earlier); a move smaller than the fix noise yields no course.
+   * Some providers omit speed and course. For presentation only, an accuracy-aware estimator
+   * derives them from accepted fixes; stationary jitter yields neither (see MotionEstimator).
    */
   private withKinematics(fix: NavigationFix): NavigationFix {
-    const ms = fix.elapsedMs ?? fix.timestamp;
-    const coordinate = { latitude: fix.latitude, longitude: fix.longitude };
-    const previous = this.previousFix;
-    if (previous && ms === previous.ms) return { ...fix, ...this.derived };
-    this.previousFix = { coordinate, ms };
-    this.derived = {};
-    if (!previous || (fix.speedMps !== undefined && fix.course !== undefined)) return fix;
-    const seconds = (ms - previous.ms) / 1000;
-    if (seconds < 0.5 || seconds > 3) return fix;
-    const moved = distanceMeters(previous.coordinate, coordinate);
-    if (fix.speedMps === undefined) this.derived.speedMps = moved / seconds;
-    if (fix.course === undefined && moved >= Math.max(1, 0.25 * fix.accuracyMeters)) {
-      this.derived.course = bearingDegrees(previous.coordinate, coordinate);
-      this.derived.courseAccuracyDegrees = 20;
-    }
-    return { ...fix, ...this.derived };
+    if (fix.speedMps !== undefined && fix.course !== undefined) return fix;
+    const motion = this.motion.update({ latitude: fix.latitude, longitude: fix.longitude }, fix.elapsedMs ?? fix.timestamp, fix.accuracyMeters);
+    return {
+      ...fix,
+      ...(fix.speedMps === undefined ? { speedMps: motion.speedMps } : {}),
+      ...(fix.course === undefined && motion.course !== undefined ? { course: motion.course, courseAccuracyDegrees: motion.courseAccuracyDegrees } : {}),
+    };
   }
 
   update(input: CameraInput): CameraFrame | null {
@@ -176,7 +170,8 @@ export class GuidanceCamera {
     if (!input.fix) return this.frame;
     const fix = this.withKinematics(input.fix);
     const fixMs = fix.elapsedMs ?? fix.timestamp;
-    const viewportKey = `${input.viewport.width}x${input.viewport.height}:${input.viewport.top}:${input.viewport.bottom}`;
+    const { viewport } = input;
+    const viewportKey = `${viewport.width}x${viewport.height}:${viewport.top}:${viewport.bottom}:${viewport.left}:${viewport.right}`;
     const modeChanged = this.mode !== input.mode;
     const layoutChanged = viewportKey !== this.viewportKey;
     // Duplicate or re-delivered samples (GPS + fused, a re-published snapshot) never move the camera.
@@ -255,10 +250,11 @@ export class GuidanceCamera {
     // Zoom: speed-aware cruise with hysteresis; turn framing pulls it out, release eases it back.
     const cruiseNow = profile.cruiseZoom(this.speed);
     if (this.cruise === null || Math.abs(cruiseNow - this.cruise) >= 0.3) this.cruise = cruiseNow;
-    const anchorY = input.viewport.top + profile.anchor * Math.max(0, input.viewport.bottom - input.viewport.top);
-    const padding = paddingForAnchor(input.viewport, anchorY);
-    const size = { width: input.viewport.width, height: input.viewport.height };
-    const rect: VisibleRect = { left: 16, right: input.viewport.width - 16, top: input.viewport.top + 12, bottom: input.viewport.bottom - 12 };
+    const anchorY = viewport.top + profile.anchor * Math.max(0, viewport.bottom - viewport.top);
+    const anchorX = (viewport.left + viewport.right) / 2;
+    const padding = paddingForAnchor(viewport, anchorY, anchorX);
+    const size = { width: viewport.width, height: viewport.height };
+    const rect: VisibleRect = { left: viewport.left + 16, right: viewport.right - 16, top: viewport.top + 12, bottom: viewport.bottom - 12 };
 
     let framing: CameraFrame['framing'] = null;
     let targetZoom = this.cruise;
@@ -292,7 +288,7 @@ export class GuidanceCamera {
       key: `${fixMs}:${input.routeRevision ?? 0}:${input.mode}:${viewportKey}:${input.usable ? 1 : 0}`,
       center, bearing: normalizeBearing(bearing), pitch: profile.pitch, zoom: round(this.zoom, 3), padding,
       durationMs: recovering ? 500 : interval, easing: recovering ? 'ease' : 'linear',
-      anchor: { x: input.viewport.width / 2, y: anchorY },
+      anchor: { x: anchorX, y: anchorY },
       puck: { coordinate: base, heading: this.bearingTrusted ? normalizeBearing(bearing) : null, kind },
       framing, leadMeters: round(lead, 1),
     };
@@ -300,7 +296,6 @@ export class GuidanceCamera {
   }
 }
 
-export interface DerivedKinematics { speedMps?: number; course?: number; courseAccuracyDegrees?: number }
 const round = (value: number, digits: number) => Math.round(value * 10 ** digits) / 10 ** digits;
 /** At most `count` evenly spread points (always including both ends). */
 function sample(points: Coordinate[], count: number): Coordinate[] {

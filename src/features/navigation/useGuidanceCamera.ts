@@ -4,11 +4,11 @@ import type { Coordinate, RoutePlan } from '../../domain/types';
 import type { MapCamera } from '../map/useMapCamera';
 import { GuidanceCamera, overviewBounds, type CameraFrame, type CameraIntent, type CameraMode, type GuidanceViewport, type PuckKind } from './guidance-camera';
 import { maneuverArrow, traveledFraction, type ManeuverArrow } from './guidance-route';
-import type { Padding } from './map-projection';
 import { measureRoute, type RouteMeasure } from './route-measure';
 import { sessionPlan } from './transit-follow';
+import { legFitKey, type GuidanceFit } from './guidance-commands';
+export type { GuidanceFit } from './guidance-commands';
 
-export interface GuidanceFit { key: string; bounds: [number, number, number, number]; padding: Padding }
 /** What the map needs during guidance: camera intent and frames, the puck and the route styling. */
 export interface GuidanceMapState {
   intent: CameraIntent;
@@ -80,7 +80,8 @@ export function useGuidanceCamera({ snapshot, camera, viewport, active, transitP
     });
     if (camera.guidanceRecenter !== state.recenter) { state.recenter = camera.guidanceRecenter; frame = state.camera.recenter() ?? frame; }
   }
-  const padding = useMemo(() => ({ top: viewport.top + 24, right: 32, bottom: viewport.height - viewport.bottom + 24, left: 32 }), [viewport]);
+  // Fits keep clear of every side: the banner, the strip and, in landscape, the side panel.
+  const padding = useMemo(() => ({ top: viewport.top + 24, right: viewport.width - viewport.right + 32, bottom: viewport.height - viewport.bottom + 24, left: viewport.left + 32 }), [viewport]);
   const overviewKey = camera.guidanceOverview;
   const traveled = snapshot.routeProgress?.traveledMeters ?? 0;
   // Framed once per explicit request: later progress or a reroute never refits it.
@@ -95,9 +96,10 @@ export function useGuidanceCamera({ snapshot, camera, viewport, active, transitP
   const fit = useMemo<GuidanceFit | null>(() => {
     if (!transit || mode || !legGeometry?.length) return null;
     const bounds = boundsOf(legGeometry);
-    return bounds ? { key: `leg:${snapshot.sessionId}:${legKey}`, bounds, padding } : null;
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- one frame per leg
-  }, [transit !== undefined, mode, legKey, legGeometry !== null]);
+    // A new key per leg and per explicit Ricentra, so a recenter during a ride always reframes.
+    return bounds ? { key: legFitKey(snapshot.sessionId, legKey, camera.guidanceRecenter), bounds, padding } : null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one frame per leg and recenter request
+  }, [transit !== undefined, mode, legKey, legGeometry !== null, camera.guidanceRecenter]);
   const fraction = traveledFraction(route, snapshot.routeProgress);
   const upcoming = snapshot.upcomingManeuver;
   const arrow = useMemo(() => !transit && mode ? maneuverArrow(route, upcoming, mode, traveled) : null,

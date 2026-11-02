@@ -45,12 +45,17 @@ export function project(pose: CameraPose, size: ScreenSize, point: Coordinate): 
 }
 
 /**
- * Padding that draws the camera centre at `anchorY` (screen y, from the top). MapLibre centres the
- * padded rectangle, so a LOW anchor needs TOP padding: bottom padding alone moves the centre up.
+ * Padding that draws the camera centre at (`anchorX`, `anchorY`), e.g. low in the map and, in
+ * landscape, in the middle of the map left of the side panel. MapLibre centres the padded
+ * rectangle, so a LOW anchor needs TOP padding: bottom padding alone moves the centre up.
  */
-export function paddingForAnchor(size: ScreenSize, anchorY: number): Padding {
+export function paddingForAnchor(size: ScreenSize, anchorY: number, anchorX = size.width / 2): Padding {
   const y = Math.max(0, Math.min(size.height, anchorY));
-  return { top: Math.max(0, 2 * y - size.height), right: 0, bottom: Math.max(0, size.height - 2 * y), left: 0 };
+  const x = Math.max(0, Math.min(size.width, anchorX));
+  return {
+    top: Math.max(0, 2 * y - size.height), right: Math.max(0, size.width - 2 * x),
+    bottom: Math.max(0, size.height - 2 * y), left: Math.max(0, 2 * x - size.width),
+  };
 }
 
 export interface VisibleRect { left: number; top: number; right: number; bottom: number }

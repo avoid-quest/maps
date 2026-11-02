@@ -41,6 +41,7 @@ test('banner distance: coarse steps, subordinate unit, Italian decimal comma', (
   assert.deepEqual(bannerDistance(2), { value: '0', unit: 'm', label: '0 metri' });
   assert.deepEqual(bannerDistance(347), { value: '350', unit: 'm', label: '350 metri' });
   assert.deepEqual(bannerDistance(998), { value: '1', unit: 'km', label: '1 chilometro' });
+  assert.deepEqual(bannerDistance(1020), { value: '1', unit: 'km', label: '1 chilometro' });
   assert.deepEqual(bannerDistance(1260), { value: '1,3', unit: 'km', label: '1,3 chilometri' });
   assert.deepEqual(bannerDistance(2000), { value: '2', unit: 'km', label: '2 chilometri' });
   assert.equal(bannerDistance(Number.NaN).value, '–');
@@ -58,4 +59,11 @@ test('"Poi" uses the gap between maneuvers, not proximity', () => {
   assert.equal(thenManeuver({ ...base, followingManeuver: following })?.id, '1:2');
   assert.equal(thenManeuver({ ...base, followingManeuver: { ...following, afterUpcomingMeters: 600, afterUpcomingSeconds: 45 } }), null);
   assert.equal(thenManeuver({ ...base, distanceToManeuverMeters: 5, followingManeuver: { ...following, afterUpcomingMeters: 600, afterUpcomingSeconds: 45 } }), null, 'being close to the first turn is irrelevant');
+});
+
+test('the roundabout exit number scales with its glyph and stays legible', async () => {
+  const { exitNumberSize } = await import('./exit-number');
+  assert.equal(exitNumberSize(44), 16);
+  assert.equal(exitNumberSize(22), 11);
+  assert.ok(exitNumberSize(57) > exitNumberSize(44));
 });

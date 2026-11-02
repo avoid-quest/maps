@@ -1,6 +1,7 @@
 import { Image, View } from 'react-native';
 import { Text } from '../../ui/Text';
 import type { GlyphName, ManeuverGlyph } from './maneuver-presentation';
+import { exitNumberSize } from './exit-number';
 
 /** Single-ink maneuver artwork (scripts/render-navigation-assets.mjs), tinted to the text colour. */
 const GLYPHS: Record<GlyphName, number> = {
@@ -26,12 +27,13 @@ const GLYPHS: Record<GlyphName, number> = {
 
 /** Decorative: the banner's accessibility label already says what the glyph shows. */
 export function ManeuverGlyphImage({ glyph, size, color }: { glyph: ManeuverGlyph; size: number; color: string }) {
-  return <View importantForAccessibility="no-hide-descendants" accessibilityElementsHidden style={{ width: size, height: size }}>
+  const exitSize = exitNumberSize(size);
+  return <View importantForAccessibility="no-hide-descendants" accessibilityElementsHidden className="flex-row items-end">
     <Image accessibilityIgnoresInvertColors source={GLYPHS[glyph.name]}
       style={{ width: size, height: size, tintColor: color, transform: glyph.mirror ? [{ scaleX: -1 }] : [] }} />
     {glyph.exit !== undefined ? (
-      <Text numberOfLines={1} style={{ position: 'absolute', right: -Math.round(size * 0.12), bottom: -Math.round(size * 0.06), color }}
-        className="font-display text-base font-extrabold">{glyph.exit}</Text>
+      <Text maxFontSizeMultiplier={2} numberOfLines={1} style={{ color, fontSize: exitSize, lineHeight: Math.round(exitSize * 1.15), marginLeft: 1 }}
+        className="font-display font-extrabold">{glyph.exit}</Text>
     ) : null}
   </View>;
 }
