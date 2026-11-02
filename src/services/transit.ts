@@ -210,7 +210,7 @@ export class RealtimeUnavailableError extends ServiceError {
 export async function getScheduledBoard(stopId: string, options: { signal?: AbortSignal; now?: number } = {}): Promise<StopBoard> {
   const reader = await activeReader(stopId);
   checkAbort(options.signal);
-  return composeBoard(reader, stopId, options.now ?? Date.now(), { refresh: timetableService.status().refresh });
+  return composeBoard(reader, stopId, options.now ?? Date.now(), { refresh: timetableService.status().refresh, updatesConfigured: timetableService.status().updateSupported });
 }
 
 /** Scheduled rows refined by the shared citywide TripUpdates feed. */
@@ -221,13 +221,13 @@ export async function getStopBoard(stopId: string, options: { signal?: AbortSign
     checkAbort(options.signal);
     const message = error instanceof Error ? error.message : 'Tempo reale non disponibile.';
     // The opt-in per-stop source still works when the citywide feed host is down.
-    const board = await withStopLive(await composeBoard(reader, stopId, Date.now(), { refresh: timetableService.status().refresh, realtime: { error: message } }), reader, options.signal);
+    const board = await withStopLive(await composeBoard(reader, stopId, Date.now(), { refresh: timetableService.status().refresh, updatesConfigured: timetableService.status().updateSupported, realtime: { error: message } }), reader, options.signal);
     throw new RealtimeUnavailableError(message, board, error instanceof ServiceError ? error.kind : 'network');
   }
   checkAbort(options.signal);
   const realtime = await realtimeFor(feed, reader);
   checkAbort(options.signal);
-  const board = await withStopLive(await composeBoard(reader, stopId, Date.now(), { refresh: timetableService.status().refresh, realtime, nextRefreshAt: feed.fetchedAt + ARRIVALS_REFRESH_MS }), reader, options.signal);
+  const board = await withStopLive(await composeBoard(reader, stopId, Date.now(), { refresh: timetableService.status().refresh, updatesConfigured: timetableService.status().updateSupported, realtime, nextRefreshAt: feed.fetchedAt + ARRIVALS_REFRESH_MS }), reader, options.signal);
   // A nonempty feed with zero joins means the installed package is older than GTT's trip IDs.
   if (board.realtime.state === 'unmatched') void timetableService.check('mismatch');
   return board;

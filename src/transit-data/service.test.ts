@@ -348,3 +348,21 @@ test('a different source that cannot be ordered is never an upgrade; a same-sour
   assert.equal(isUpgrade(otherZip, base), false, 'same feed_version, unknown modification times, different ZIP');
   assert.equal(isUpgrade({ ...base, built_at: '2026-12-01T00:00:00Z' }, base), true, 'same ZIP rebuilt later');
 });
+
+test('without a configured mirror there is no permanent "unconfirmed" warning', () => {
+  const reader = fixtureReader();
+  const checked = Date.parse(reader.meta.manifest.upstream_checked_at!);
+  assert.deepEqual(scheduleNotices(reader.meta, INITIAL_REFRESH_STATE, checked + 49 * HOUR, { updatesConfigured: false }), []);
+  assert.deepEqual(scheduleNotices(reader.meta, INITIAL_REFRESH_STATE, checked + 49 * HOUR, { updatesConfigured: true }).map(notice => notice.code), ['schedule-unconfirmed']);
+});
+
+test('without a configured mirror a check is quietly unsupported: no request, failure or backoff', async () => {
+  const env = setup({ mirrors: [] });
+  assert.equal(await env.service.check('manual'), 'unsupported');
+  assert.equal(await env.service.check('open'), 'unsupported');
+  assert.deepEqual(env.requests, [], 'no mirror request is made');
+  const status = env.service.status();
+  assert.equal(status.updateSupported, false);
+  assert.equal(status.refresh.failures ?? 0, 0, 'no failure is recorded');
+  assert.equal(status.lastError, undefined);
+});

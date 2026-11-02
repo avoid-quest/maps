@@ -88,7 +88,7 @@ function toRow(event: ScheduledEvent, prediction: Prediction, context: {
  * rows joined by exact trip_id and service date. Unmatched feed counts stay out of the rows.
  */
 export async function composeBoard(reader: TimetableReader, stopId: string, now: number, options: {
-  refresh: RefreshState; realtime?: RealtimeInput; window?: BoardWindow; limit?: number; nextRefreshAt?: number;
+  refresh: RefreshState; updatesConfigured?: boolean; realtime?: RealtimeInput; window?: BoardWindow; limit?: number; nextRefreshAt?: number;
 }): Promise<StopBoard> {
   const { meta } = reader;
   const manifest = meta.manifest;
@@ -143,7 +143,7 @@ export async function composeBoard(reader: TimetableReader, stopId: string, now:
   }
   rows.sort((a, b) => a.sortAt - b.sortAt || (a.line ?? '').localeCompare(b.line ?? ''));
 
-  const notices: BoardNotice[] = scheduleNotices(meta, options.refresh, now);
+  const notices: BoardNotice[] = scheduleNotices(meta, options.refresh, now, { updatesConfigured: options.updatesConfigured });
   if (summary.state === 'unmatched') notices.push({ code: 'realtime-unmatched', text: LABELS.unmatched, action: 'update-schedules' });
   else if (summary.state === 'unavailable') notices.push({ code: 'realtime-unavailable', text: `Tempo reale GTT non disponibile: mostrati gli orari programmati.${realtime?.error ? ` ${realtime.error}` : ''}` });
   else if (summary.state === 'ok' && (summary.feedUpdatedAt === undefined || now - summary.feedUpdatedAt > LIVE_MAX_AGE_MS)) notices.push({ code: 'realtime-feed-stale', text: 'Il feed tempo reale GTT non è aggiornato: le previsioni sono mostrate con la loro età.' });

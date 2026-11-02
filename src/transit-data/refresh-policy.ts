@@ -111,7 +111,7 @@ export function succeededCheck(state: RefreshState, now: number, update: Partial
 }
 
 /** Schedule notices shared by every board for the active package. */
-export function scheduleNotices(meta: DatasetMeta, state: RefreshState, now: number): BoardNotice[] {
+export function scheduleNotices(meta: DatasetMeta, state: RefreshState, now: number, options: { updatesConfigured?: boolean } = {}): BoardNotice[] {
   const notices: BoardNotice[] = [];
   const today = romeDate(now);
   if (coverageAt(meta, now) === 'outside') {
@@ -119,6 +119,9 @@ export function scheduleNotices(meta: DatasetMeta, state: RefreshState, now: num
   } else if (addDays(today, 7) > meta.validTo) {
     notices.push({ code: 'schedule-expiring', text: `Il pacchetto orari GTT copre solo fino al ${formatDate(meta.validTo)}.`, action: 'update-schedules' });
   }
+  // Without a mirror there is no manifest that could confirm the package: the provenance line already
+  // shows the bundled feed version and date, so a permanent "unconfirmed" warning would only nag.
+  if (options.updatesConfigured === false) return notices;
   // Only a real upstream check counts; a package prepared from a local ZIP has no confirmation.
   const confirmed = Math.max(confirmedAt(state) ?? 0, (meta.manifest.upstream_checked_at ? Date.parse(meta.manifest.upstream_checked_at) : 0) || 0);
   if (!confirmed) {

@@ -117,6 +117,7 @@ const SCHEDULE_OUTCOMES = {
   'outdated-manifest': 'Nessun orario più recente disponibile.', rejected: 'Pacchetto orari non valido: mantenuti gli orari attuali.',
   failed: 'Controllo orari non riuscito: mantenuti gli orari attuali.', 'skipped-network': 'Aggiornamento orari in attesa del Wi-Fi.',
   throttled: 'Orari controllati di recente.',
+  unsupported: 'Orari dal pacchetto incluso nell’app: si aggiornano con le nuove versioni. I codici corsa GTT vengono verificati direttamente su gtt.to.it.',
 } as const;
 
 function SettingSwitch({ label, hint, value, onChange }: { label: string; hint?: string; value: boolean; onChange: (value: boolean) => void }) {
