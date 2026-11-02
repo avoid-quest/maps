@@ -36,7 +36,7 @@ export function PlaceDetail({ place }: { place: Place }) {
         {place.website ? <ListRow kind="external" icon="globe-outline" title="Sito web" subtitle={websiteLabel(place.website)} subtitleLines={1} onPress={() => openLink(place.website!)} /> : null}
         {place.phone ? <ListRow kind="external" icon="call-outline" title="Chiama" subtitle={place.phone} onPress={() => openLink(`tel:${place.phone}`)} /> : null}
         <ListRow kind="external" icon="map-outline" title="Apri in un’altra app" subtitle="Organic Maps o un’altra app di mappe sul dispositivo"
-          accessibilityHint="Sceglie un’app sul dispositivo; nessun dato viene inviato a servizi" onPress={() => { void openInOtherApp(place); }} />
+          accessibilityHint="Sceglie un’app sul dispositivo. Questa app non invia dati; l’app scelta riceve il luogo e applica la propria privacy" onPress={() => { void openInOtherApp(place); }} />
       </View>
       <View className="px-4">
         <Disclosure title="Fonti e dettagli">

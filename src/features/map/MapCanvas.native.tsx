@@ -6,7 +6,7 @@ import type { FeatureCollection, Point } from 'geojson';
 import { useTheme } from '../../theme';
 import { diagnostics } from '../../services/diagnostics';
 import type { MapCanvasProps } from './MapCanvas.types';
-import { createOnceFraming, createRouteFraming } from './map-presentation';
+import { createOnceFraming, createRouteFraming, frameCamera } from './map-presentation';
 import { lineLayout, markerLabelLayout, overlayPaint } from './map-overlay-style';
 
 /**
@@ -24,6 +24,7 @@ export default function MapCanvas({ center, zoom = 14.5, cameraRevision, routeFi
   const commands = useRef(0);
   const padding = useRef(cameraPadding); padding.current = cameraPadding;
   const camera = useRef<CameraRef>(null);
+  const size = useRef({ width: 412, height: 800 });
   const [mapError, setMapError] = useState(false);
   const [longitude, latitude] = center;
   const coverage = useMemo(() => {
@@ -51,7 +52,10 @@ export default function MapCanvas({ center, zoom = 14.5, cameraRevision, routeFi
   useEffect(() => {
     if (!loaded || !resultFraming.current.claim(frameKey, !!frameBounds) || !frameBounds) return;
     commands.current += 1;
-    camera.current?.fitBounds(frameBounds, { padding: padding.current ?? { top: 50, right: 50, bottom: 50, left: 50 }, duration: 500 });
+    // fitBounds has no zoom cap here, and padding taller than the map zoomed to the maximum (a blank
+    // building interior for two results 30 m apart): ease to a computed, capped camera instead.
+    const inset = padding.current ?? { top: 50, right: 50, bottom: 50, left: 50 };
+    camera.current?.easeTo({ ...frameCamera(frameBounds, size.current, inset), padding: inset, duration: 500 });
   }, [loaded, frameKey, frameBounds]);
   useEffect(() => { if (followLocation !== false) { commands.current += 1; camera.current?.easeTo({ center: [longitude, latitude], zoom, padding: padding.current, duration: 450 }); } }, [longitude, latitude, zoom, followLocation, cameraRevision]);
   useEffect(() => {
@@ -60,7 +64,7 @@ export default function MapCanvas({ center, zoom = 14.5, cameraRevision, routeFi
     commands.current += 1;
     camera.current?.fitBounds([Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)], { padding: padding.current ?? { top: 50, right: 50, bottom: 50, left: 50 }, duration: 500 });
   }, [route, routeFitKey, followLocation]);
-  return <View style={[styles.container, { backgroundColor: theme.map.background }]}>
+  return <View style={[styles.container, { backgroundColor: theme.map.background }]} onLayout={event => { size.current = event.nativeEvent.layout; }}>
     <Map ref={map} style={styles.container} mapStyle={theme.mapStyleJson} logo={false} attribution attributionPosition={{ top: attributionTop, left: attributionLeft }}
       onPress={event => onMapPress?.(event.nativeEvent.lngLat)}
       // A user gesture outranks a pending padding re-centre (see `commands`).

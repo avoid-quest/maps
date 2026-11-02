@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 import { Keyboard } from 'react-native';
 import { createFeatureContext } from './feature-context';
-import type { SheetHeights, SheetSnap } from './sheet-model';
+import { dismissesKeyboard, type SheetHeights, type SheetSnap } from './sheet-model';
 
 export interface SheetState {
   /** A height the user chose by dragging or the expand control; null rests at the task's default. */
   requested: SheetSnap | null;
-  /** Records a height reached by gesture or chosen with the explicit controls. */
-  request(snap: SheetSnap): void;
+  /**
+   * Records a height reached by gesture or chosen with the explicit controls. Only `explicit`
+   * requests (the header control) dismiss the keyboard when expanding to full.
+   */
+  request(snap: SheetSnap, options?: { explicit?: boolean }): void;
   /** Returns to the task's resting height. */
   collapse(): void;
   /** The heights currently laid out (set by the shell), for Back decisions outside rendering. */
@@ -21,9 +24,9 @@ export function useSheetState(contentKey: string): SheetState {
   const collapse = useCallback(() => setRequested(null), []);
   const current = useRef<SheetSnap | null>(null);
   current.current = requested;
-  const request = useCallback((snap: SheetSnap) => {
+  const request = useCallback((snap: SheetSnap, options?: { explicit?: boolean }) => {
     // Side effect outside the updater: React may run updaters during render, or twice in StrictMode.
-    if (current.current !== snap && snap === 'full') Keyboard.dismiss();
+    if (dismissesKeyboard(current.current, snap, options?.explicit ?? false)) Keyboard.dismiss();
     current.current = snap;
     setRequested(snap);
   }, []);

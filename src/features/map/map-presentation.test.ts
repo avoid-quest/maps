@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createRouteFraming, mapCameraPadding } from './map-presentation';
+import { createRouteFraming, frameCamera, mapCameraPadding, RESULT_MAX_ZOOM, resultFrameBounds } from './map-presentation';
 
 test('refreshes and late responses respect manual map browsing; an explicit frame still works', () => {
   const camera = createRouteFraming();
@@ -50,4 +50,20 @@ test('result frames fire once per submitted search and survive leaving and retur
   frames.userMoved('results:2');
   assert.equal(frames.claim('results:2', true), false, 'a pan before results arrive keeps the user view');
   assert.equal(frames.claim('results:3', true), true);
+});
+
+test('results metres apart frame a readable street area, never the maximum zoom', () => {
+  // Eataly and Eataly Green Pea, Via Nizza 224/230, about 30 m apart.
+  const bounds = resultFrameBounds([{ latitude: 45.03535, longitude: 7.667453 }, { latitude: 45.035464, longitude: 7.6666 }], { latitude: 45.07, longitude: 7.68 })!;
+  assert.ok(bounds[2] - bounds[0] >= 0.004 && bounds[3] - bounds[1] >= 0.004, 'a minimum span around near-identical results');
+  const view = { width: 412, height: 915 };
+  const open = frameCamera(bounds, view, { top: 120, bottom: 420, left: 0, right: 0 });
+  assert.ok(open.zoom <= RESULT_MAX_ZOOM && open.zoom > 14, `zoom ${open.zoom}`);
+  assert.ok(Math.abs(open.center[0] - 7.6670265) < 1e-6 && Math.abs(open.center[1] - 45.035407) < 1e-4);
+  // A full sheet plus keyboard can pad more than the map's height: the fit still stays capped.
+  const crushed = frameCamera(bounds, view, { top: 136, bottom: 900 });
+  assert.ok(Number.isFinite(crushed.zoom) && crushed.zoom <= RESULT_MAX_ZOOM);
+  assert.equal(frameCamera([7.6666, 45.0354, 7.6667, 45.0355], view).zoom, RESULT_MAX_ZOOM, 'a tiny box is capped');
+  // A wide box still fits rather than being capped.
+  assert.ok(frameCamera([7.6, 45.0, 7.77, 45.14], view).zoom < 12);
 });

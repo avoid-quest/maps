@@ -424,7 +424,8 @@ function photonPlace(feature: PhotonResponse["features"][number], center: Coordi
   const street = [text(p.street), text(p.housenumber)].filter(Boolean).join(" ");
   const locality = [text(p.postcode), text(p.city)].filter(Boolean).join(" ");
   const kind: PlaceKind = !p.name && (type === "house" || value === "house") && p.housenumber ? "address"
-    : key === "highway" || type === "street" ? "street"
+    // Only Photon's street type is a street: named highway objects include bus stops (type "house").
+    : type === "street" ? "street"
       : key === "place" || key === "boundary" || AREA_TYPES.has(type) ? "area" : "place";
   const name = text(p.name) || (kind === "address" ? street : "") || text(p.street) || text(p.city) || query;
   const address = kind === "address" ? locality : kind === "street" ? [text(p.district), locality].filter(Boolean).join(", ")

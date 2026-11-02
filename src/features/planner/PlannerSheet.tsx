@@ -83,7 +83,7 @@ function PlannerPreview({ task, now }: { task: PlannerTask; now: number }) {
       {pickingOrigin ? null : (
         <View style={hairlines.top} className="-mx-4">
           <ListRow kind="external" icon="map-outline" title="Apri in un’altra app" subtitle={`${task.destination.name} · Organic Maps o un’altra app di mappe`} divider={false}
-            accessibilityHint="Sceglie un’app sul dispositivo; nessun dato viene inviato a servizi" onPress={() => { void openInOtherApp(task.destination); }} />
+            accessibilityHint="Sceglie un’app sul dispositivo. Questa app non invia dati; l’app scelta riceve il luogo e applica la propria privacy" onPress={() => { void openInOtherApp(task.destination); }} />
         </View>
       )}
     </View>

@@ -354,6 +354,7 @@ test("category, neighbourhood and stop words alone stay local; online answers ar
         { geometry: { coordinates: [7.6666, 45.0354] }, properties: { osm_type: "N", osm_id: 1, osm_key: "place", osm_value: "house", type: "house", street: "Via Nizza", housenumber: "230", postcode: "10126", city: "Torino" } },
         { geometry: { coordinates: [7.67, 45.04] }, properties: { osm_type: "W", osm_id: 2, osm_key: "highway", osm_value: "secondary", type: "street", name: "Via Nizza", postcode: "10126", city: "Torino" } },
         { geometry: { coordinates: [7.68, 45.055] }, properties: { osm_type: "N", osm_id: 3, osm_key: "place", osm_value: "suburb", type: "district", name: "San Salvario", city: "Torino" } },
+        { geometry: { coordinates: [7.678, 45.062] }, properties: { osm_type: "N", osm_id: 4, osm_key: "highway", osm_value: "bus_stop", type: "house", name: "Porta Nuova", city: "Torino" } },
       ] });
     };
     await searchPlaces("bar san salvario", { center: centre, policy: "local-and-online" });
@@ -366,6 +367,8 @@ test("category, neighbourhood and stop words alone stay local; online answers ar
     assert.deepEqual([byId.get("osm:N:1")?.kind, byId.get("osm:N:1")?.name, byId.get("osm:N:1")?.address], ["address", "Via Nizza 230", "10126 Torino"]);
     assert.equal(byId.get("osm:W:2")?.kind, "street");
     assert.equal(byId.get("osm:N:3")?.kind, "area");
+    assert.equal(byId.get("osm:N:4")?.kind, "place", "a named highway object such as a bus stop is not a street");
+    assert.equal(byId.get("osm:N:4")?.name, "Porta Nuova");
     assert.equal(requests, 1);
   } finally { global.fetch = original; }
 });
