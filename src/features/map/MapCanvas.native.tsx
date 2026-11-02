@@ -10,6 +10,7 @@ import { createOnceFraming, createRouteFraming, frameCamera } from './map-presen
 import { lineLayout, markerLabelLayout, overlayPaint } from './map-overlay-style';
 import { GUIDANCE_IMAGES, puckImage, puckLayout } from './guidance-puck';
 import { BasemapGuidanceAdjustments, GuidanceRouteLayers } from './GuidanceMapLayers';
+import { guidanceBasemap } from './guidance-basemap';
 import { useGuidanceCameraDriver } from './useGuidanceCameraDriver';
 import { createOrientationReset } from './orientation-reset';
 
@@ -100,7 +101,7 @@ export default function MapCanvas({ center, zoom = 14.5, cameraRevision, routeFi
         <Layer id="local-coverage-fill" type="fill" paint={paint.coverageFill} />
         <Layer id="local-coverage-line" type="line" paint={paint.coverageLine} />
       </GeoJSONSource>}
-      <BasemapGuidanceAdjustments reduceBusinesses={guidance?.mode === 'car' || guidance?.mode === 'bicycle'} oneWayArrows={guidance?.mode === 'car'} />
+      <BasemapGuidanceAdjustments {...guidanceBasemap(guidance)} />
       {route && guidance?.route ? <GuidanceRouteLayers route={route} fraction={guidance.route.fraction} arrow={guidance.route.arrow} colors={theme.map} scheme={theme.scheme} /> : null}
       {route && !guidance?.route && <GeoJSONSource id="journey" data={{ type: 'Feature', geometry: route, properties: {} }}>
         <Layer id="journey-casing" type="line" paint={paint.routeCasing} layout={lineLayout} />
