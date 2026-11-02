@@ -160,6 +160,8 @@ export interface MatoLeg {
   mode: string; duration: number; distance: number; realTime?: boolean | null; realtimeState?: string | null;
   transitLeg?: boolean | null; interlineWithPreviousLeg?: boolean | null;
   startTime: number; endTime: number; serviceDate?: string | null;
+  departureDelay?: number | null; arrivalDelay?: number | null;
+  intermediatePlaces?: { name?: string | null; arrivalTime?: number | null; lat?: number | null; lon?: number | null; stop?: MatoStop | null }[] | null;
   route?: { shortName?: string | null; longName?: string | null } | null;
   trip?: { gtfsId?: string | null; tripHeadsign?: string | null } | null;
   from: MatoPoint; to: MatoPoint; legGeometry?: { points?: string | null } | null;
@@ -195,6 +197,25 @@ function routeStop(point: MatoPoint): RouteStop | undefined {
     coordinate: pointCoordinate(point.stop) ?? pointCoordinate(point),
   };
 }
+/** Supplied intermediate stops; malformed entries are dropped, never repaired. */
+function intermediateStops(leg: MatoLeg): RouteLeg['intermediateStops'] {
+  if (!Array.isArray(leg.intermediatePlaces)) return undefined;
+  return leg.intermediatePlaces.slice(0, 200).flatMap(place => {
+    if (!place || typeof place !== 'object') return [];
+    const stop = routeStop({ name: text(place.name) ?? '', lat: place.lat, lon: place.lon, stop: place.stop });
+    if (!stop) return [];
+    const arrivalAt = timestamp(place.arrivalTime) && place.arrivalTime! >= leg.startTime && place.arrivalTime! <= leg.endTime ? place.arrivalTime! : undefined;
+    return [{ id: stop.id, name: stop.name, ...(stop.code ? { code: stop.code } : {}), ...(stop.coordinate ? { coordinate: stop.coordinate } : {}), ...(arrivalAt ? { arrivalAt } : {}) }];
+  });
+}
+/**
+ * Timetable time behind a predicted leg time, only when MATO supplies a plausible delay (zero
+ * included: the prediction then equals the timetable). Without one the timetable time is unknown.
+ */
+function scheduledTime(time: number, delaySeconds: unknown, status: RouteLeg['timingStatus']): number | undefined {
+  if (status !== 'prediction' || typeof delaySeconds !== 'number' || !Number.isFinite(delaySeconds) || Math.abs(delaySeconds) > 3 * 3600) return undefined;
+  return time - delaySeconds * 1000;
+}
 function timingStatus(leg: MatoLeg, transitLeg: boolean): RouteLeg['timingStatus'] {
   if (!transitLeg) return 'unknown';
   const state = text(leg.realtimeState)?.toUpperCase();
@@ -225,6 +246,9 @@ function parseItinerary(itinerary: MatoItinerary, fetchedAt: number): RoutePlan 
       if (!geometry.every(validCoordinate)) invalidTransitData();
     }
     const status = timingStatus(leg, transitLeg);
+    const scheduledDepartureAt = scheduledTime(leg.startTime, leg.departureDelay, status);
+    const scheduledArrivalAt = scheduledTime(leg.endTime, leg.arrivalDelay, status);
+    const stops = transitLeg ? intermediateStops(leg) : undefined;
     // Known trips retain identity across prediction changes, even without a stop ID.
     // Only unidentified trips need timing hints to avoid merging unrelated services.
     const identity = transitLeg && tripId && serviceDate
@@ -235,6 +259,8 @@ function parseItinerary(itinerary: MatoItinerary, fetchedAt: number): RoutePlan 
       headsign: text(leg.trip?.tripHeadsign), from: leg.from.name === 'Origin' ? 'Partenza' : leg.from.name,
       to: leg.to.name === 'Destination' ? 'Destinazione' : leg.to.name,
       fromStop, toStop, tripId: tripId ? `mato:${tripId}` : undefined, serviceDate,
+      ...(stops ? { intermediateStops: stops } : {}),
+      ...(scheduledDepartureAt !== undefined ? { scheduledDepartureAt } : {}), ...(scheduledArrivalAt !== undefined ? { scheduledArrivalAt } : {}),
       transitLeg, interlineWithPreviousLeg: transitLeg && !!previousIsTransit && leg.interlineWithPreviousLeg === true,
       timingStatus: status, realTime: status === 'prediction',
       durationSeconds: leg.duration, distanceMeters: leg.distance, departureAt: leg.startTime, arrivalAt: leg.endTime,
@@ -294,7 +320,7 @@ export async function planRoutes(options: PlanRouteOptions): Promise<RoutePlan[]
     return [await planRoadRoute({ from, to, mode, signal })];
   }
   const { date, time, arriveBy } = resolveTransitTime(options.transitTime);
-  const query = `query { plan(from:{lat:${from.latitude},lon:${from.longitude}},to:{lat:${to.latitude},lon:${to.longitude}},date:"${date}",time:"${time}",arriveBy:${arriveBy},numItineraries:2) { itineraries { duration startTime endTime walkTime walkDistance waitingTime legs { mode transitLeg duration distance realTime realtimeState interlineWithPreviousLeg startTime endTime serviceDate route { shortName longName } trip { gtfsId tripHeadsign } from { name lat lon stop { gtfsId name code platformCode } } to { name lat lon stop { gtfsId name code platformCode } } legGeometry { points } } } } }`;
+  const query = `query { plan(from:{lat:${from.latitude},lon:${from.longitude}},to:{lat:${to.latitude},lon:${to.longitude}},date:"${date}",time:"${time}",arriveBy:${arriveBy},numItineraries:2) { itineraries { duration startTime endTime walkTime walkDistance waitingTime legs { mode transitLeg duration distance realTime realtimeState interlineWithPreviousLeg startTime endTime departureDelay arrivalDelay serviceDate route { shortName longName } trip { gtfsId tripHeadsign } from { name lat lon stop { gtfsId name code platformCode } } to { name lat lon stop { gtfsId name code platformCode } } intermediatePlaces { name arrivalTime lat lon stop { gtfsId name code platformCode lat lon } } legGeometry { points } } } } }`;
   const response = await transitRequest(() => fetchJSON<MatoResponse>(MATO_ENDPOINT, { method: 'POST', signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query }) }, 'mato'), signal);
   return parseServiceData('mato', () => parseTransitRoutes(response));
 }

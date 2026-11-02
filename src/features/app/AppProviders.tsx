@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useRef, type ReactNode } from 'react';
 import { savedTravel } from '../../services/saved-travel';
 import { searchPreferences } from '../../services/search-preferences';
+import { transitousConsent } from '../../services/transitous-consent';
 import { useDeviceLocation } from '../map/useDeviceLocation';
 import { useMapCamera } from '../map/useMapCamera';
 import { MapProvider, useMapModel } from '../map/useMapModel';
@@ -34,7 +35,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
   const map = useMapModel({ tasks, camera, location });
   const places = usePlaces({ tasks, camera, location, sheet, feedback });
   const search = useSearch({ tasks, camera, location, sheet, appActive, navigationVisible: navigation.visible });
-  const transit = useTransit({ tasks, camera, location, sheet, appActive, navigationVisible: navigation.visible });
+  const transit = useTransit({ tasks, camera, location, sheet, appActive, navigation });
   const planner = usePlanner({ tasks, camera, location, places, navigation, sheet, appActive, suspendBoard: transit.suspend });
   const shell = useShellController({ tasks, camera, location, sheet, search });
   suspendActiveWork.current = () => { planner.suspend(); transit.suspend(); };
@@ -42,6 +43,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
   useEffect(() => {
     void searchPreferences.initialize(AsyncStorage);
     void savedTravel.initialize(AsyncStorage);
+    void transitousConsent.initialize(AsyncStorage);
   }, []);
   return (
     <TaskStateProvider value={tasks.state}>

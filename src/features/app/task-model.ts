@@ -1,4 +1,5 @@
 import type { Coordinate, Place, Stop, TransitTime, TravelMode } from '../../domain/types';
+import type { RailPilotStation } from '../../services/transitous-stations';
 
 /**
  * Which screen the user is in, as a small stack: one root, the detail tasks opened
@@ -32,14 +33,16 @@ export interface PlaceTask { kind: 'place'; place: Place }
 export interface StopTask { kind: 'stop'; stop: Stop }
 /** A stop board opened from a journey; closing it returns to its planner. */
 export interface JourneyStopTask { kind: 'journeyStop'; stop: Stop }
-export type DetailTask = PlaceTask | StopTask | PlannerTask | JourneyStopTask;
+/** A rail pilot station's board (Transitous), opened from Trasporti. */
+export interface StationTask { kind: 'station'; station: RailPilotStation }
+export type DetailTask = PlaceTask | StopTask | PlannerTask | JourneyStopTask | StationTask;
 export interface SettingsTask { kind: 'settings' }
 export type Task = RootTask | DetailTask | SettingsTask;
 
 export interface TravelChoice { mode: TravelMode; transitTime: TransitTime }
 export interface TaskState {
   root: RootTask;
-  /** Valid sequences: [], [place], [stop], [place?, planner, journeyStop?]. */
+  /** Valid sequences: [], [place], [stop], [station], [place?, planner, journeyStop?]. */
   details: readonly DetailTask[];
   settings: boolean;
   /** The last chosen mode and time carry over to the next planner. */
@@ -67,6 +70,7 @@ export type TaskAction =
   | { type: 'chooseCategory'; category: string }
   | { type: 'openPlace'; place: Place }
   | { type: 'openStop'; stop: Stop }
+  | { type: 'openStation'; station: RailPilotStation }
   /** Plans to `destination`, or to the open place. `locating` reflects a usable device position. */
   | { type: 'beginRoute'; destination?: Place; mode?: TravelMode; viewport: Coordinate; locating: boolean }
   | { type: 'restoreJourney'; destination: Place; origin: { coordinate: Coordinate; label: string }; travel: TravelChoice }
@@ -174,6 +178,8 @@ export function taskReducer(state: TaskState, action: TaskAction): TaskState {
       return openPlace(state, action.place);
     case 'openStop':
       return { ...state, details: [{ kind: 'stop', stop: action.stop }] };
+    case 'openStation':
+      return { ...state, details: [{ kind: 'station', station: action.station }] };
     case 'beginRoute': {
       const base = action.destination ? openPlace(state, action.destination) : state;
       const place = last(base.details);
@@ -283,6 +289,10 @@ export function boardStop(state: TaskState): Stop | null {
   const task = last(state.details);
   return task?.kind === 'stop' || task?.kind === 'journeyStop' ? task.stop : null;
 }
+export function selectedStation(state: TaskState): RailPilotStation | null {
+  const task = last(state.details);
+  return task?.kind === 'station' ? task.station : null;
+}
 export function selectedStop(state: TaskState): Stop | null {
   const task = state.details.find((item): item is StopTask => item.kind === 'stop');
   return task?.stop ?? null;
@@ -315,6 +325,7 @@ export function detailKey(state: TaskState): string {
     // The endpoint editor is its own content: it opens raised for typing and returns to the plan.
     case 'planner': return `route:${top.destination.id}${top.editing ? `:${top.editing}` : ''}`;
     case 'stop': return `stop:${top.stop.id}`;
+    case 'station': return `station:${top.station.key}`;
     case 'place': return `place:${top.place.id}`;
     case 'transit': case 'saved': return `list:${top.kind}`;
     case 'browse': case 'search': return 'list:explore';
@@ -327,5 +338,5 @@ export function rootTab(state: TaskState): 'explore' | 'transit' | 'saved' {
 /** Structural invariant of `details`, used by tests and development assertions. */
 export function isValidTaskState(state: TaskState): boolean {
   const kinds = state.details.map(task => task.kind).join(',');
-  return ['', 'place', 'stop', 'planner', 'place,planner', 'planner,journeyStop', 'place,planner,journeyStop'].includes(kinds);
+  return ['', 'place', 'stop', 'station', 'planner', 'place,planner', 'planner,journeyStop', 'place,planner,journeyStop'].includes(kinds);
 }

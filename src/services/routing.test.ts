@@ -383,3 +383,45 @@ test('route requests send validated depart/arrive time and reject invalid or abo
     assert.match(queries[0]!, /stop \{ gtfsId name code platformCode \}/);
   } finally { global.fetch = original; }
 });
+
+test('supplied intermediate stops and realtime delays are kept; malformed stops are dropped, not repaired', async () => {
+  const value = gttStopLinkLeg();
+  value.realTime = true; value.realtimeState = 'UPDATED'; value.departureDelay = 120; value.arrivalDelay = 60;
+  value.intermediatePlaces = [
+    // Captured from a public MATO line 14 response; times are synthetic.
+    { name: 'MONTE CORNO', arrivalTime: value.startTime + 120_000, lat: 45.02574, lon: 7.65476, stop: { gtfsId: 'gtt:2605', name: 'MONTE CORNO', code: '2605', lat: 45.02574, lon: 7.65476 } },
+    { name: 'PASSO BUOLE', arrivalTime: value.endTime + 3_600_000, stop: { gtfsId: 'gtt:508', name: 'PASSO BUOLE', code: '508' } },
+    { name: 'senza fermata', arrivalTime: value.startTime + 60_000, stop: null },
+    null as never,
+  ];
+  const parsed = parseTransitRoute(response({ duration: 600, legs: [value] }), fetchedAt).legs[0]!;
+  assert.equal(parsed.timingStatus, 'prediction');
+  assert.equal(parsed.scheduledDepartureAt, value.startTime - 120_000);
+  assert.equal(parsed.scheduledArrivalAt, value.endTime - 60_000);
+  assert.deepEqual(parsed.intermediateStops, [
+    { id: 'mato:gtt:2605', name: 'MONTE CORNO', code: '2605', coordinate: { latitude: 45.02574, longitude: 7.65476 }, arrivalAt: value.startTime + 120_000 },
+    // An arrival outside the leg is not a time for this stop.
+    { id: 'mato:gtt:508', name: 'PASSO BUOLE', code: '508' },
+  ]);
+  const scheduled = gttStopLinkLeg();
+  scheduled.departureDelay = 0;
+  const plain = parseTransitRoute(response({ duration: 600, legs: [scheduled] }), fetchedAt).legs[0]!;
+  assert.equal(plain.scheduledDepartureAt, undefined, 'a timetable leg has no separate scheduled time');
+  const onTime = gttStopLinkLeg();
+  onTime.realTime = true; onTime.realtimeState = 'UPDATED'; onTime.departureDelay = 0;
+  assert.equal(parseTransitRoute(response({ duration: 600, legs: [onTime] }), fetchedAt).legs[0]!.scheduledDepartureAt, onTime.startTime, 'a zero delay states the timetable time');
+  const unknownDelay = gttStopLinkLeg();
+  unknownDelay.realTime = true; unknownDelay.realtimeState = 'UPDATED'; unknownDelay.departureDelay = null;
+  assert.equal(parseTransitRoute(response({ duration: 600, legs: [unknownDelay] }), fetchedAt).legs[0]!.scheduledDepartureAt, undefined, 'no delay: timetable time unknown');
+  assert.equal(plain.intermediateStops, undefined, 'not requested is not "none"');
+  const storage = new Map<string, string>();
+  const store = createSavedTravel({ now: () => fetchedAt + 1000 });
+  await store.initialize({ getItem: async key => storage.get(key) ?? null, setItem: async (key, item) => { storage.set(key, item); }, removeItem: async key => { storage.delete(key); } });
+  const plan = parseTransitRoute(response({ duration: 600, legs: [value] }), fetchedAt);
+  assert.equal(await store.saveJourney({ query: { from, to, mode: 'transit', transitTime: { kind: 'now' } }, originLabel: 'A', destinationLabel: 'B', plan }), true);
+  const reloaded = createSavedTravel();
+  await reloaded.initialize({ getItem: async key => storage.get(key) ?? null, setItem: async (key, item) => { storage.set(key, item); }, removeItem: async key => { storage.delete(key); } });
+  const restored = reloaded.getSnapshot().journey!.plan.legs[0]!;
+  assert.deepEqual(restored.intermediateStops, parsed.intermediateStops);
+  assert.equal(restored.scheduledDepartureAt, parsed.scheduledDepartureAt);
+});

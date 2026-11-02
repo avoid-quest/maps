@@ -8,10 +8,12 @@ import { formatDistance } from "../../ui/format";
 import { mapCameraPadding } from "../map/map-presentation";
 import { useMapContext } from "../map/useMapModel";
 import { NavigationPanel } from "../navigation/NavigationPanel";
+import { TransitFollowPanel } from "../navigation/TransitFollowPanel";
 import { useNavigationContext } from "../navigation/useNavigation";
 import { usePlannerContext } from "../planner/usePlanner";
 import { SearchField } from "../search/SearchField";
 import { useSearchContext } from "../search/useSearch";
+import { useTransitContext } from "../transit/useTransit";
 import { AppMap } from "./AppMap";
 import { useFeedback } from "./feedback";
 import { useSheet } from "./sheet";
@@ -49,6 +51,7 @@ export function AppShell() {
   const feedback = useFeedback();
   const shell = useShellActions();
   const planner = usePlannerContext();
+  const transit = useTransitContext();
   const tab = rootTab(tasks);
   const panelVisible = sheetVisible(tasks);
   const heights = sheetHeights({ availableHeight, fontScale, peekContent: peekContentHeight(tasks, search.hasSearch) });
@@ -71,7 +74,12 @@ export function AppShell() {
           attributionLeft={wide && panelVisible && !navigation.visible ? SIDE_SHEET_WIDTH - 4 : 8}
           attributionTop={navigation.visible ? Math.min(height * 0.3, 104 * Math.min(fontScale, 1.5)) + 8 : 68}
         />
-        {navigation.visible ? (
+        {navigation.visible && (navigation.snapshot.mode === "transit" || (navigation.busy === "start" && navigation.startKind === "transit")) ? (
+          <TransitFollowPanel state={navigation} following={camera.following} follow={transit.follow} onRecenter={camera.recenterGuidance}
+            onStop={() => { void navigation.stop(); }} onRetry={() => { void navigation.retry(); }}
+            onConfirm={action => { void navigation.confirmTransit(action); }} onReplan={() => { void planner.replanFromNavigation(); }}
+            onMute={() => { void navigation.toggleMuted(); }} />
+        ) : navigation.visible ? (
           <NavigationPanel {...navigation} following={camera.following} onRecenter={camera.recenterGuidance}
             onStop={() => { void navigation.stop(); }} onRetry={() => { void navigation.retry(); }} onMute={() => { void navigation.toggleMuted(); }}
             onConfirmTransit={action => { void navigation.confirmTransit(action); }} onReplan={() => { void planner.replanFromNavigation(); }} />

@@ -1,5 +1,5 @@
 import { View } from "react-native";
-import { AppSheet, IconButton, SheetHeader, SheetScrollView, type SheetHeights, type SheetSnap } from "../../ui";
+import { AppSheet, IconButton, SheetHeader, SheetScrollView, SHRINKING_FILL, type SheetHeights, type SheetSnap } from "../../ui";
 import { PlaceDetail } from "../places/PlaceDetail";
 import { SavedSheet } from "../places/SavedSheet";
 import { PlannerSheet } from "../planner/PlannerSheet";
@@ -10,6 +10,7 @@ import { SearchResults } from "../search/SearchResults";
 import { useSearchContext, type Search } from "../search/useSearch";
 import { SettingsSheet } from "../settings/SettingsSheet";
 import { NearbyStops } from "../transit/NearbyStops";
+import { RailStationSheet } from "../transit/RailStationSheet";
 import { StopSheet } from "../transit/StopSheet";
 import { useSheet } from "./sheet";
 import { sheetHeaderNavigation, toggleExpands, toggledSnap } from "./sheet-model";
@@ -21,6 +22,7 @@ function taskTitle(task: Task, search: Search): string {
   switch (task.kind) {
     case "settings": return "Privacy e fonti";
     case "journeyStop": case "stop": return task.stop.name;
+    case "station": return task.station.name;
     case "planner": return task.editing === "origin" ? "Scegli la partenza" : task.editing === "destination" ? "Scegli la destinazione" : "Percorso";
     case "place": return task.place.name;
     case "transit": return "Trasporti";
@@ -39,6 +41,7 @@ function TaskContent({ task, search, now }: { task: Task; search: Search; now: n
     case "planner": return <SheetScrollView><PlannerSheet task={task} now={now} /></SheetScrollView>;
     case "place": return <SheetScrollView><PlaceDetail place={task.place} /></SheetScrollView>;
     case "journeyStop": case "stop": return <SheetScrollView><StopSheet stop={task.stop} now={now} /></SheetScrollView>;
+    case "station": return <SheetScrollView><RailStationSheet station={task.station} now={now} /></SheetScrollView>;
     case "browse": return null;
   }
 }
@@ -68,7 +71,7 @@ export function TaskSheet({ snap, resting, heights, now }: { snap: SheetSnap; re
   return (
     <AppSheet testID="map-sheet" snap={snap} heights={heights} onSnapChange={sheet.request} header={header}
       footer={top.kind === "planner" && !top.editing ? <RouteActions task={top} /> : undefined} footerHeight={top.kind === "planner" && !top.editing ? ROUTE_ACTIONS_HEIGHT : 0}>
-      <View key={detailKey(tasks)} style={{ flex: 1 }}>
+      <View key={detailKey(tasks)} style={SHRINKING_FILL}>
         <TaskContent task={top} search={search} now={now} />
       </View>
     </AppSheet>

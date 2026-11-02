@@ -1,4 +1,9 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
+import { TRANSITOUS_PRIVACY_NOTES } from '../../services/transitous';
+import type { TransitousConsentSnapshot } from '../../services/transitous-consent';
+import { ProviderBoardView, TransitousDisclosure } from './ProviderBoard';
+import { transitousFallbackOffered } from './provider-board';
+import type { ProviderBoardState } from './useProviderBoard';
 import { ActivityIndicator, Switch, View } from 'react-native';
 import { Text } from '../../ui/Text';
 import type { Stop } from '../../domain/types';
@@ -14,23 +19,51 @@ import { rowPresentation, rowStatusLines, visibleRows } from './departure-status
 import type { useStopBoard } from './useStopBoard';
 
 type BoardState = ReturnType<typeof useStopBoard>;
-export function StopBoardPanel({ stop, state, now, onLink, onDirections, actions }: {
+export interface TransitousFallback {
+  /** The board's online source is currently Transitous. */
+  shown: boolean;
+  consent: TransitousConsentSnapshot;
+  board: ProviderBoardState;
+  open(): void;
+  close(): void;
+  accept(): void;
+}
+export function StopBoardPanel({ stop, state, now, onLink, onDirections, actions, transitous }: {
   stop: Stop; state: BoardState; now: number; onLink: (url: string) => void; onDirections: () => void;
   /** Secondary stop actions shown as icons beside refresh, such as saving the stop. */
   actions?: ReactNode;
+  /** Explicit "Cerca su Transitous" replacement of the online source. */
+  transitous?: TransitousFallback;
 }) {
+  const [asking, setAsking] = useState(false);
   const reference = useDistanceReference();
   const distance = detailDistance(reference, stop.coordinate);
   const { board, alerts, arrivalsLoading, alertsLoading, arrivalsError, alertsError, refreshArrivals, refreshAlerts, schedules, updateSchedules, setSchedulesWifiOnly, setStopLive } = state;
   return <View className="gap-3">
     <View className="flex-row items-center gap-2 px-4">
       <Text accessibilityLabel={`Fermata ${stop.code}${distance ? `, ${distance.spoken}` : ''}`} className="flex-1 text-sm text-secondary">Fermata <Num className="text-sm text-primary">{stop.code}</Num>{distance ? <> · <Num className="text-sm text-secondary">{distance.label}</Num></> : null}</Text>
-      <IconButton icon="refresh-outline" label="Aggiorna arrivi" disabled={arrivalsLoading} onPress={refreshArrivals} />
+      {transitous?.shown ? null : <IconButton icon="refresh-outline" label="Aggiorna arrivi" disabled={arrivalsLoading} onPress={refreshArrivals} />}
       {actions}
     </View>
+    {transitous?.shown ? <>
+      <View className="gap-2 px-4">
+        <Notice text="Fonte online sostituita da Transitous. Gli orari GTT sono nascosti per non mescolare le fonti." action="Torna a GTT" onAction={transitous.close} />
+      </View>
+      {!transitous.consent.accepted
+        ? <View className="px-4"><TransitousDisclosure text={TRANSITOUS_PRIVACY_NOTES.stopFallback} onAccept={transitous.accept} onCancel={transitous.close} onLink={onLink} /></View>
+        : <ProviderBoardView state={transitous.board} now={now} onLink={onLink} emptyTitle="Nessuna partenza da mostrare" />}
+    </> : <>
     {schedules.phase === 'preparing' ? <BoardLoading label="Preparo gli orari GTT sul dispositivo…" /> : null}
     {arrivalsLoading ? <BoardLoading label={board ? 'Aggiorno il tempo reale…' : 'Cerco i prossimi passaggi…'} /> : null}
     {arrivalsError ? <View className="px-4"><Notice tone="danger" text={`${arrivalsError}${board ? ' Restano visibili gli orari programmati.' : ''}`} action="Riprova arrivi" onAction={refreshArrivals} /></View> : null}
+    {transitous && transitousFallbackOffered(board, arrivalsError) ? <View className="gap-2 px-4">
+      {asking && !transitous.consent.accepted
+        ? <TransitousDisclosure text={TRANSITOUS_PRIVACY_NOTES.stopFallback} onAccept={() => { setAsking(false); transitous.accept(); transitous.open(); }} onCancel={() => setAsking(false)} onLink={onLink} />
+        : <>
+          <Text className="text-sm leading-5 text-secondary">Tempo reale GTT non disponibile per questa fermata. Puoi cercare le partenze su Transitous, un servizio esterno: le sue corse sostituiscono quelle GTT in questa bacheca.</Text>
+          <View className="self-start"><Button variant="secondary" icon="search-outline" onPress={() => { if (transitous.consent.accepted) transitous.open(); else setAsking(true); }}>Cerca su Transitous</Button></View>
+        </>}
+    </View> : null}
     {board ? <>
       <Text className="px-4 text-sm leading-5 text-secondary">
         Orari programmati GTT <Num className="text-sm text-secondary">{board.schedule.feedVersion}</Num>{board.schedule.sourceUpdatedAt ? ` · fonte aggiornata il ${journeyDate(board.schedule.sourceUpdatedAt)}` : ''}
@@ -44,6 +77,7 @@ export function StopBoardPanel({ stop, state, now, onLink, onDirections, actions
         : <EmptyState icon="time-outline" title="Nessun passaggio programmato" description="Nessuna corsa nelle prossime ore secondo gli orari installati." />}
       {board.attributions.map(attribution => <Text key={attribution} className="px-4 text-sm leading-5 text-secondary">{attribution}</Text>)}
     </> : null}
+    </>}
     {schedules.updateSupported ? <View className="gap-3 px-4">
       <View className="self-start"><Button variant="secondary" icon="cloud-download-outline" disabled={schedules.checking} onPress={updateSchedules}>{schedules.checking ? 'Controllo orari…' : 'Aggiorna orari'}</Button></View>
       <SettingSwitch label="Aggiorna orari solo con Wi-Fi" value={schedules.refresh.wifiOnly} onChange={setSchedulesWifiOnly} />

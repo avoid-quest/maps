@@ -16,7 +16,7 @@ test('snap heights are ordered, fixed per window and leave the search bar visibl
     assert.ok(peek >= 120);
   }
   const keyboard = sheetHeights({ availableHeight: 380, fontScale: 1, peekContent: 220 });
-  assert.equal(keyboard.full, 244, 'a keyboard-shrunk window lowers the full snap rather than covering the search bar');
+  assert.equal(keyboard.full, 304, 'a keyboard-shrunk window lowers the full snap rather than covering the search bar');
   assert.equal(keyboard.peek, 220);
 });
 
@@ -59,8 +59,8 @@ test('the header shows Back only when it leads somewhere other than the map', ()
 test('a short window with shared heights keeps logical snaps, camera padding and controls consistent', async () => {
   const { logicalSnapAt, physicalIndex, physicalSnaps } = await import('../../ui/sheet-snaps');
   const keyboard = sheetHeights({ availableHeight: 380, fontScale: 1, peekContent: 220 });
-  assert.deepEqual(keyboard, { peek: 220, half: 220, full: 244 });
-  assert.deepEqual(physicalSnaps(keyboard), [220, 244], 'the gesture library never sees duplicate detents');
+  assert.deepEqual(keyboard, { peek: 220, half: 220, full: 304 });
+  assert.deepEqual(physicalSnaps(keyboard), [220, 304], 'the gesture library never sees duplicate detents');
   assert.equal(physicalIndex(keyboard, 'half'), 0);
   assert.equal(physicalIndex(keyboard, 'peek'), 0);
   assert.equal(physicalIndex(keyboard, 'full'), 1);
@@ -82,4 +82,25 @@ test('only the explicit expand control dismisses the keyboard; library-reported 
   assert.equal(dismissesKeyboard('half', 'full', false), false);
   assert.equal(dismissesKeyboard('full', 'full', true), false);
   assert.equal(dismissesKeyboard('full', 'half', true), false);
+});
+
+test('full sits just under the search bar and every snap is whole dp', () => {
+  // Emulator geometry: 914.29 dp window, safe-area insets leave 814.48 dp for the map and sheet.
+  const heights = sheetHeights({ availableHeight: 814.476, fontScale: 1, peekContent: 220 });
+  assert.equal(heights.full, 738);
+  const sheetTop = 814.476 - 8 - heights.full; // the library places the sheet `bottomInset` (8) above the container bottom
+  assert.ok(sheetTop >= 64 && sheetTop <= 72, `top of the full sheet at ${sheetTop} dp, under the 64 dp search bar`);
+  for (const value of Object.values(heights)) assert.ok(Number.isInteger(value), `${value} is whole`);
+});
+
+test('guard: the library\'s exact top-detent comparison holds for every window size', () => {
+  // Defensive (not the cause of the scroll bug): gorhom unlocks scrolling only on exact equality.
+  // gorhom: highest = container - full; sheetHeight = container - highest; EXTENDED iff position === container - sheetHeight.
+  for (let available = 300; available <= 1400; available += 0.37) {
+    const container = Math.fround(available - 8); // layout sizes arrive as float32
+    const { full } = sheetHeights({ availableHeight: available, fontScale: 1, peekContent: 220 });
+    const highest = container - full;
+    const sheetHeight = container - highest;
+    assert.equal(container - sheetHeight, highest, `window ${available.toFixed(2)} dp keeps content scrolling unlockable`);
+  }
 });
