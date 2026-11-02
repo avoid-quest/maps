@@ -19,7 +19,7 @@ export interface NavigationSnapshot {
   notificationGranted: boolean;
   /** Independent of retained route/admission errors: only a current accepted fix is usable. */
   locationUsable?: boolean;
-  location?: Coordinate & { accuracyMeters: number; bearing?: number; timestamp: number };
+  location?: NavigationFix;
   instruction?: string;
   nextInstruction?: string;
   distanceToManeuverMeters?: number;
@@ -27,6 +27,15 @@ export interface NavigationSnapshot {
   durationRemainingSeconds?: number;
   destinationDistanceMeters?: number;
   routeRevision?: number;
+  /** The next maneuver (Ferrostar's remainingSteps[1]); `instruction` is its Italian text. */
+  upcomingManeuver?: GuidanceManeuver;
+  /** The maneuver after it (`nextInstruction`), with the distance/time separating the two. */
+  followingManeuver?: FollowingManeuver;
+  /** Snapped progress measured on the bridged route geometry, for the traveled/remaining split. */
+  routeProgress?: RouteProgress;
+  /** Ferrostar's route-snapped position; credible only while `alignment` is `aligned`. */
+  snappedLocation?: Coordinate;
+  alignment?: 'aligned' | 'deviating' | 'unknown';
   /** Events omit an unchanged route; null or a terminal session clears it. Reads include the full route. */
   route?: { geometry: Coordinate[]; source: string; fetchedAt: number } | null;
   problem?: 'location-permission' | 'location-disabled' | 'location-stale' | 'location-inaccurate' | 'location-unavailable'
@@ -57,6 +66,52 @@ export interface NavigationSnapshot {
     confirmation?: TransitConfirmation;
   };
   canRetry: boolean;
+}
+/** An accepted fix. Kinematics are present only when the platform supplied finite values. */
+export interface NavigationFix extends Coordinate {
+  accuracyMeters: number;
+  /** Course while moving at 1 m/s or more (legacy field kept for older consumers). */
+  bearing?: number;
+  /** Wall-clock sample time (ms). */
+  timestamp: number;
+  speedMps?: number;
+  speedAccuracyMps?: number;
+  /** Course over ground in [0, 360), with its 68% accuracy when the platform reports one. */
+  course?: number;
+  courseAccuracyDegrees?: number;
+  /** Monotonic sample time (Android elapsed realtime, ms): intervals, never wall time. */
+  elapsedMs?: number;
+}
+export type ManeuverModifier = 'uturn' | 'sharp right' | 'right' | 'slight right' | 'straight' | 'slight left' | 'left' | 'sharp left';
+/** Raw OSRM maneuver facts; `id` is stable for one route revision and changes on every reroute. */
+export interface GuidanceManeuver {
+  id: string;
+  stepIndex: number;
+  /** Index of the maneuver point in the immutable route geometry of the same revision. */
+  geometryIndex: number;
+  /** OSRM maneuver type, passed through unchanged; unknown values must not be guessed into turns. */
+  type: string;
+  modifier?: ManeuverModifier;
+  exit?: number;
+  name?: string;
+  ref?: string;
+  instruction: string;
+  latitude?: number;
+  longitude?: number;
+  bearingBefore?: number;
+  bearingAfter?: number;
+  drivingSide?: 'left' | 'right';
+}
+export interface FollowingManeuver extends GuidanceManeuver {
+  afterUpcomingMeters: number;
+  afterUpcomingSeconds: number;
+}
+export interface RouteProgress {
+  traveledMeters: number;
+  routeLengthMeters: number;
+  /** Route-geometry segment holding the snapped position. */
+  segmentIndex: number;
+  stepIndex: number;
 }
 export interface NavigationStart { destination: Coordinate; mode: RoadMode }
 export interface TransitNavigationStart { plan: RoutePlan; origin: Coordinate; destination: Coordinate }

@@ -379,6 +379,8 @@ internal class NavigationRuntime private constructor(private val context: Contex
         val (upcoming, following) = ItalianManeuvers.upcoming(state.remainingSteps)
         if (upcoming != null) fields["instruction"] = upcoming else fields.remove("instruction")
         if (following != null) fields["nextInstruction"] = following else fields.remove("nextInstruction")
+        publishGuidance(state.remainingSteps.size, state.snappedUserLocation.coordinates,
+          Alignment.of(judged, offRoute, state.deviation is RouteDeviation.Deviation))
         fields["status"] = if (offRoute) "off-route" else "navigating"
         fields.remove("problem"); fields["canRetry"] = offRoute
         arrivalFixes = 0
@@ -411,6 +413,9 @@ internal class NavigationRuntime private constructor(private val context: Contex
         fields["status"] = "navigating"; fields.remove("problem"); fields["canRetry"] = false
         fields["instruction"] = "Stai arrivando a destinazione"; fields.remove("nextInstruction")
         fields["distanceRemainingMeters"] = result[0].toDouble()
+        // The final step is next: the arrival maneuver, measured from the route end.
+        publishGuidance(2, destination, Alignment.UNKNOWN)
+        fields.remove("followingManeuver")
         publish()
       }
       is TripState.Idle -> {
@@ -418,11 +423,24 @@ internal class NavigationRuntime private constructor(private val context: Contex
         runCatching { engine?.close() }; engine = null
         recovery.roadFailed(); speech?.flush()
         fields["status"] = "error"; fields["problem"] = "route-not-started"; fields["canRetry"] = true
-        fields.remove("route"); fields.remove("routeRevision")
+        fields.remove("route"); fields.remove("routeRevision"); clearGuidance()
         publish()
       }
     }
   }
+
+  /** Structured maneuvers and progress for the interface; ids belong to the installed route revision. */
+  private fun publishGuidance(remainingSteps: Int, snapped: uniffi.ferrostar.GeographicCoordinate?, alignment: String) {
+    val active = engine ?: return
+    clearGuidance()
+    try {
+      fields.putAll(GuidanceFields.build(routeSequence, active.index, active.route.steps, active.facts, remainingSteps, snapped, alignment))
+    } catch (error: RuntimeException) {
+      // Presentation data must never stop guidance; the text instructions remain.
+      Log.w(TAG, "guidance fields failed ${error.javaClass.name}")
+    }
+  }
+  private fun clearGuidance() { GUIDANCE_KEYS.forEach { fields.remove(it) } }
 
   private fun arrive(instruction: String, routeEnd: Point?) {
     val destinationDistance = routeEnd?.let { end -> target?.let { selected ->
@@ -514,6 +532,7 @@ internal class NavigationRuntime private constructor(private val context: Contex
       engine?.close(); engine = next; spoken.clear(); deviation.reset()
       Log.i(TAG, "route installed fresh=$fresh steps=${next.route.steps.size}")
       fields["routeRevision"] = ++routeSequence
+      clearGuidance()
       fields["route"] = mapOf("geometry" to next.route.geometry.map { Point(it.lat, it.lng).bridge() },
         "source" to "FOSSGIS / OpenStreetMap", "fetchedAt" to response.fetchedAt)
       if (!fresh) {
@@ -581,9 +600,18 @@ internal class NavigationRuntime private constructor(private val context: Contex
   private fun fixMap(fix: Location): Map<String, Any> = mutableMapOf<String, Any>("latitude" to fix.latitude,
     "longitude" to fix.longitude, "accuracyMeters" to fix.accuracy.toDouble(), "timestamp" to fix.time).apply {
       if (fix.hasBearing() && fix.bearing.isFinite() && fix.hasSpeed() && fix.speed.isFinite() && fix.speed >= 1f) put("bearing", fix.bearing.toDouble())
+      val modern = Build.VERSION.SDK_INT >= 26
+      putAll(FixKinematics.fields(
+        speed = if (fix.hasSpeed()) fix.speed else null,
+        speedAccuracy = if (modern && fix.hasSpeedAccuracy()) fix.speedAccuracyMetersPerSecond else null,
+        course = if (fix.hasBearing()) fix.bearing else null,
+        courseAccuracy = if (modern && fix.hasBearingAccuracy()) fix.bearingAccuracyDegrees else null,
+        elapsedRealtimeNanos = fix.elapsedRealtimeNanos,
+      ))
     }
   companion object {
     const val TAG = "AvoidNav"
+    private val GUIDANCE_KEYS = listOf("upcomingManeuver", "followingManeuver", "routeProgress", "snappedLocation", "alignment")
     private val LOCATION_PROBLEMS = setOf("location-permission", "location-disabled", "location-stale", "location-inaccurate", "location-unavailable")
     @Volatile private var instance: NavigationRuntime? = null
     fun get(context: Context): NavigationRuntime = instance ?: synchronized(this) {
