@@ -6,7 +6,7 @@ import { diagnostics } from '../../services/diagnostics';
 import { savedTravel, type SavedJourney, type SavedTravelSnapshot } from '../../services/saved-travel';
 import { createFeatureContext } from '../app/feature-context';
 import type { SheetState } from '../app/sheet';
-import { plannerInFront, plannerTask, type PlannerTask, type TaskState } from '../app/task-model';
+import { plannerInFront, plannerTask, type PlannerEndpoint, type PlannerTask, type TaskState } from '../app/task-model';
 import { useTaskTransitions, type TaskModel } from '../app/useTaskModel';
 import { INITIAL_MAP } from '../map/coordinates';
 import type { DeviceLocation } from '../map/useDeviceLocation';
@@ -36,6 +36,13 @@ export interface Planner {
   /** Uses a map tap as origin while picking. */
   chooseOrigin(coordinate: Coordinate): void;
   cancelOriginPicking(): void;
+  /** Opens the search for the origin or the destination. */
+  editEndpoint(endpoint: PlannerEndpoint): void;
+  closeEndpointEditor(): void;
+  /** Uses a searched or saved place for the endpoint being edited. */
+  chooseEndpoint(place: Place): void;
+  /** Exchanges origin and destination once the origin is settled. */
+  swapEndpoints(): void;
   setMode(mode: TravelMode): void;
   submitTransitTime(value: TransitTime): void;
   selectJourney(id: string): void;
@@ -147,6 +154,20 @@ export function usePlanner({ tasks, camera, location, places, navigation, sheet,
     dispatch({ type: 'setOrigin', coordinate });
   }, [location, getState, dispatch]);
   const cancelOriginPicking = useCallback(() => dispatch({ type: 'cancelOriginPicking' }), [dispatch]);
+  const editEndpoint = useCallback((endpoint: PlannerEndpoint) => {
+    // A pending fix must not replace the origin the user is about to search for.
+    if (endpoint === 'origin') location.cancel();
+    dispatch({ type: 'editEndpoint', endpoint });
+  }, [location, dispatch]);
+  const closeEndpointEditor = useCallback(() => { Keyboard.dismiss(); dispatch({ type: 'closeEndpointEditor' }); }, [dispatch]);
+  const chooseEndpoint = useCallback((place: Place) => {
+    const editing = plannerTask(getState())?.editing;
+    if (!editing) return;
+    Keyboard.dismiss();
+    if (editing === 'origin') { location.cancel(); dispatch({ type: 'setOriginPlace', place }); }
+    else dispatch({ type: 'setDestination', place });
+  }, [getState, location, dispatch]);
+  const swapEndpoints = useCallback(() => dispatch({ type: 'swapEndpoints' }), [dispatch]);
   const setMode = useCallback((next: TravelMode) => dispatch({ type: 'setTravelMode', mode: next }), [dispatch]);
   const submitTransitTime = useCallback((value: TransitTime) => {
     if (JSON.stringify(value) === JSON.stringify(getState().travel.transitTime)) refresh();
@@ -210,7 +231,7 @@ export function usePlanner({ tasks, camera, location, places, navigation, sheet,
   return {
     task, mode, transitTime, routes, savedJourneyVisible, journeyBusy,
     journeySaveError: savedTravelFailureMessage(travel.journeyFailure), savedTravel: travel, fitKey,
-    beginRoute, pickOriginOnMap, chooseOrigin, cancelOriginPicking, setMode, submitTransitTime, selectJourney,
+    beginRoute, pickOriginOnMap, chooseOrigin, cancelOriginPicking, editEndpoint, closeEndpointEditor, chooseEndpoint, swapEndpoints, setMode, submitTransitTime, selectJourney,
     saveJourney, clearJourney, restoreJourney, startGuidance, replanFromNavigation, suspend,
   };
 }

@@ -23,7 +23,7 @@ function taskTitle(task: Task, search: Search): string {
     case "settings": return "Privacy e fonti";
     case "journeyStop": case "stop": return task.stop.name;
     case "station": return task.station.name;
-    case "planner": return "Percorso";
+    case "planner": return task.editing === "origin" ? "Scegli la partenza" : task.editing === "destination" ? "Scegli la destinazione" : "Percorso";
     case "place": return task.place.name;
     case "transit": return "Trasporti";
     case "saved": return "Salvati";
@@ -70,7 +70,7 @@ export function TaskSheet({ snap, resting, heights, now }: { snap: SheetSnap; re
   );
   return (
     <AppSheet testID="map-sheet" snap={snap} heights={heights} onSnapChange={sheet.request} header={header}
-      footer={top.kind === "planner" ? <RouteActions task={top} /> : undefined} footerHeight={top.kind === "planner" ? ROUTE_ACTIONS_HEIGHT : 0}>
+      footer={top.kind === "planner" && !top.editing ? <RouteActions task={top} /> : undefined} footerHeight={top.kind === "planner" && !top.editing ? ROUTE_ACTIONS_HEIGHT : 0}>
       <View key={detailKey(tasks)} style={{ flex: 1 }}>
         <TaskContent task={top} search={search} now={now} />
       </View>

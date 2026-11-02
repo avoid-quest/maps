@@ -16,7 +16,9 @@ export type RootTab = 'browse' | 'transit' | 'saved';
 
 /** idle: origin settled or unset; locating: awaiting a fresh fix; picking: awaiting a map tap. */
 export type OriginStep = 'idle' | 'locating' | 'picking';
-export interface PlannerOrigin { coordinate: Coordinate; label: string; ready: boolean }
+/** `place` is set when the origin was chosen from search or saved places (or swapped from the destination). */
+export interface PlannerOrigin { coordinate: Coordinate; label: string; ready: boolean; place?: Place }
+export type PlannerEndpoint = 'origin' | 'destination';
 export interface PlannerTask {
   kind: 'planner';
   /** Changes whenever a different planning session replaces this one. */
@@ -24,6 +26,8 @@ export interface PlannerTask {
   destination: Place;
   origin: PlannerOrigin;
   originStep: OriginStep;
+  /** The origin or destination field being searched; absent while neither is edited. */
+  editing?: PlannerEndpoint;
 }
 export interface PlaceTask { kind: 'place'; place: Place }
 export interface StopTask { kind: 'stop'; stop: Stop }
@@ -79,6 +83,15 @@ export type TaskAction =
   | { type: 'pickOrigin' }
   | { type: 'setOrigin'; coordinate: Coordinate }
   | { type: 'cancelOriginPicking' }
+  /** Opens the search field for the planner's origin or destination. */
+  | { type: 'editEndpoint'; endpoint: PlannerEndpoint }
+  | { type: 'closeEndpointEditor' }
+  /** A searched or saved place becomes the origin. */
+  | { type: 'setOriginPlace'; place: Place }
+  /** A searched or saved place becomes the destination, keeping the origin. */
+  | { type: 'setDestination'; place: Place }
+  /** Exchanges a settled origin and the destination. */
+  | { type: 'swapEndpoints' }
   | { type: 'setTravelMode'; mode: TravelMode }
   | { type: 'setTransitTime'; transitTime: TransitTime }
   | { type: 'openJourneyStop'; stop: Stop }
@@ -124,6 +137,25 @@ function closeTop(state: TaskState): TaskState {
 }
 function cancelPicking(planner: PlannerTask): PlannerTask | null {
   return planner.origin.ready ? { ...planner, originStep: 'idle' } : null;
+}
+function withoutEditor(planner: PlannerTask): PlannerTask {
+  if (!planner.editing) return planner;
+  const next = { ...planner };
+  delete next.editing;
+  return next;
+}
+/** Endpoint edits apply only while the planner is the task in front. */
+function updateFrontPlanner(state: TaskState, update: (planner: PlannerTask) => PlannerTask): TaskState {
+  return topTask(state).kind === 'planner' ? updatePlanner(state, update) : state;
+}
+/** The origin as a destination: a chosen place keeps its identity; a position or map point gets a stable id. */
+function originAsPlace(origin: PlannerOrigin): Place {
+  if (origin.place) return origin.place;
+  const { latitude, longitude } = origin.coordinate;
+  return {
+    id: `point:${latitude.toFixed(6)},${longitude.toFixed(6)}`, name: origin.label, coordinate: { ...origin.coordinate },
+    source: origin.label === ORIGIN_LABELS.device ? 'Posizione del dispositivo al momento dell’inversione' : 'Punto scelto sulla mappa', attributions: [],
+  };
 }
 
 export function taskReducer(state: TaskState, action: TaskAction): TaskState {
@@ -175,7 +207,7 @@ export function taskReducer(state: TaskState, action: TaskAction): TaskState {
       const index = state.details.findIndex(task => task.kind === 'planner');
       if (index < 0) return state;
       const trimmed = { ...state, details: state.details.slice(0, index + 1) };
-      return updatePlanner(trimmed, planner => ({ ...planner, origin: { ...planner.origin, ready: false }, originStep: 'locating' }));
+      return updatePlanner(trimmed, planner => ({ ...withoutEditor(planner), origin: { ...planner.origin, ready: false }, originStep: 'locating' }));
     }
     case 'originLocated':
       return updatePlanner(state, planner => planner.originStep !== 'locating' ? planner
@@ -185,12 +217,32 @@ export function taskReducer(state: TaskState, action: TaskAction): TaskState {
     case 'locationRequestCancelled':
       return updatePlanner(state, planner => planner.originStep === 'locating' ? { ...planner, originStep: 'idle' } : planner);
     case 'pickOrigin':
-      return updatePlanner(state, planner => planner.originStep === 'picking' ? planner : { ...planner, originStep: 'picking' });
+      return updatePlanner(state, planner => planner.originStep === 'picking' && !planner.editing ? planner : { ...withoutEditor(planner), originStep: 'picking' });
     case 'setOrigin':
       return updatePlanner(state, planner => planner.originStep !== 'picking' ? planner
         : { ...planner, origin: { coordinate: action.coordinate, label: ORIGIN_LABELS.map, ready: true }, originStep: 'idle' });
     case 'cancelOriginPicking':
       return updatePlanner(state, planner => planner.originStep === 'picking' ? cancelPicking(planner) : planner);
+    case 'editEndpoint':
+      return updateFrontPlanner(state, planner => planner.editing === action.endpoint ? planner : {
+        ...planner, editing: action.endpoint,
+        // Searching for an origin replaces a pending fix or map tap; the current origin stays until one is chosen.
+        originStep: action.endpoint === 'origin' ? 'idle' : planner.originStep,
+      });
+    case 'closeEndpointEditor':
+      return updatePlanner(state, withoutEditor);
+    case 'setOriginPlace':
+      return updateFrontPlanner(state, planner => ({
+        ...withoutEditor(planner), originStep: 'idle',
+        origin: { coordinate: { ...action.place.coordinate }, label: action.place.name, ready: true, place: action.place },
+      }));
+    case 'setDestination':
+      return updateFrontPlanner(state, planner => ({ ...withoutEditor(planner), destination: action.place }));
+    case 'swapEndpoints':
+      return updateFrontPlanner(state, planner => !planner.origin.ready || planner.originStep !== 'idle' ? planner : {
+        ...withoutEditor(planner), destination: originAsPlace(planner.origin),
+        origin: { coordinate: { ...planner.destination.coordinate }, label: planner.destination.name, ready: true, place: planner.destination },
+      });
     case 'setTravelMode':
       return state.travel.mode === action.mode ? state : { ...state, travel: { ...state.travel, mode: action.mode } };
     case 'setTransitTime':
@@ -206,6 +258,7 @@ export function taskReducer(state: TaskState, action: TaskAction): TaskState {
       return closeTop(state);
     case 'back': {
       const top = topTask(state);
+      if (top.kind === 'planner' && top.editing) return updatePlanner(state, withoutEditor);
       if (top.kind === 'planner' && top.originStep === 'picking') return updatePlanner(state, cancelPicking);
       return closeTop(state);
     }
@@ -267,7 +320,8 @@ export function detailKey(state: TaskState): string {
   switch (top.kind) {
     case 'settings': return 'privacy';
     case 'journeyStop': return `journey-stop:${top.stop.id}`;
-    case 'planner': return `route:${top.destination.id}`;
+    // The endpoint editor is its own content: it opens raised for typing and returns to the plan.
+    case 'planner': return `route:${top.destination.id}${top.editing ? `:${top.editing}` : ''}`;
     case 'stop': return `stop:${top.stop.id}`;
     case 'station': return `station:${top.station.key}`;
     case 'place': return `place:${top.place.id}`;

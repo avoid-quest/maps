@@ -4,11 +4,17 @@ export type TransitTime = { kind: 'now' } | { kind: 'depart-at' | 'arrive-by'; d
 export interface PlaceFieldCorrection {
   field: 'phone'; originalValue: string; value: string; url: string; checkedAt: string; reason: string;
 }
+/** What a search result names: a venue, a civic address, a street, or an area such as a neighbourhood. */
+export type PlaceKind = 'place' | 'address' | 'street' | 'area';
 export interface Place {
+  /** Absent means a venue. */
+  kind?: PlaceKind;
   id: string; name: string; coordinate: Coordinate; category?: string | null; address?: string | null;
   website?: string | null; phone?: string | null; source: string; attributions: string[];
   dataUpdatedAt?: string; confidence?: number | null; operatingStatus?: string | null; distanceMeters?: number;
   fieldCorrections?: PlaceFieldCorrection[];
+  /** Per-source records from the local package (dataset, licence, update_time, confidence), when known. */
+  provenance?: Record<string, unknown>[];
 }
 export type SavedPlace = Place;
 export interface RouteStep { instruction: string; distanceMeters: number; coordinate?: Coordinate }

@@ -34,6 +34,8 @@ export function defaultSnap(tasks: TaskState, hasSearch: boolean): SheetSnap {
     case 'place': return 'peek';
     case 'search': return hasSearch ? 'half' : 'peek';
     case 'browse': return 'peek';
+    // Searching for an endpoint needs room for results above the keyboard.
+    case 'planner': return top.editing ? 'full' : 'half';
     default: return 'half';
   }
 }
