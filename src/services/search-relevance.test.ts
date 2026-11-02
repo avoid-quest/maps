@@ -359,7 +359,7 @@ test("category, neighbourhood and stop words alone stay local; online answers ar
     await searchPlaces("bar san salvario", { center: centre, policy: "local-and-online" });
     await searchPlaces("pizzeria a lingotto", { center: centre, policy: "local-and-online" });
     // Stop codes and line names are answered from the bundled GTT catalog.
-    for (const query of ["472", "fermata 472", "M1", "linea 4", "10N"]) await searchPlaces(query, { center: centre, policy: "local-and-online" });
+    for (const query of ["472", "fermata 472", "stop 472", "fermate castello", "M1", "linea 4", "bus 15", "tram 4", "metro M1", "10N"]) await searchPlaces(query, { center: centre, policy: "local-and-online" });
     assert.equal(requests, 0);
     const result = await searchPlaces("via nizza 230 online fixture", { center: centre, policy: "local-and-online" });
     const byId = new Map(result.places.map((place) => [place.id, place]));

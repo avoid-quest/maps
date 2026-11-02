@@ -12,6 +12,7 @@ import type { TaskModel } from '../app/useTaskModel';
 import type { DeviceLocation } from '../map/useDeviceLocation';
 import type { MapCamera } from '../map/useMapCamera';
 import { initialSearchFrame, searchFrameReducer } from './search-frame';
+import { showsSearch } from './search-rows';
 
 export interface Search {
   inputRef: RefObject<TextInput | null>;
@@ -53,13 +54,13 @@ export function useSearch({ tasks, camera, location, sheet, appActive, navigatio
   const category = searchRoot(tasks.state)?.category ?? '';
   const explore = rootTab(tasks.state) === 'explore';
   const term = query.trim() || category;
-  const hasSearch = term.length >= 2;
   const searchCenter = camera.searchCenter;
   const preference = useSyncExternalStore(searchPreferences.subscribe, searchPreferences.getSnapshot, searchPreferences.getSnapshot);
   const policy: SearchPolicy = preference.ready && preference.preferenceKnown ? preference.policy : 'local-only';
   const catalog = useSyncExternalStore(subscribeCatalog, catalogHash, catalogHash);
   // Typed text only: a category shortcut never lists stops. Line stops are nearest the searched area.
   const transit = useMemo(() => { void catalog; return query.trim().length ? searchTransit(query, searchCenter) : EMPTY_TRANSIT_SEARCH; }, [query, searchCenter, catalog]);
+  const hasSearch = showsSearch(term, transit);
   const localResult = useMemo(() => searchLocalResult(query.trim() || category, searchCenter), [query, category, searchCenter]);
   const [completed, setCompleted] = useState<{ result: SearchResult; policy: SearchPolicy; local: SearchResult } | null>(null);
   const result = completed?.policy === policy && completed.local === localResult ? completed.result : localResult;

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import type { Coordinate, Place, SearchPolicy } from '../../domain/types';
 import { searchLocalResult, searchPlaces } from '../../services';
 import { searchPreferences } from '../../services/search-preferences';
-import { searchTransit, stopAsPlace } from '../../services/transit-search';
+import { endpointStops, searchTransit, stopAsPlace } from '../../services/transit-search';
 import { catalogVersion, subscribeCatalog } from '../../transit-data/stop-catalog';
 
 export interface PlaceLookup {
@@ -26,9 +26,7 @@ export function usePlaceLookup(query: string, center: Coordinate, active: boolea
   const catalog = useSyncExternalStore(subscribeCatalog, catalogHash, catalogHash);
   const stops = useMemo(() => {
     void catalog;
-    if (text.length < 2) return [];
-    const transit = searchTransit(text, center);
-    return [...(transit.code ? [transit.code] : []), ...transit.named].map(stopAsPlace);
+    return text ? endpointStops(searchTransit(text, center)).map(stopAsPlace) : [];
   }, [text, center, catalog]);
   const local = useMemo(() => text.length >= 2 ? searchLocalResult(text, center).places : [], [text, center]);
   const [online, setOnline] = useState<{ key: string; places: Place[] } | null>(null);

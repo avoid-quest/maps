@@ -32,7 +32,7 @@ export function useAndroidBack(dependencies: {
       if (step === 'exit') return false;
       if (hasTaskAboveRoot(state)) {
         const top = topTask(state);
-        if (top.kind === 'planner' && top.originStep !== 'picking') location.cancel();
+        if (top.kind === 'planner' && top.originStep !== 'picking' && !top.editing) location.cancel();
         tasks.dispatch({ type: 'back' });
         return true;
       }

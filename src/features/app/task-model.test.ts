@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { Coordinate, Place, Stop } from '../../domain/types';
+import { sheetHeaderNavigation } from './sheet-model';
 import {
   boardInFront, boardStop, detailKey, hasTaskAboveRoot, initialTaskState, isValidTaskState, journeyStop, ORIGIN_LABELS,
   plannerInFront, plannerTask, selectedPlace, sheetVisible, taskReducer, topTask, type TaskAction, type TaskState,
@@ -238,6 +239,12 @@ test('planner endpoints: search either field, choose places, swap, and Back clos
   assert.equal(detailKey(state), 'route:cafe:destination', 'The editor is its own sheet content');
   assert.deepEqual(kinds(taskReducer(state, { type: 'back' })), ['browse', 'place', 'planner'], 'Back closes the editor, not the planner');
   assert.equal(plannerTask(taskReducer(state, { type: 'back' }))!.editing, undefined);
+  // The sheet header's Back arrow does the same, keeping the planning session.
+  const arrow = taskReducer(state, { type: 'closeTopTask' });
+  assert.deepEqual(kinds(arrow), ['browse', 'place', 'planner']);
+  assert.equal(plannerTask(arrow)!.editing, undefined);
+  assert.equal(plannerTask(arrow)!.session, plannerTask(state)!.session);
+  assert.equal(sheetHeaderNavigation(state).back, true, 'The arrow is shown while editing');
 
   const session = plannerTask(state)!.session;
   state = taskReducer(state, { type: 'setDestination', place: museum });
