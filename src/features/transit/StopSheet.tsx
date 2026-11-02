@@ -37,7 +37,7 @@ export function StopSheet({ stop, now }: { stop: Stop; now: number }) {
         transitous={{ shown: transit.fallback.stopId === stop.id, consent: transit.consent, board: transit.fallback.board, open: transit.fallback.open, close: transit.fallback.close, accept: transit.acceptTransitous }}
         onDirections={() => {
           void beginRoute({
-            id: `stop:${stop.id}`, name: `Fermata ${stop.name}`, coordinate: stop.coordinate,
+            id: `stop:${stop.id}`, name: /^fermata\b/i.test(stop.name) ? stop.name : `Fermata ${stop.name}`, coordinate: stop.coordinate,
             category: "Fermata GTT", source: "GTT", attributions: ["Dati GTT"],
           }, "walk");
         }}
