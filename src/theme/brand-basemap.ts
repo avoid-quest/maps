@@ -273,7 +273,8 @@ export function brandRecipe(scheme: ColorScheme): StyleRecipe {
       {
         // Navigation only (hidden otherwise): subtle grey extrusions of supplied heights over the flat
         // footprints. Drawn before road names, so the guidance route, its junction arrow and every app
-        // overlay (all later in the layer order) are painted over buildings, never hidden behind them.
+        // overlay follow the extrusion. Native disables depth testing for subsequent 2D layers;
+        // verify actual route visibility on Android rather than inferring it from this order alone.
         before: 'boundary_3',
         layer: {
           id: 'avoid_building_3d', type: 'fill-extrusion', source: 'openmaptiles', 'source-layer': 'building',

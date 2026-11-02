@@ -254,8 +254,8 @@ test('navigation buildings: a hidden, greyscale extrusion from z17 above flat fo
     // Flat footprints remain at every zoom, so a building without a supplied height still shows.
     assert.equal(layerOf(style, 'building')?.maxzoom, undefined);
     assert.ok(ids.indexOf('building') < ids.indexOf(EXTRUSION), 'extrusions stand on the flat footprints');
-    // MapLibre draws later layers over earlier ones, so the route and arrow (inserted before the
-    // anchor) and every app overlay appended after the basemap are never hidden by a building.
+    // Native disables depth testing for 2D layers after the first 3D layer. Keep the route and
+    // arrow after the extrusion; actual Android compositing still needs visual verification.
     assert.ok(ids.indexOf(EXTRUSION) < ids.indexOf(ROUTE_ANCHOR), 'extrusions are drawn before the route anchor');
     assert.ok(ids.indexOf(EXTRUSION) < ids.indexOf('highway-name-minor') && ids.indexOf(EXTRUSION) < ids.indexOf('poi_r20'), 'labels stay above buildings');
     // Greyscale and uniform: the OpenMapTiles `colour` field never tints a building.

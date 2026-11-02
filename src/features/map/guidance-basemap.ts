@@ -10,12 +10,12 @@ export interface GuidanceBasemap {
   reduceBusinesses: boolean;
   /** One-way chevrons while driving. */
   oneWayArrows: boolean;
-  /** Supplied-height buildings while the first-person camera runs (road modes and transit walks). */
+  /** Navigation buildings in road modes and transit walks; overview stays flat. */
   buildings: boolean;
 }
 
 /** Basemap adjustments for the current guidance state; browsing and planning keep the flat, complete basemap. */
-export function guidanceBasemap(guidance: Pick<GuidanceMapState, 'mode'> | null | undefined): GuidanceBasemap {
+export function guidanceBasemap(guidance: Pick<GuidanceMapState, 'mode' | 'intent'> | null | undefined): GuidanceBasemap {
   const mode = guidance?.mode ?? null;
-  return { reduceBusinesses: mode === 'car' || mode === 'bicycle', oneWayArrows: mode === 'car', buildings: mode !== null };
+  return { reduceBusinesses: mode === 'car' || mode === 'bicycle', oneWayArrows: mode === 'car', buildings: mode !== null && guidance?.intent !== 'overview' };
 }
