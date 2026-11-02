@@ -7,7 +7,8 @@ import type { PlannerTask } from "../app/task-model";
 import { useMapContext } from "../map/useMapModel";
 import { useNavigationContext } from "../navigation/useNavigation";
 import { useTransitContext } from "../transit/useTransit";
-import { JourneyResults, TransitTimeForm } from "./JourneyPlanner";
+import { TransitTimeForm } from "./JourneyPlanner";
+import { JourneyResults } from "./TransitJourney";
 import { journeyDate, journeyTime } from "./journey-presentation";
 import { TRAVEL_MODES } from "./travel-modes";
 import { usePlannerContext } from "./usePlanner";
@@ -42,7 +43,7 @@ export function PlannerSheet({ task, now }: { task: PlannerTask; now: number }) 
       ) : null}
       {pickingOrigin ? null : mode === "transit" && route ? (
         <JourneyResults plans={plans} selected={route} onSelect={planner.selectJourney} onRefresh={refresh} loading={routing} error={error}
-          now={now} query={transitTime} saved={savedJourneyVisible} retained={retainedSelection} onOpenStop={openJourneyStop} />
+          now={now} query={transitTime} saved={savedJourneyVisible} retained={retainedSelection} destination={task.destination.name} onOpenStop={openJourneyStop} />
       ) : (routing && !route) || originPending ? null : error && !route ? (
         <Notice tone="danger" text={error} action="Riprova" onAction={refresh} />
       ) : route ? (
@@ -64,7 +65,7 @@ export function PlannerSheet({ task, now }: { task: PlannerTask; now: number }) 
           ))}
           <Text className="text-sm leading-5 text-secondary">{route.source} · senza traffico in tempo reale. Dati © OpenStreetMap contributors.</Text>
         </Disclosure>
-      ) : !originPending ? (
+      ) : !originPending && mode !== "transit" ? (
         <Button variant="secondary" icon="refresh-outline" onPress={refresh}>Calcola percorso</Button>
       ) : null}
       {route && !pickingOrigin && !originPending ? (

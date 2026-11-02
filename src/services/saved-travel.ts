@@ -1,4 +1,4 @@
-import type { Coordinate, RouteLeg, RoutePlan, RouteStep, RouteStop, Stop, TransitTime, TravelMode } from '../domain/types';
+import type { Coordinate, RouteIntermediateStop, RouteLeg, RoutePlan, RouteStep, RouteStop, Stop, TransitTime, TravelMode } from '../domain/types';
 import { catalogStop, catalogVersion, subscribeCatalog } from '../transit-data/stop-catalog';
 import { diagnostics } from './diagnostics';
 import { resolveTransitTime } from './transit-time';
@@ -154,6 +154,17 @@ function journeyInput(value: unknown): SavedJourneyInput {
       coordinate: optional(item.coordinate, point),
     };
   }
+  function intermediateStop(value: unknown): RouteIntermediateStop {
+    const item = record(value);
+    const result: RouteIntermediateStop = { id: string(item.id, 4096), name: string(item.name) };
+    const code = optional(item.code, value => string(value, 128));
+    const coordinate = optional(item.coordinate, point);
+    const arrivalAt = optional(item.arrivalAt, timestamp);
+    if (code !== undefined) result.code = code;
+    if (coordinate) result.coordinate = coordinate;
+    if (arrivalAt !== undefined) result.arrivalAt = arrivalAt;
+    return result;
+  }
   function step(value: unknown): RouteStep {
     if (--remainingSteps < 0) invalid('too-large');
     const item = record(value);
@@ -172,6 +183,12 @@ function journeyInput(value: unknown): SavedJourneyInput {
       departureAt: optional(item.departureAt, timestamp), arrivalAt: optional(item.arrivalAt, timestamp),
       geometry: geometry(item.geometry), steps: list(item.steps, 2_000).map(step),
     };
+    const intermediate = optional(item.intermediateStops, value => list(value, 200).map(intermediateStop));
+    if (intermediate) result.intermediateStops = intermediate;
+    const scheduledDepartureAt = optional(item.scheduledDepartureAt, timestamp);
+    const scheduledArrivalAt = optional(item.scheduledArrivalAt, timestamp);
+    if (scheduledDepartureAt !== undefined) result.scheduledDepartureAt = scheduledDepartureAt;
+    if (scheduledArrivalAt !== undefined) result.scheduledArrivalAt = scheduledArrivalAt;
     if (result.serviceDate) {
       const date = result.serviceDate;
       const iso = `${date.slice(0, 4)}-${date.slice(4, 6)}-${date.slice(6, 8)}`;

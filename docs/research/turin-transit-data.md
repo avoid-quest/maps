@@ -2,7 +2,7 @@
 
 Research date: **2026-10-11**. Endpoint probes were bounded anonymous HTTPS requests; the three GTT real-time feeds were sampled once at about **13:29 UTC / 15:29 Europe/Rome**. Counts below describe that snapshot, not guaranteed coverage, uptime or prediction accuracy. Large downloads stayed outside the repository. This note evaluates regional transit sources for an Android application with local data processing and direct public-data access; each source retains its documented usage terms.
 
-Update 2026-11-01: Transitous (MOTIS) returned Trenitalia SFM/regional departures with declared realtime for Turin stations and GTT stop times with realtime via BusOne. A services-layer adapter is prepared as the online provider for a bounded rail-station pilot and as an explicitly invoked fallback for GTT stop boards; no UI flow invokes it yet, and MATO is not used for these. Endpoints, policy, identifiers and interpretation rules are in [online services](online-services.md#transitous-rail-station-boards-and-explicit-stop-fallback).
+Update 2026-11-01: Transitous (MOTIS) returned Trenitalia SFM/regional departures with declared realtime for Turin stations and GTT stop times with realtime via BusOne. A services-layer adapter is prepared as the online provider for a bounded rail-station pilot and as an explicitly invoked fallback for GTT stop boards; both are reachable in the interface only through explicit actions, and MATO is not used for these. Endpoints, policy, identifiers and interpretation rules are in [online services](online-services.md#transitous-rail-station-boards-and-explicit-stop-fallback).
 
 ## Update 2026-11-01: rotating trip IDs, delay-only predictions and the timetable package
 

@@ -15,9 +15,15 @@ export interface RouteStep { instruction: string; distanceMeters: number; coordi
 export interface RouteStop {
   id: string; name: string; code?: string; coordinate?: Coordinate; platformCode?: string;
 }
+/** A stop the vehicle serves between boarding and alighting, as supplied by the planner. */
+export interface RouteIntermediateStop { id: string; name: string; code?: string; coordinate?: Coordinate; arrivalAt?: number }
 export interface RouteLeg {
   id: string; mode: string; line?: string; headsign?: string; from: string; to: string;
   fromStop?: RouteStop; toStop?: RouteStop; tripId?: string; serviceDate?: string;
+  /** Planner-supplied stops between `fromStop` and `toStop`; absent when the request did not ask for them. */
+  intermediateStops?: RouteIntermediateStop[];
+  /** Timetable times, only when the planner reports a realtime delay that moves `departureAt`/`arrivalAt`. */
+  scheduledDepartureAt?: number; scheduledArrivalAt?: number;
   transitLeg: boolean; interlineWithPreviousLeg: boolean;
   timingStatus: 'scheduled' | 'prediction' | 'cancelled' | 'unknown';
   durationSeconds: number; distanceMeters: number; departureAt?: number; arrivalAt?: number;

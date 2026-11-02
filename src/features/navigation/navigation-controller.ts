@@ -1,4 +1,5 @@
 import { idleNavigation, navigationVisible, type NavigationPlatform, type NavigationSnapshot, type NavigationStart, type TransitConfirmation, type TransitNavigationStart } from '../../domain/navigation';
+import type { RoutePlan } from '../../domain/types';
 import type { DiagnosticInput } from '../../services/diagnostics';
 
 type NavigationDiagnostic = Extract<DiagnosticInput, { type: 'navigation' }>['state'];
@@ -21,6 +22,13 @@ export interface NavigationState {
   ready: boolean;
   busy: 'start' | 'stop' | 'retry' | 'confirm' | null;
   error: string | null;
+  /** Kind of the latest submitted Start, so the interface shows the right screen before the first session event. */
+  startKind: 'road' | 'transit' | null;
+  /**
+   * The plan handed to the latest transit Start. The interface uses it only while the native
+   * session reports the same retrieval time and leg count; it is never persisted.
+   */
+  transitPlan: RoutePlan | null;
 }
 const commandDiagnostics: Partial<Record<string, NavigationDiagnostic>> = {
   'location-permission': 'denied', 'navigation-unavailable': 'service-unavailable', 'service-unavailable': 'service-unavailable',
@@ -40,7 +48,7 @@ function failureMessage(error: unknown): string {
 }
 /** Commands and native events meet here, including events arriving before command responses. */
 export function createNavigationController(platform: NavigationPlatform, record: (state: NavigationDiagnostic) => void = () => {}) {
-  let state: NavigationState = { snapshot: idleNavigation, ready: !platform.supported, busy: null, error: null };
+  let state: NavigationState = { snapshot: idleNavigation, ready: !platform.supported, busy: null, error: null, startKind: null, transitPlan: null };
   let operation = 0;
   let attachment = 0;
   let pendingStart: { submitted: boolean; previousSessionId: string | null } | null = null;
@@ -95,11 +103,11 @@ export function createNavigationController(platform: NavigationPlatform, record:
       } finally { if (pendingStart === pending) pendingStart = null; }
     });
   };
-  const start = (action: () => Promise<NavigationSnapshot>) => {
-    if (state.busy) return Promise.resolve();
+  const start = (action: () => Promise<NavigationSnapshot>, transitPlan: RoutePlan | null) => {
     // A Start that cannot be submitted is recorded, so a device report shows it never reached native.
-    if (!state.ready || navigationVisible(state.snapshot)) { record('start-ignored'); return Promise.resolve(); }
+    if (state.busy || !state.ready || navigationVisible(state.snapshot)) { record('start-ignored'); return Promise.resolve(); }
     record('start-requested');
+    publish({ ...state, startKind: transitPlan ? 'transit' : 'road', transitPlan });
     return prepareSessionCommand('start', action, true);
   };
   const stop = async () => {
@@ -126,8 +134,8 @@ export function createNavigationController(platform: NavigationPlatform, record:
     refresh,
     /** The planner changed: an earlier command failure no longer describes what is on screen. */
     dismissError() { if (state.error && !state.busy && state.error !== unavailableStateMessage) publish({ ...state, error: null }); },
-    start: (options: NavigationStart) => start(() => platform.startNavigation(options)),
-    startTransit: (options: TransitNavigationStart) => start(() => platform.startTransitNavigation(options)),
+    start: (options: NavigationStart) => start(() => platform.startNavigation(options), null),
+    startTransit: (options: TransitNavigationStart) => start(() => platform.startTransitNavigation(options), options.plan),
     stop,
     back(confirm: (stop: () => void) => void) {
       if (state.busy === 'stop') return true;

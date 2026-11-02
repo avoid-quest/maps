@@ -231,3 +231,13 @@ test('every reachable action sequence keeps a valid task stack', () => {
   for (let step = 0; step < 6; step++) state = taskReducer(state, { type: 'back' });
   assert.deepEqual(kinds(state), ['browse'], 'Back always reaches the map');
 });
+
+test('a rail station board is its own detail task above Trasporti', () => {
+  const station = { key: 'torino-porta-susa', name: 'Torino Porta Susa', transitousStopId: 'it-trenitalia_00222', transitousName: 'TORINO PORTA SUSA', coordinate: here, transitousModes: [] };
+  const state = run({ type: 'openTab', tab: 'transit' }, { type: 'openStation', station });
+  assert.deepEqual(kinds(state), ['transit', 'station']);
+  assert.equal(detailKey(state), 'station:torino-porta-susa');
+  assert.equal(boardStop(state), null, 'no GTT board polls for a station');
+  assert.deepEqual(kinds(run({ type: 'openTab', tab: 'transit' }, { type: 'openStation', station }, { type: 'back' })), ['transit']);
+  assert.deepEqual(kinds(run({ type: 'openTab', tab: 'transit' }, { type: 'openStation', station }, { type: 'openStop', stop: porta })), ['transit', 'stop']);
+});

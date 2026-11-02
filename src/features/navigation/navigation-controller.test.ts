@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createNavigationController } from './navigation-controller';
 import { idleNavigation, navigationLocationForReplan, type NavigationPlatform, type NavigationSnapshot } from '../../domain/navigation';
+import type { RoutePlan } from '../../domain/types';
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -439,4 +440,23 @@ test('an ignored Start is recorded and a stale command error can be dismissed', 
   emit({ ...snapshot(9, 'navigating') });
   await controller.start(options);
   assert.deepEqual(recorded, ['start-requested', 'invalid', 'active', 'start-ignored']);
+});
+
+test('a transit Start keeps its plan for the follow screen and a Start while busy is recorded, not dropped silently', async () => {
+  const recorded: string[] = [];
+  const pending = deferred<NavigationSnapshot>();
+  const { controller, calls } = fixture({ startTransitNavigation: () => { calls.push('transit-start'); return pending.promise; } }, state => recorded.push(state));
+  await Promise.resolve();
+  const plan = { id: 'p', fetchedAt: 1 } as unknown as RoutePlan;
+  const started = controller.startTransit({ plan, origin: options.destination, destination: options.destination });
+  assert.equal(controller.getSnapshot().startKind, 'transit');
+  assert.equal(controller.getSnapshot().transitPlan, plan);
+  await controller.start(options);
+  assert.deepEqual(recorded, ['start-requested', 'start-ignored']);
+  await Promise.resolve(); await Promise.resolve();
+  assert.deepEqual(calls, ['read', 'permission', 'transit-start']);
+  pending.resolve({ ...snapshot(2, 'navigating'), mode: 'transit' });
+  await started;
+  assert.equal(controller.getSnapshot().busy, null);
+  assert.equal(controller.getSnapshot().transitPlan, plan, 'the plan stays with the session');
 });

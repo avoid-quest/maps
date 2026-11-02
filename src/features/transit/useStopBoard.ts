@@ -34,12 +34,17 @@ export function visibleResource<T>(state: RetainedResource<T>, identity: string)
   return state.identity === identity ? state : emptyResource(identity);
 }
 
-export function useStopBoard({ stopId, active }: { stopId?: string; active: boolean }) {
+/**
+ * A stop's board: local scheduled rows first, then the shared citywide realtime feed at the arrivals
+ * cadence while `active`. `alerts: false` skips service alerts (the transit following screen needs
+ * only the next departure).
+ */
+export function useStopBoard({ stopId, active, alerts: withAlerts = true }: { stopId?: string; active: boolean; alerts?: boolean }) {
   const identity = stopId ?? '';
   const [arrivals, updateArrivals] = useReducer(retainedResourceReducer<StopBoard>, emptyResource<StopBoard>());
   const [alerts, updateAlerts] = useReducer(retainedResourceReducer<TransitAlertSnapshot>, emptyResource<TransitAlertSnapshot>());
   const schedules = useSyncExternalStore(timetableService.subscribe, timetableService.status, timetableService.status);
-  const controllers = useRef<{ arrivals: ActiveRefresh; alerts: ActiveRefresh } | null>(null);
+  const controllers = useRef<{ arrivals: ActiveRefresh; alerts?: ActiveRefresh } | null>(null);
   const activity = useRef(active);
   activity.current = active;
   // A newly activated package restarts the board's requests (aborting any in flight for the old
@@ -78,7 +83,7 @@ export function useStopBoard({ stopId, active }: { stopId?: string; active: bool
         },
         onLoadingChange: loading => updateArrivals({ type: 'loading', identity: boardKey, loading }),
       }),
-      alerts: createActiveRefresh({
+      alerts: !withAlerts ? undefined : createActiveRefresh({
         intervalMs: REFRESH_INTERVALS.alerts,
         load: async signal => {
           const snapshot = await getTransitAlerts(identity, { signal });
@@ -90,26 +95,29 @@ export function useStopBoard({ stopId, active }: { stopId?: string; active: bool
       }),
     };
     controllers.current = next;
-    for (const controller of Object.values(next)) {
+    const all = [next.arrivals, ...(next.alerts ? [next.alerts] : [])];
+    for (const controller of all) {
       controller.setActive(activity.current);
       controller.refresh();
     }
     return () => {
       scheduled.abort();
-      for (const controller of Object.values(next)) controller.dispose();
+      for (const controller of all) controller.dispose();
       if (controllers.current === next) controllers.current = null;
     };
-  }, [identity, boardKey]);
+  }, [identity, boardKey, withAlerts]);
   useLayoutEffect(() => {
-    if (controllers.current) for (const controller of Object.values(controllers.current)) controller.setActive(active);
+    const current = controllers.current;
+    if (current) { current.arrivals.setActive(active); current.alerts?.setActive(active); }
   }, [active, identity]);
   // Opening or resuming a board checks the schedule manifest when the last success is over 6 h old.
   useEffect(() => { if (active && identity) void timetableService.check('open'); }, [active, identity]);
   const suspend = useCallback(() => {
-    if (controllers.current) for (const controller of Object.values(controllers.current)) controller.setActive(false);
+    const current = controllers.current;
+    if (current) { current.arrivals.setActive(false); current.alerts?.setActive(false); }
   }, []);
   const refreshArrivals = useCallback(() => { controllers.current?.arrivals.refresh(); }, []);
-  const refreshAlerts = useCallback(() => { controllers.current?.alerts.refresh(); }, []);
+  const refreshAlerts = useCallback(() => { controllers.current?.alerts?.refresh(); }, []);
   const updateSchedules = useCallback(() => { updateSchedulesNow(); }, []);
   const setSchedulesWifiOnly = useCallback((value: boolean) => { void timetableService.setWifiOnly(value); }, []);
   const setStopLive = useCallback((value: boolean) => {

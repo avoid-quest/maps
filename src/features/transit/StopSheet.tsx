@@ -34,6 +34,7 @@ export function StopSheet({ stop, now }: { stop: Stop; now: number }) {
     <View className="gap-3 py-1">
       {saveError ? <View className="px-4"><Notice tone="danger" text={saveError} /></View> : null}
       <StopBoardPanel stop={stop} state={transit.board} now={now} onLink={openLink} actions={<StopSheetActions stop={stop} />}
+        transitous={{ shown: transit.fallback.stopId === stop.id, consent: transit.consent, board: transit.fallback.board, open: transit.fallback.open, close: transit.fallback.close, accept: transit.acceptTransitous }}
         onDirections={() => {
           void beginRoute({
             id: `stop:${stop.id}`, name: `Fermata ${stop.name}`, coordinate: stop.coordinate,
