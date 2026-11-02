@@ -34,6 +34,7 @@ export function NavigationPanel({ snapshot, busy, error, intent, onRecenter, onO
   const [now, setNow] = useState(Date.now());
   const banner = useRef(0);
   const strip = useRef(0);
+  const [stripHeight, setStripHeight] = useState(0);
   const transitMode = snapshot.mode === 'transit';
   const waiting = busy === 'start' || snapshot.status === 'waiting-for-fix' || snapshot.status === 'routing' || snapshot.status === 'rerouting';
   const remainingSeconds = !transitMode ? snapshot.durationRemainingSeconds : undefined;
@@ -114,23 +115,8 @@ export function NavigationPanel({ snapshot, busy, error, intent, onRecenter, onO
 
     <View pointerEvents="box-none" className="flex-1" />
 
-    <View testID="navigation-sheet" onLayout={event => { strip.current = event.nativeEvent.layout.height; report(); }}
+    <View testID="navigation-sheet" onLayout={event => { strip.current = event.nativeEvent.layout.height; setStripHeight(strip.current); report(); }}
       style={[hairlines.top, landscape ? { position: 'absolute', right: 0, top: 0, bottom: 0, width: 320 } : null]} className="bg-surface px-3 pb-2 pt-2">
-      {/* Above the strip, over the map: a problem or Ricentra never changes the strip height, so the
-          camera's anchor (and the puck) never jump when position quality changes. */}
-      <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: 0, bottom: '100%' }} className="gap-2 pb-2">
-        {intent !== 'follow' && snapshot.location ? <View pointerEvents="box-none" className="items-center">
-          <PressableSurface testID="navigation-recenter" surfaceStyle={[hairlines.floating, { borderRadius: 24 }]} rippleColor={`${colors.textPrimary}1F`}
-            contentClassName="min-h-12 flex-row items-center gap-2 px-5" accessibilityRole="button" accessibilityLabel="Ricentra sulla mia posizione" onPress={onRecenter}>
-            <Icon name="navigate-outline" color={colors.textPrimary} /><Text className="text-base font-semibold text-primary">Ricentra</Text>
-          </PressableSurface>
-        </View> : null}
-        {problem || error || showRetry ? <View style={[hairlines.floating, { borderRadius: 16 }]} className="mx-3 flex-row items-center gap-3 px-3 py-2">
-          <Text testID="navigation-quality" accessibilityLiveRegion="polite" numberOfLines={3} className="min-w-0 flex-1 text-sm leading-5 text-primary">{error ?? problem ?? text.quality}</Text>
-          {showRetry ? <Button variant="secondary" icon="refresh-outline" loading={busy === 'retry'} disabled={!!busy} onPress={onRetry}>{snapshot.status === 'interrupted' ? 'Riprendi' : 'Riprova'}</Button> : null}
-        </View> : null}
-        {!terminal && confirmation ? <View className="mx-3"><Button variant="secondary" disabled={!!busy} onPress={() => onConfirmTransit(confirmation)}>{confirmation === 'board' ? 'Sono a bordo' : confirmation === 'alight' ? 'Sono sceso' : 'Sono arrivato'}</Button></View> : null}
-      </View>
       <View className="flex-row items-center gap-1">
         <PressableSurface surfaceStyle={{ flex: 1, borderRadius: 16 }} rippleColor={`${colors.textPrimary}1F`} contentClassName="min-h-12 justify-center px-2 py-1"
           accessibilityRole="button" accessibilityHint="Apre i dettagli della navigazione"
@@ -154,6 +140,22 @@ export function NavigationPanel({ snapshot, busy, error, intent, onRecenter, onO
       </View>
     </View>
 
+    {/* Above the strip, over the map: a problem or Ricentra never changes the strip height, so the
+        camera's anchor (and the puck) never jump. It lives in the screen container: Android delivers
+        no touches to children drawn outside their parent's bounds. */}
+    <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: landscape ? 320 : 0, bottom: landscape ? 0 : stripHeight }} className="gap-2 pb-2">
+      {intent !== 'follow' && snapshot.location ? <View pointerEvents="box-none" className="items-center">
+        <PressableSurface testID="navigation-recenter" surfaceStyle={[hairlines.floating, { borderRadius: 24 }]} rippleColor={`${colors.textPrimary}1F`}
+          contentClassName="min-h-12 flex-row items-center gap-2 px-5" accessibilityRole="button" accessibilityLabel="Ricentra sulla mia posizione" onPress={onRecenter}>
+          <Icon name="navigate-outline" color={colors.textPrimary} /><Text className="text-base font-semibold text-primary">Ricentra</Text>
+        </PressableSurface>
+      </View> : null}
+      {problem || error || showRetry ? <View style={[hairlines.floating, { borderRadius: 16 }]} className="mx-3 flex-row items-center gap-3 px-3 py-2">
+        <Text testID="navigation-quality" accessibilityLiveRegion="polite" numberOfLines={3} className="min-w-0 flex-1 text-sm leading-5 text-primary">{error ?? problem ?? text.quality}</Text>
+        {showRetry ? <Button variant="secondary" icon="refresh-outline" loading={busy === 'retry'} disabled={!!busy} onPress={onRetry}>{snapshot.status === 'interrupted' ? 'Riprendi' : 'Riprova'}</Button> : null}
+      </View> : null}
+      {!terminal && confirmation ? <View className="mx-3"><Button variant="secondary" disabled={!!busy} onPress={() => onConfirmTransit(confirmation)}>{confirmation === 'board' ? 'Sono a bordo' : confirmation === 'alight' ? 'Sono sceso' : 'Sono arrivato'}</Button></View> : null}
+    </View>
     <Modal visible={detailsOpen} transparent animationType="slide" onRequestClose={() => setDetailsOpen(false)}>
       <View style={{ backgroundColor: 'rgba(0,0,0,0.45)' }} className="flex-1 justify-end">
         <SafeAreaView edges={['bottom']} accessibilityViewIsModal className="max-h-[80%] rounded-t-3xl bg-surface">
